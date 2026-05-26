@@ -6,6 +6,15 @@ workflows:
     environment:
       xcode: latest
       node: latest
+      # DTMB's proven mechanism: makes Codemagic install the managed
+      # distribution CERTIFICATE from the integration and fetch matching
+      # profiles before scripts run. The explicit fetch-signing-files CLI
+      # could not do this (no CERTIFICATE_PRIVATE_KEY -> no cert -> no
+      # profiles). Now that a profile exists for this bundle id, the block
+      # has both the cert and the profile.
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.scheidelholdings.leaveherjohnny
     triggering:
       events:
         - push
@@ -19,21 +28,11 @@ workflows:
       - name: Sync Capacitor
         script: |
           npx cap sync ios
-      - name: Set up code signing
-        # Explicit automatic-signing recipe + diagnostics. fetch-signing-files
-        # --create gets/creates the profile, use-profiles writes signing into
-        # the project. The diagnostics + guard below print the installed
-        # profiles and the project's RESOLVED signing settings, then stop the
-        # build here (with everything visible) if no profile got wired -- so
-        # we can finally see WHY the archive says "requires a provisioning
-        # profile" instead of guessing from the downstream Build IPA error.
+      - name: Apply code signing profiles
+        # The ios_signing block (above) already installed the certificate and
+        # fetched profiles; this applies them to the project. Diagnostics +
+        # guard kept so we get a clear readout if anything is still unwired.
         script: |
-          keychain initialize
-          app-store-connect fetch-signing-files "com.scheidelholdings.leaveherjohnny" \
-            --type IOS_APP_STORE \
-            --create \
-            --verbose
-          keychain add-certificates
           xcode-project use-profiles --verbose
           echo "================ SIGNING DIAGNOSTICS ================"
           echo "--- Provisioning profiles installed on runner ---"
