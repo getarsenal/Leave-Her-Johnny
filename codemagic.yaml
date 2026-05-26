@@ -20,10 +20,13 @@ workflows:
         script: |
           npx cap sync ios
       - name: Set up code signing
-        # Explicit automatic-signing recipe (Codemagic sample). This got the
-        # build all the way to the Archive step, unlike the ios_signing block
-        # which fails earlier with "No matching profiles found". --verbose so
-        # the log shows whether the profile is created, fetched, or skipped.
+        # Explicit automatic-signing recipe + diagnostics. fetch-signing-files
+        # --create gets/creates the profile, use-profiles writes signing into
+        # the project. The diagnostics + guard below print the installed
+        # profiles and the project's RESOLVED signing settings, then stop the
+        # build here (with everything visible) if no profile got wired -- so
+        # we can finally see WHY the archive says "requires a provisioning
+        # profile" instead of guessing from the downstream Build IPA error.
         script: |
           keychain initialize
           app-store-connect fetch-signing-files "com.scheidelholdings.leaveherjohnny" \
@@ -32,6 +35,19 @@ workflows:
             --verbose
           keychain add-certificates
           xcode-project use-profiles --verbose
+          echo "================ SIGNING DIAGNOSTICS ================"
+          echo "--- Provisioning profiles installed on runner ---"
+          ls -la "$HOME/Library/MobileDevice/Provisioning Profiles/" 2>/dev/null || echo "(none)"
+          echo "--- Resolved Release signing settings for App target ---"
+          SETTINGS=$(xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Release -showBuildSettings 2>/dev/null || true)
+          echo "$SETTINGS" | grep -iE "CODE_SIGN_STYLE|DEVELOPMENT_TEAM|PROVISIONING_PROFILE_SPECIFIER|CODE_SIGN_IDENTITY|PRODUCT_BUNDLE_IDENTIFIER" || echo "(no signing settings resolved)"
+          echo "===================================================="
+          if ! echo "$SETTINGS" | grep -qiE "PROVISIONING_PROFILE_SPECIFIER = [A-Za-z0-9]"; then
+            echo "STOPPING: use-profiles did not wire a provisioning profile into the App target."
+            echo "Build IPA would fail with 'requires a provisioning profile'. See output above."
+            exit 1
+          fi
+          echo "Signing is wired. Proceeding to build."
       - name: Set build number from timestamp
         script: |
           cd $CM_BUILD_DIR/ios/App
