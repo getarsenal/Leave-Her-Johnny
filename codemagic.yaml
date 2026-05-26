@@ -6,9 +6,6 @@ workflows:
     environment:
       xcode: latest
       node: latest
-      ios_signing:
-        distribution_type: app_store
-        bundle_identifier: com.scheidelholdings.leaveherjohnny
     triggering:
       events:
         - push
@@ -22,14 +19,19 @@ workflows:
       - name: Sync Capacitor
         script: |
           npx cap sync ios
-      - name: Apply code signing profiles
-        # Matches DTMB's proven recipe. The ios_signing environment block
-        # (above) does the full manual-signing wiring for the archive; this
-        # step applies the fetched App Store profile to the project. The
-        # profile now exists in the account (created by the earlier
-        # fetch-signing-files --create run), so the block can find it.
+      - name: Set up code signing
+        # Explicit automatic-signing recipe (Codemagic sample). This got the
+        # build all the way to the Archive step, unlike the ios_signing block
+        # which fails earlier with "No matching profiles found". --verbose so
+        # the log shows whether the profile is created, fetched, or skipped.
         script: |
-          xcode-project use-profiles
+          keychain initialize
+          app-store-connect fetch-signing-files "com.scheidelholdings.leaveherjohnny" \
+            --type IOS_APP_STORE \
+            --create \
+            --verbose
+          keychain add-certificates
+          xcode-project use-profiles --verbose
       - name: Set build number from timestamp
         script: |
           cd $CM_BUILD_DIR/ios/App
