@@ -878,7 +878,7 @@ function onMove(sx,sy){
 }
 function onUp(){input.down=false;input.active=false;input.mag=0;input.id=null;}
 cv.addEventListener('touchstart',e=>{e.preventDefault();
-  if(!SND.ctx)initAudio(); else if(SND.ctx.state==='suspended')SND.ctx.resume();
+  if(!SND.ctx)initAudio(); else resumeAudio();   // resumeAudio handles 'suspended' AND iOS 'interrupted'
   if(input.down)return;                       // already steering with one finger; ignore extra fingers
   const t=e.changedTouches[0];
   // ignore touches that land on a HUD button (Fire/Port/etc.)
@@ -923,7 +923,7 @@ function applyKeyboardInput(){
 window.addEventListener('keydown',e=>{
   // let the browser handle typing in any input fields
   if(e.target && (e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA')) return;
-  if(!SND.ctx)initAudio(); else if(SND.ctx.state==='suspended')SND.ctx.resume();
+  if(!SND.ctx)initAudio(); else resumeAudio();   // resumeAudio handles 'suspended' AND iOS 'interrupted'
   const c=e.code;
   if(['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'].includes(c)){
     e.preventDefault();
@@ -6524,7 +6524,7 @@ function gameOver(){
 function runSnap(){ const s=G.stats||{}; const f={};
   ['navySunk','cargoRaided','monstersSlain','fortsDestroyed','bossesDefeated','shorePartiesSent','shoreLootGrabbed','islandsExplored','distanceSailed','cannonballsFired','woodEarned','timePlayed'].forEach(k=>f[k]=s[k]||0);
   return f; }
-function resetRun(){ resetRun(); G.comboBest=0; G.runStatsBase=runSnap(); }
+function resetRun(){ G.runGold=0; G.runKills=0; G.combo=0; G.comboBest=0; G.runStatsBase=runSnap(); }
 function startMap(idx, restore){
   G.mapIndex=idx; G.world=genWorld(idx); G.discovered=new Set();
   G.stats.deepestSea=Math.max(G.stats.deepestSea||0, idx+1);   // deepest sea reached
@@ -6631,7 +6631,7 @@ if(hasSave()) el('continuebtn').style.display='';
 document.addEventListener('visibilitychange',()=>{
   if(document.hidden){ saveGame(); return; }
   // iOS often suspends the audio context while backgrounded — resume on return
-  try{ if(SND && SND.ctx && SND.ctx.state==='suspended') SND.ctx.resume(); }catch(e){}
+  resumeAudio();
   // becoming visible again: if we beat the boss but no overlay is up, re-offer the choice
   if(G.world && G.world.def && G.world.def.boss && G.bossDead
      && G.state!=='shop' && G.state!=='menu'
@@ -6736,7 +6736,7 @@ function markNowPlaying(id, ms){
 }
 function openSongbook(){
   if(G.state!=='play' && G.state!=='shop' && G.state!=='end') return;
-  if(SND&&SND.ctx&&SND.ctx.state==='suspended')SND.ctx.resume();
+  resumeAudio();
   buildSonglist();
   G.state='shop';
   el('ov-songbook').classList.add('show');
@@ -7079,7 +7079,7 @@ el('mapname').addEventListener('touchstart',e=>{e.stopPropagation();devTapHandle
 function bindTouchBtn(id,fn){
   const b=el(id); if(!b)return;
   b.addEventListener('touchstart',e=>{e.preventDefault();e.stopPropagation();
-    if(SND.ctx&&SND.ctx.state==='suspended')SND.ctx.resume();
+    resumeAudio();
     fn();},{passive:false});
 }
 bindTouchBtn('btn-fire',playerBroadside);
@@ -7233,7 +7233,10 @@ function aNow(){return SND.ctx.currentTime;}
 // iOS WebView suspends the AudioContext when the app is backgrounded, and it stays
 // suspended on return — which silenced the game until a full restart. Resume it
 // whenever the player comes back or next interacts (resume() may need a gesture).
-function resumeAudio(){ try{ if(SND.ctx && SND.ctx.state==='suspended') SND.ctx.resume(); }catch(e){} }
+// Resume whenever the context isn't actively running. iOS backgrounding leaves it
+// in the 'interrupted' state (not 'suspended'), so a 'suspended'-only check silently
+// skipped the resume and audio stayed dead until a full restart.
+function resumeAudio(){ try{ if(SND.ctx && SND.ctx.state!=='running' && SND.ctx.state!=='closed') SND.ctx.resume(); }catch(e){} }
 document.addEventListener('visibilitychange',()=>{ if(!document.hidden) resumeAudio(); });
 window.addEventListener('focus',resumeAudio);
 window.addEventListener('pageshow',resumeAudio);
