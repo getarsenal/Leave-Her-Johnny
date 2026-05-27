@@ -1020,7 +1020,11 @@ function genWorld(idx){
       const localA=ang-(rot||0);
       const tt=(((localA%(Math.PI*2))+Math.PI*2)%(Math.PI*2))/(Math.PI*2)*pts;
       const i0=Math.floor(tt)%pts, i1=(i0+1)%pts, fr=tt-Math.floor(tt);
-      const off=offs[i0]*(1-fr)+offs[i1]*fr;
+      // quadratic blend matching islandPath's DRAWN curve (control radius = min of the
+      // two neighbours *0.99) — a linear chord bows OUTSIDE the painted shore on lumpy
+      // islands, which let placements (huts/features) land in the water.
+      const r0=offs[i0], r1=offs[i1], rmid=Math.min(r0,r1)*0.99, om=1-fr;
+      const off=om*om*r0 + 2*om*fr*rmid + fr*fr*r1;
       return r*off*Math.hypot(Math.cos(localA)*stretch, Math.sin(localA));
     };
     // palm/detail seeds — tree count scales with AREA so huge explorable islands
@@ -1136,14 +1140,14 @@ function genWorld(idx){
     const crabs=[];
     const crabN=explorable?rndi(4,7):rndi(2,4);
     for(let i=0;i<crabN;i++){
-      const a=rng()*TAU, rr=r*lerp(0.78,0.92,rng());   // out near the beach
+      const a=rng()*TAU, rr=shoreAt(a)*lerp(0.78,0.9,rng());   // out near the beach
       crabs.push({a, rr, phase:rng()*TAU, spd:lerp(0.25,0.6,rng())*(rng()<.5?-1:1), s:lerp(0.8,1.2,rng())});
     }
     // penguins waddle the beaches of frozen seas (ambient, like crabs)
     const penguins=[];
     if(def.hazard==='ice'){
       const pn=rndi(3,7);
-      for(let i=0;i<pn;i++){ const a=rng()*TAU, rr2=r*lerp(0.8,0.93,rng());
+      for(let i=0;i<pn;i++){ const a=rng()*TAU, rr2=shoreAt(a)*lerp(0.8,0.9,rng());
         penguins.push({a, rr:rr2, phase:rng()*TAU, spd:lerp(0.15,0.4,rng())*(rng()<.5?-1:1), s:lerp(0.85,1.15,rng())}); }
     }
     // DECORATIVE TREASURE FEATURES — half-buried chests, beached shipwrecks, barrels,
@@ -1156,7 +1160,7 @@ function genWorld(idx){
     if(explorable && r>320 && rng()<0.5){
       // place the village center on a clear patch of inland ground
       for(let t=0;t<10;t++){
-        const va=rng()*TAU, vd=r*lerp(0.2,0.55,rng());
+        const va=rng()*TAU, vd=shoreAt(va)*lerp(0.2,0.5,rng());
         const vx=Math.cos(va)*vd, vy=Math.sin(va)*vd;
         if(onMountain(vx,vy))continue;
         const ringR=r*lerp(0.16,0.24,rng());
@@ -1164,7 +1168,12 @@ function genWorld(idx){
         const huts=[];
         for(let i=0;i<hutN;i++){
           const ha=(i/hutN)*TAU + rng()*0.2;
-          huts.push({ x:vx+Math.cos(ha)*ringR, y:vy+Math.sin(ha)*ringR, a:ha+Math.PI, s:lerp(0.9,1.2,rng()), seed:rng()*999 });
+          let hx=vx+Math.cos(ha)*ringR, hy=vy+Math.sin(ha)*ringR;
+          // keep each hut inside the painted shore — the ring can otherwise push a hut
+          // (and its dormant natives + their arrows) into the sea on a lumpy coast
+          const hAng=Math.atan2(hy,hx), hMax=shoreAt(hAng)*0.85, hD=Math.hypot(hx,hy)||1;
+          if(hD>hMax){ hx*=hMax/hD; hy*=hMax/hD; }
+          huts.push({ x:hx, y:hy, a:ha+Math.PI, s:lerp(0.9,1.2,rng()), seed:rng()*999 });
         }
         village={ cx:vx, cy:vy, ringR, huts, nNatives:rndi(3,5), seed:rng()*999 };
         break;
@@ -1174,22 +1183,22 @@ function genWorld(idx){
       const notOnMtn=(fx,fy)=>!onMountain(fx,fy);
       // 1) a beached shipwreck on the sand ring (most islands)
       if(rng()<0.7){
-        const a=rng()*TAU, rr=r*lerp(0.82,0.94,rng());
+        const a=rng()*TAU, rr=shoreAt(a)*lerp(0.82,0.92,rng());
         features.push({k:'wreck', x:Math.cos(a)*rr, y:Math.sin(a)*rr, a:a+Math.PI/2+lerp(-0.4,0.4,rng()), s:lerp(1.0,1.5,rng()), seed:rng()*999});
       }
       // 2) half-buried treasure chests scattered inland
       const nc=rndi(2,4);
-      for(let i=0;i<nc;i++){ for(let t=0;t<6;t++){ const a=rng()*TAU, rr=r*lerp(0.2,0.78,rng());
+      for(let i=0;i<nc;i++){ for(let t=0;t<6;t++){ const a=rng()*TAU, rr=shoreAt(a)*lerp(0.2,0.78,rng());
         const fx=Math.cos(a)*rr, fy=Math.sin(a)*rr; if(notOnMtn(fx,fy)){ features.push({k:'chest', x:fx, y:fy, s:lerp(0.9,1.2,rng()), open:rng()<0.4, seed:rng()*999}); break; } } }
       // 3) barrels & crates (washed-up cargo), clustered
       const nb=rndi(2,5);
-      for(let i=0;i<nb;i++){ for(let t=0;t<6;t++){ const a=rng()*TAU, rr=r*lerp(0.3,0.85,rng());
+      for(let i=0;i<nb;i++){ for(let t=0;t<6;t++){ const a=rng()*TAU, rr=shoreAt(a)*lerp(0.3,0.85,rng());
         const fx=Math.cos(a)*rr, fy=Math.sin(a)*rr; if(notOnMtn(fx,fy)){ features.push({k:rng()<0.5?'barrel':'crate', x:fx, y:fy, s:lerp(0.8,1.1,rng()), seed:rng()*999}); break; } } }
       // 4) a sun-bleached skeleton/bones near treasure (atmosphere)
-      if(rng()<0.5){ for(let t=0;t<6;t++){ const a=rng()*TAU, rr=r*lerp(0.3,0.75,rng());
+      if(rng()<0.5){ for(let t=0;t<6;t++){ const a=rng()*TAU, rr=shoreAt(a)*lerp(0.3,0.75,rng());
         const fx=Math.cos(a)*rr, fy=Math.sin(a)*rr; if(notOnMtn(fx,fy)){ features.push({k:'bones', x:fx, y:fy, s:lerp(0.9,1.2,rng()), seed:rng()*999}); break; } } }
       // 5) an old rowboat / oar on the beach sometimes
-      if(rng()<0.4){ const a=rng()*TAU, rr=r*lerp(0.8,0.9,rng());
+      if(rng()<0.4){ const a=rng()*TAU, rr=shoreAt(a)*lerp(0.8,0.88,rng());
         features.push({k:'dinghy', x:Math.cos(a)*rr, y:Math.sin(a)*rr, a:rng()*TAU, s:lerp(0.9,1.2,rng()), seed:rng()*999}); }
     }
     world.islands.push({x,y,r,offs,pts,trees,flora,features,village,crabs,penguins,bayAngle,seed:rng()*1000,shape,rot,stretch,
@@ -1213,7 +1222,9 @@ function genWorld(idx){
     // sample the radial silhouette at this local angle
     const t=(((localA%(Math.PI*2))+Math.PI*2)%(Math.PI*2))/(Math.PI*2)*is.pts;
     const i0=Math.floor(t)%is.pts, i1=(i0+1)%is.pts, fr=t-Math.floor(t);
-    const off=is.offs[i0]*(1-fr)+is.offs[i1]*fr;
+    // quadratic blend matching islandPath's drawn curve (see shoreAt/islandEdge)
+    const r0=is.offs[i0], r1=is.offs[i1], rmid=Math.min(r0,r1)*0.99, om=1-fr;
+    const off=om*om*r0 + 2*om*fr*rmid + fr*fr*r1;
     const baseR=is.r*off*(frac==null?1:frac);
     return baseR*Math.hypot(Math.cos(localA)*st, Math.sin(localA));
   };
@@ -3408,8 +3419,12 @@ function startShoreParty(is){
     for(let i=0;i<v.nNatives;i++){
       const hut=v.huts[i % v.huts.length];
       const jx=(rr()-0.5)*30, jy=(rr()-0.5)*30;
+      // clamp to the painted shore so the spawn jitter never drops a native in the sea
+      let nnx=is.x+hut.x+jx, nny=is.y+hut.y+jy;
+      const ned=islandEdge(is,nnx,nny,0.92), ndd=dist(is.x,is.y,nnx,nny)||1;
+      if(ndd>ned){ const na2=angTo(is.x,is.y,nnx,nny); nnx=is.x+Math.cos(na2)*ned; nny=is.y+Math.sin(na2)*ned; }
       G.shore.creatures.push({
-        x:is.x+hut.x+jx, y:is.y+hut.y+jy, kind:'native',
+        x:nnx, y:nny, kind:'native',
         homeX:is.x+v.cx, homeY:is.y+v.cy,                 // they defend the village
         a:rr()*TAU, t:rr()*TAU, dead:false, hitflash:0, state:'dormant',
         wanderT:rr()*2, attackT:0, reload:rr()*1.2,
@@ -3579,6 +3594,10 @@ function updateShore(dt){
           c.x+=Math.cos(aw+Math.PI/2*strafe)*c.spd*0.4*want*dt;
           c.y+=Math.sin(aw+Math.PI/2*strafe)*c.spd*0.4*want*dt;
         }
+        // never let combat movement push a native past the painted shore — otherwise
+        // its arrows (fired from c.x,c.y) would originate over open water
+        { const ced=islandEdge(sh.is,c.x,c.y,0.95), cdd=dist(sh.is.x,sh.is.y,c.x,c.y)||1;
+          if(cdd>ced){ const ca2=angTo(sh.is.x,sh.is.y,c.x,c.y); c.x=sh.is.x+Math.cos(ca2)*ced; c.y=sh.is.y+Math.sin(ca2)*ced; } }
         // loose an arrow on a cadence when the party is in range
         c.reload-=dt;
         if(c.reload<=0 && dp<c.range){
