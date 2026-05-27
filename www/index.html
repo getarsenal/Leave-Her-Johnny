@@ -166,7 +166,10 @@
   /* ============ OVERLAYS ============ */
   .overlay{position:absolute;inset:0;z-index:50;display:none;
     align-items:center;justify-content:center;flex-direction:column;
-    background:rgba(13,36,54,.55);backdrop-filter:blur(3px);pointer-events:auto;
+    /* NOTE: no backdrop-filter — over the constantly-animating game canvas it caused
+       unreliable tap hit-testing on iOS WebViews (buttons "worked randomly"). A more
+       opaque solid scrim dims the scene just as well without the touch bug. */
+    background:rgba(11,30,46,.82);pointer-events:auto;
     font-family:'Baloo 2';padding:24px;}
   .overlay.show{display:flex;animation:fade .3s ease;}
   @keyframes fade{from{opacity:0}to{opacity:1}}
@@ -7533,6 +7536,10 @@ function toggleMute(){
 
 
 function boot(){
+  // Guard against a double boot: the fonts-ready path AND the 2.5s failsafe can both
+  // fire on a slow cold load, which previously started TWO render loops (doubled
+  // updates/input → erratic feel). Run exactly once.
+  if(G._booted) return; G._booted=true;
   // measure the top safe-area inset (notch) so canvas-drawn HUD can clear it
   try{
     const probe=document.createElement('div');
@@ -7577,6 +7584,7 @@ function runSplash(){
     // hold the full-screen icon, then shrink to the hero's measured rect
     setTimeout(()=>{
       el('ov-start').classList.add('show');
+      splash.style.pointerEvents='none';   // menu is up — let taps reach it even as the logo finishes shrinking
       let r=hero?hero.getBoundingClientRect():null;
       if(!r || r.width<10){ r={left:vw/2-110,top:vh*0.18,width:220,height:220}; }
       place(r.left, r.top, r.width, r.height, 22);
