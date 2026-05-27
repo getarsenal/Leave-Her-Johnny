@@ -488,11 +488,12 @@
   <div class="overlay" id="ov-dev">
     <div class="card" style="max-width:440px;">
       <h2>🛠️ Dev Menu</h2>
-      <p class="hint">Developer tools — triggers &amp; diagnostics. (Triple-tap the map name to open.)</p>
+      <p class="hint">Developer tools — spawn, generate &amp; play anything. (Tap the map name 5× quickly to open.)</p>
       <div id="devdiag" style="font:600 11px/1.5 monospace;text-align:left;background:#10243a;
         color:#bfe6f2;border-radius:10px;padding:10px;margin:8px 0;white-space:pre-wrap;
         max-height:160px;overflow:auto;"></div>
       <div id="devbtns" style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin:8px 0;"></div>
+      <div id="devspawn" style="margin:6px 0;"></div>
       <div style="font:700 11px/1 system-ui;color:#8fc4dd;text-align:left;margin:10px 0 4px;text-transform:uppercase;letter-spacing:.5px;">🎵 Shanty Player <span style="opacity:.6;font-weight:500;text-transform:none;">— tap to play, tap again to stop</span></div>
       <div id="devsongs" style="display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin:0 0 8px;max-height:140px;overflow:auto;"></div>
       <button class="bigbtn" id="devclose">Back to Sea</button>
@@ -6953,7 +6954,7 @@ function devTapHandler(){
   const now=performance.now();
   if(now-_devTapT>600)_devTaps=0;
   _devTapT=now; _devTaps++;
-  if(_devTaps>=3){ _devTaps=0; openDev(); }
+  if(_devTaps>=5){ _devTaps=0; openDev(); }   // 5 quick taps (harder to open by accident)
 }
 function openDev(){ G.state='shop'; buildDevMenu(); el('ov-dev').classList.add('show'); }
 function closeDev(){ el('ov-dev').classList.remove('show'); if(G.state==='shop')G.state='play'; }
@@ -6983,7 +6984,81 @@ const DEV_ACTIONS=[
   ['🔄 Restart Map', ()=>{ closeDev(); startMap(G.mapIndex); }],
   // --- shanty tester: cycle through every shanty (label shows the next one) ---
   ['🍾 Preview Bottle Pop', ()=>{ const s=SHANTIES[Math.floor(Math.random()*SHANTIES.length)]; closeDev(); showBottlePop(s.name); }],
+  // --- weather ---
+  ['🌩️ Force Storm', ()=>{ if(!G.weather)initWeather(); const w=G.weather; w.state='storm'; w.intensity=1; w.t=0; w.dur=45; }],
+  ['☀️ Clear Weather', ()=>{ if(!G.weather)initWeather(); const w=G.weather; w.state='clear'; w.intensity=0; w.t=0; w.rain=[]; }],
+  ['⚡ Lightning Now', ()=>{ if(!G.weather)initWeather(); const w=G.weather; w.intensity=Math.max(w.intensity,0.9); w.flash=1; w.boltX=W*(0.2+Math.random()*0.6); w.boltSeed=Math.random()*999; if(typeof sfx!=='undefined'&&sfx.thunder)sfx.thunder(); }],
+  // --- excursions & treasure ---
+  ['🏝️ Shore Party (nearest)', ()=>{ const is=devNearestIsland(i=>i.explorable); if(is){ is.exploredOnce=false; is.shoreCooldownUntil=0; closeDev(); startShoreParty(is); } else devToast('No explorable island near'); }],
+  ['🗺️ Reveal Cache (nearest)', ()=>{ const is=devNearestIsland(i=>i.cache); if(is){ revealCache(is.id, !!is.cache.big); devToast('Cache revealed on '+(is.id)); } else devToast('No cache island near'); }],
+  ['📜 Drop Treasure Map', ()=>{ dropTreasureMap(); }],
+  // --- fleets & wildlife ---
+  ['⛵ Spawn Convoy', ()=>{ spawnConvoy(); closeDev(); }],
+  // --- progression & unlocks ---
+  ['🏆 Win This Sea', ()=>{ G.bossDead=true; if(G.treasureTotal)G.treasureFound=G.treasureTotal; if(G.world&&G.world.corners)for(const c of G.world.corners)c.cleared=true; setObjective(); closeDev(); checkWin(); }],
+  ['🌊 Open Seas (Endless)', ()=>{ closeDev(); startEndless(); }],
+  ['🎵 Unlock All Shanties', ()=>{ for(const s of SHANTIES){ if(G.shanties.indexOf(s.id)<0)G.shanties.push(s.id); } if(typeof saveGame==='function')saveGame(); devToast('All shanties unlocked'); }],
+  ['📖 Fill Bestiary', ()=>{ for(const k of BESTIARY_KINDS){ seeKind(k.id); } devToast('Bestiary filled'); }],
+  ['🏅 Grant All Achievements', ()=>{ for(const a of ACHIEVEMENTS){ G.achievements[a.id]=true; } checkAchievements(); saveLifetime(); devToast('Achievements granted'); }],
 ];
+// nearest island matching an optional predicate (for shore-party / cache dev actions)
+function devNearestIsland(pred){
+  if(!G.world||!G.ship)return null;
+  let best=null,bd=1e9;
+  for(const is of G.world.islands){ if(pred&&!pred(is))continue; const d=dist(G.ship.x,G.ship.y,is.x,is.y); if(d<bd){bd=d;best=is;} }
+  return best;
+}
+// a point a short distance off the player's bow, so spawns appear on-screen
+function devNear(){ const a=Math.random()*TAU, d=180+Math.random()*130; return {x:G.ship.x+Math.cos(a)*d, y:G.ship.y+Math.sin(a)*d}; }
+function devSpawnHazard(kind){
+  if(!G.world){ devToast('No world'); return; }
+  if(!G.world.hazards) G.world.hazards=[];
+  const p=devNear(), x=p.x, y=p.y;
+  if(kind==='reef') G.world.hazards.push({type:'reef',x,y,r:90,seed:Math.random()*1000,ph:Math.random()*TAU});
+  else if(kind==='ice'){ const aa=Math.random()*TAU,sp=8; G.world.hazards.push({type:'ice',x,y,r:130,vx:Math.cos(aa)*sp,vy:Math.sin(aa)*sp,spin:0.1,rot:Math.random()*TAU,seed:Math.random()*1000}); }
+  else if(kind==='whirlpool') G.world.hazards.push({type:'whirlpool',x,y,r:300,rot:Math.random()*TAU,seed:Math.random()*1000,dir:Math.random()<0.5?1:-1});
+  devToast(kind+' spawned');
+}
+// labelled <select> + action button row
+function devPicker(parent,label,opts,onGo,goLabel){
+  const row=document.createElement('div');
+  row.style.cssText='display:flex;gap:6px;align-items:center;width:100%;margin:3px 0;';
+  const lbl=document.createElement('span'); lbl.textContent=label;
+  lbl.style.cssText='font:700 11px/1 system-ui;color:#9fd0e6;min-width:58px;text-align:left;';
+  const sel=document.createElement('select');
+  sel.style.cssText='flex:1;font:600 12px/1 system-ui;padding:6px;border-radius:8px;background:#16304a;color:#cfeaf6;border:2px solid #2b6f96;';
+  opts.forEach((o,i)=>{ const op=document.createElement('option'); op.value=i; op.textContent=o.label; sel.appendChild(op); });
+  const btn=document.createElement('button'); btn.textContent=goLabel||'Spawn';
+  btn.style.cssText='font:700 12px/1 system-ui;padding:6px 12px;border-radius:8px;border:2px solid #6b8f3e;background:#243a16;color:#d6f0b0;cursor:pointer;';
+  btn.onclick=()=>{ try{ onGo(opts[sel.value|0]); }catch(e){ devToast('Error: '+e.message); } };
+  row.append(lbl,sel,btn); parent.appendChild(row);
+}
+function buildDevSpawners(){
+  const sp=el('devspawn'); if(!sp)return; sp.innerHTML='';
+  const head=t=>{ const h=document.createElement('div'); h.textContent=t; h.style.cssText='font:700 11px/1 system-ui;color:#8fc4dd;text-align:left;margin:9px 0 3px;text-transform:uppercase;letter-spacing:.5px;'; sp.appendChild(h); };
+  head('🎯 Spawn near ship');
+  devPicker(sp,'Enemy',NAVY_CLASSES.map(c=>({label:c.cls,v:c})),o=>{ const p=devNear(); G.entities.push(makeNavy(p.x,p.y,{x:G.ship.x,y:G.ship.y},o.v)); closeDev(); });
+  devPicker(sp,'Cargo',CARGO_TYPES.map(c=>({label:c.name,v:c})),o=>{ const p=devNear(); G.entities.push(makeCargo(p.x,p.y,Math.random,{type:o.v})); closeDev(); });
+  devPicker(sp,'Boss',Object.keys(BOSS_STATS).map(k=>({label:BOSS_STATS[k].name,v:k})),o=>{ const p=devNear(); const b=spawnBossOf(o.v,p.x,p.y,{}); if(b){G.shake=14;toast('⚠ '+b.bossName,1800);} closeDev(); });
+  devPicker(sp,'Fort',[1,2,3,4].map(t=>({label:'Tier '+t,v:t})),o=>{ devSpawnFort(o.v); });
+  devPicker(sp,'Hazard',[{label:'Reef',v:'reef'},{label:'Iceberg',v:'ice'},{label:'Whirlpool',v:'whirlpool'}],o=>{ devSpawnHazard(o.v); closeDev(); });
+  head('🧭 Sail to sea');
+  devPicker(sp,'Sea',MAPS.map((m,i)=>({label:(i+1)+'. '+m.name,v:i})),o=>{ closeDev(); startMap(o.v); },'Go');
+  head('⬆️ Upgrades (live)');
+  for(const k in UP){
+    const row=document.createElement('div'); row.style.cssText='display:flex;gap:6px;align-items:center;width:100%;margin:2px 0;';
+    const lbl=document.createElement('span'); lbl.textContent=UP[k].emoji+' '+UP[k].name;
+    lbl.style.cssText='font:700 11px/1 system-ui;color:#cfeaf6;flex:1;text-align:left;';
+    const val=document.createElement('span'); val.style.cssText='font:700 11px/1 monospace;color:#ffe7a8;min-width:40px;text-align:center;';
+    const refresh=()=>{ val.textContent=(G.upgrades[k]||0)+'/'+UP[k].max; };
+    const mk=(txt,fn)=>{ const b=document.createElement('button'); b.textContent=txt;
+      b.style.cssText='font:800 13px/1 system-ui;width:30px;padding:6px 0;border-radius:7px;border:2px solid #2b6f96;background:#16304a;color:#bfe0f0;cursor:pointer;';
+      b.onclick=()=>{ fn(); recalcPlayer(); if(G.ship)G.ship.hp=Math.min(G.ship.hp||G.ship.maxhp,G.ship.maxhp); refresh(); updateHUD(); }; return b; };
+    row.append(lbl, mk('−',()=>{G.upgrades[k]=Math.max(0,(G.upgrades[k]||0)-1);}), val,
+      mk('+',()=>{G.upgrades[k]=Math.min(UP[k].max,(G.upgrades[k]||0)+1);}), mk('M',()=>{G.upgrades[k]=UP[k].max;}));
+    refresh(); sp.appendChild(row);
+  }
+}
 let _devShanty=0;
 function buildDevMenu(){
   const box=el('devbtns'); if(!box)return; box.innerHTML='';
@@ -6995,6 +7070,7 @@ function buildDevMenu(){
     b.onclick=()=>{ try{ fn(); }catch(e){ devToast('Error: '+e.message); } buildDevMenu(); };
     box.appendChild(b);
   });
+  buildDevSpawners();   // pick-lists: enemies, cargo, bosses, forts, hazards, seas, upgrades
   // shanty picker: each row = play toggle + live tempo editor (− BPM +)
   const sbox=el('devsongs');
   if(sbox){
@@ -7075,7 +7151,7 @@ function refreshDevDiag(){
 }
 function devToast(m){ if(typeof toast==='function')toast(m,1500); }
 // DEV: drop a fort on the island nearest the player (for testing on any map)
-function devSpawnFort(){
+function devSpawnFort(tierArg){
   if(!G.world||!G.ship){ devToast('No world'); return; }
   // nearest island big enough to host a fort
   let best=null,bd=1e9;
@@ -7087,7 +7163,7 @@ function devSpawnFort(){
   if(!best){ devToast('No suitable island nearby'); return; }
   // face the wall toward the player so its guns point at you
   const faceA=angTo(best.x,best.y,G.ship.x,G.ship.y);
-  const tier=Math.max(1,G.mapIndex);
+  const tier=tierArg||Math.max(1,G.mapIndex);
   const fr=best.r*0.82;                              // larger footprint -> wall hugs the shore
   const plan={ islandId:best.id,
     x:best.x+Math.cos(faceA)*(best.r*0.5), y:best.y+Math.sin(faceA)*(best.r*0.5),
