@@ -878,7 +878,7 @@ function onMove(sx,sy){
 }
 function onUp(){input.down=false;input.active=false;input.mag=0;input.id=null;}
 cv.addEventListener('touchstart',e=>{e.preventDefault();
-  if(!SND.ctx)initAudio(); else resumeAudio();   // resumeAudio handles 'suspended' AND iOS 'interrupted'
+  recoverAudio();   // init / resume / hard-rebuild after an iOS interruption, as needed
   if(input.down)return;                       // already steering with one finger; ignore extra fingers
   const t=e.changedTouches[0];
   // ignore touches that land on a HUD button (Fire/Port/etc.)
@@ -923,7 +923,7 @@ function applyKeyboardInput(){
 window.addEventListener('keydown',e=>{
   // let the browser handle typing in any input fields
   if(e.target && (e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA')) return;
-  if(!SND.ctx)initAudio(); else resumeAudio();   // resumeAudio handles 'suspended' AND iOS 'interrupted'
+  recoverAudio();   // init / resume / hard-rebuild after an iOS interruption, as needed
   const c=e.code;
   if(['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'].includes(c)){
     e.preventDefault();
@@ -6629,8 +6629,9 @@ if(hasSave()) el('continuebtn').style.display='';
 // save when the player leaves/backgrounds the app (covers mobile swipe-away),
 // and recover the victory prompt on return so a backgrounded boss-kill can't strand you
 document.addEventListener('visibilitychange',()=>{
-  if(document.hidden){ saveGame(); return; }
-  // iOS often suspends the audio context while backgrounded — resume on return
+  if(document.hidden){ _audioWasInterrupted=true; saveGame(); return; }
+  // iOS interrupts the audio context while backgrounded — the first tap on return
+  // will hard-recover it; try a light resume now in case a plain resume suffices
   resumeAudio();
   // becoming visible again: if we beat the boss but no overlay is up, re-offer the choice
   if(G.world && G.world.def && G.world.def.boss && G.bossDead
@@ -7198,6 +7199,7 @@ function loadRockSprites(){
 SND.buffers={};
 function loadSamples(){
   for(const key in SAMPLE_SRC){
+    if(SND.buffers[key]) continue;   // already decoded — reuse across context rebuilds
     const url=SAMPLE_SRC[key];
     fetch(url)
       .then(r=>r.arrayBuffer())
@@ -7230,17 +7232,36 @@ function initAudio(){
   }catch(e){ /* audio unsupported — game still runs silently */ }
 }
 function aNow(){return SND.ctx.currentTime;}
-// iOS WebView suspends the AudioContext when the app is backgrounded, and it stays
-// suspended on return — which silenced the game until a full restart. Resume it
-// whenever the player comes back or next interacts (resume() may need a gesture).
-// Resume whenever the context isn't actively running. iOS backgrounding leaves it
-// in the 'interrupted' state (not 'suspended'), so a 'suspended'-only check silently
-// skipped the resume and audio stayed dead until a full restart.
+// --- iOS audio recovery after backgrounding ---------------------------------------
+// When the app is backgrounded, iOS interrupts the WebAudio session. On return the
+// AudioContext is often a "zombie": resume() resolves but produces NO sound, and the
+// looping ambient sources have been killed (a stopped BufferSource can't restart).
+// resume()-only fixes do not recover it. The reliable fix is to tear the graph down
+// and rebuild it (new context + ambient; decoded sample buffers are reused). Creating
+// an AudioContext needs a user gesture on iOS, so the heavy recovery runs on the first
+// interaction after returning.
+let _audioWasInterrupted=false;
 function resumeAudio(){ try{ if(SND.ctx && SND.ctx.state!=='running' && SND.ctx.state!=='closed') SND.ctx.resume(); }catch(e){} }
-document.addEventListener('visibilitychange',()=>{ if(!document.hidden) resumeAudio(); });
+function rebuildAudio(){
+  try{ if(SND.ctx) SND.ctx.close(); }catch(e){}
+  SND.ctx=null; SND.master=null; SND.windGain=null; SND.windFilter=null; SND.ready=false;
+  _noiseBuf=null;                 // noise buffer is generated per-context — regenerate it
+  // NB: keep SND.buffers — decoded sample AudioBuffers replay fine on the new context,
+  // and loadSamples() skips already-cached keys, so no re-fetch/re-decode.
+  initAudio();                    // fresh context + master + ambient + samples
+  try{ if(SND.ctx && SND.ctx.state!=='running') SND.ctx.resume(); }catch(e){}
+}
+function recoverAudio(){
+  if(!SND.ctx){ initAudio(); resumeAudio(); _audioWasInterrupted=false; return; }
+  if(SND.ctx.state==='running' && !_audioWasInterrupted) return;   // healthy — nothing to do
+  if(_audioWasInterrupted){ rebuildAudio(); _audioWasInterrupted=false; }   // came back from background: rebuild
+  else { try{ SND.ctx.resume(); }catch(e){} }                               // merely suspended: resume
+}
+document.addEventListener('visibilitychange',()=>{ if(document.hidden) _audioWasInterrupted=true; else resumeAudio(); });
 window.addEventListener('focus',resumeAudio);
 window.addEventListener('pageshow',resumeAudio);
-['pointerdown','touchend','keydown'].forEach(ev=>window.addEventListener(ev,resumeAudio,{passive:true}));
+// the first tap/key after returning does the gesture-safe heavy recovery
+['pointerdown','touchend','keydown'].forEach(ev=>window.addEventListener(ev,recoverAudio,{passive:true}));
 // short noise buffer for impacts/splashes
 let _noiseBuf=null;
 function noiseBuffer(){
