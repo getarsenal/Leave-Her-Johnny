@@ -150,6 +150,9 @@
   /* bottom-right action buttons */
   #botright{position:fixed;bottom:calc(16px + env(safe-area-inset-bottom));right:10px;
     display:flex;gap:9px;pointer-events:none;z-index:12;}
+  /* Shore parties are a land excursion: the ship HP bar, world minimap and Fire button
+     don't apply, so hide them. This also clears the bottom corners for the shore minimap. */
+  body.shore-mode #botright, body.shore-mode #minimapwrap, body.shore-mode .hpwrap{display:none!important;}
   .abtn{pointer-events:auto;width:66px;height:66px;border-radius:20px;border:none;
     background:linear-gradient(180deg,#3a5688,#26395d);
     border:3px solid var(--gold-dk);box-shadow:var(--shadow-soft);
@@ -4013,9 +4016,10 @@ function drawShore(){
 // (no camera rotation), top-right corner under the safe-area inset.
 function drawShoreMinimap(sh){
   const is=sh.is; if(!is||!is.offs)return;
-  const safeTop=(window.__safeTop||0);
   const MR=Math.min(62, W*0.15);
-  const cx=W-MR-16, cy=safeTop+MR+30;
+  // bottom-left — where the world minimap normally sits (hidden ashore), clear of the
+  // top-right menu icons and the bottom safe-area / home indicator
+  const cx=MR+16, cy=H-MR-46;
   const rot=is.rot||0, st=is.stretch||1, cs=Math.cos(rot), sn=Math.sin(rot);
   let maxOff=0; for(const o of is.offs) if(o>maxOff)maxOff=o;
   const sc=(MR*0.9)/(is.r*maxOff*Math.max(st,1));
@@ -6253,6 +6257,9 @@ function loop(now){
    ================================================================ */
 const el=id=>document.getElementById(id);
 function updateHUD(){
+  // hide sailing-only HUD (ship HP, world minimap, Fire) while ashore; self-corrects
+  // every frame so we never get stuck in the wrong mode after a transition
+  document.body.classList.toggle('shore-mode', G.state==='shore');
   el('s-gold').textContent=Math.floor(G.gold);
   el('s-wood').textContent=Math.floor(G.wood);
   if(G.endless){ const o=el('objective'); if(o) o.textContent='🌊 Open Seas — Score '+(G.endlessScore|0); }
