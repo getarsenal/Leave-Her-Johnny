@@ -746,6 +746,7 @@ const G = {
     shorePartiesSent:0, shoreLootGrabbed:0, islandsExplored:0,
     distanceSailed:0,    // rough, for a "sea legs" feel
     bestCombo:0,
+    cannonballsFired:0, woodEarned:0, timePlayed:0, deepestSea:0,  // fun extra metrics
   },
   bestiary:{},           // creature/enemy kinds seen at least once
   achievements:{},       // id -> true once earned
@@ -2815,6 +2816,7 @@ function updatePlayer(s,dt){
   s.va = lerp(s.va||0, turnRate, dt*8);
   moveEntity(s,dt);
   if(s.speed>5) G.stats.distanceSailed=(G.stats.distanceSailed||0)+s.speed*dt;
+  G.stats.timePlayed=(G.stats.timePlayed||0)+dt;   // time at sea
   avoidIslands(s);
   updateWind(s.speed,s.maxspeed);
 
@@ -2989,6 +2991,7 @@ function fireBroadside(from,target,dmg){
     fireCannonFrom(m.x, m.y, perp, from, target, dmg*(flame?1.6:1), 3.2, flame);
     smoke(m.x + m.nx*4, m.y + m.ny*4);
   }
+  if(from===G.ship) G.stats.cannonballsFired=(G.stats.cannonballsFired||0)+mounts.length;
 }
 
 function fireCannon(from,target,dmg,friendly,count=1){
@@ -3235,7 +3238,7 @@ function collectFloater(f){
     toast('💎 Treasure found! '+G.treasureFound+'/'+G.treasureTotal+'  (+'+f.val+'g)',1800);
     splash(f.x,f.y,'#ffd966'); setObjective(); sfx.treasure(); checkWin(); }
   else if(f.type==='coin'){ G.gold+=f.val; sfx.coin(); }
-  else if(f.type==='barrel'){ G.wood+=f.wood||rndi(4,9); sfx.barrel(); }
+  else if(f.type==='barrel'){ const w=f.wood||rndi(4,9); G.wood+=w; G.stats.woodEarned=(G.stats.woodEarned||0)+w; sfx.barrel(); }
   else if(f.type==='bounty'){
     const bonus=f.sprung?1.5:1;   // bigger reward if you actually triggered & survived the ambush
     const g=Math.floor(f.val*bonus*(G.ship.loot||1));
@@ -3341,7 +3344,8 @@ function startShoreParty(is){
   }
   G.shore={ is, dinghyX:s.x, dinghyY:s.y, landX:lx, landY:ly,
     px:s.x, py:s.y, pa:a, phase:'rowin', t:0, loot, gotCount:0, walkPhase:0, shipX:s.x, shipY:s.y,
-    creatures:[], shots:[], partyHp:100, partyMaxHp:100, fireT:0, hurtFlash:0 };
+    creatures:[], shots:[], partyHp:100, partyMaxHp:100, fireT:0, hurtFlash:0,
+    earnedGold:0, earnedWood:0, pendingCaches:[], pendingBottles:[] };
   // crew = bigger landing party. Pirates ashore scale straight off the Crew upgrade:
   // 2 at crew 0, up to 8 at crew 8 (max). These are the marines that go ashore.
   const crewLv=(G.upgrades&&G.upgrades.crew)||0;
@@ -3456,24 +3460,22 @@ function updateShore(dt){
       if(L.got)continue;
       if(dist(sh.px,sh.py,L.x,L.y)<22){
         L.got=true; sh.gotCount++;
-        // if this loot is a visible island feature, hide it (it's been looted)
+        // if this loot is a visible island feature, hide it for the rest of the trip
         if(L.featIdx!==undefined && sh.is.features && sh.is.features[L.featIdx]) sh.is.features[L.featIdx].looted=true;
-        // buried cache dug up by the shore party
-        if(L.kind==='cache' && L._cacheRef){ L._cacheRef.state='looted'; }
-        G.gold+=L.val; if(L.wood)G.wood+=L.wood;
-        G.stats.shoreLootGrabbed=(G.stats.shoreLootGrabbed||0)+1;
-        G.stats.goldEarned=(G.stats.goldEarned||0)+L.val;
-        sfx.coin(); updateHUD();
+        // CARRY the plunder — it only banks when the crew makes it back to the boat.
+        sh.earnedGold=(sh.earnedGold||0)+L.val; if(L.wood)sh.earnedWood=(sh.earnedWood||0)+(L.wood||0);
+        if(L.kind==='cache' && L._cacheRef) sh.pendingCaches.push(L._cacheRef);   // mark looted on return
+        sfx.coin();
         for(let i=0;i<8;i++)G.particles.push({x:L.x,y:L.y,vx:rnd(-40,40),vy:rnd(-70,-20),life:.6,max:.6,c:'#ffe08a',r:3});
         if(L.kind==='cache'){
           sfx.treasure&&sfx.treasure();
-          toast((L.big?'💰 Buried hoard unearthed! +':'🗺️ Cache dug up! +')+L.val+'g'+(L.wood?' +'+L.wood+'🪵':''),2200);
+          toast((L.big?'💰 Buried hoard! ':'🗺️ Cache dug up! ')+L.val+'g'+(L.wood?' +'+L.wood+'🪵':'')+' — get it home!',2200);
         } else if(L.kind==='bottle'){
-          const locked=SHANTIES.filter(s=>G.shanties.indexOf(s.id)===-1);
-          if(locked.length){ G.shanties.push(locked[0].id); saveGame(); showBottlePop(locked[0].name); }
-          else toast('🍾 +'+L.val+'g',1500);
+          const locked=SHANTIES.filter(s=>G.shanties.indexOf(s.id)===-1 && sh.pendingBottles.indexOf(s.id)===-1);
+          if(locked.length){ sh.pendingBottles.push(locked[0].id); toast('🍾 A shanty in a bottle — carry it home!',1900); }
+          else toast('🍾 '+L.val+'g — get it home!',1500);
         } else {
-          toast((L.kind==='chest'?'📦 Chest! +':'🪙 +')+L.val+'g'+(L.wood?' +'+L.wood+'🪵':''),1600);
+          toast((L.kind==='chest'?'📦 Chest! ':'🪙 ')+L.val+'g'+(L.wood?' +'+L.wood+'🪵':'')+' — get it home!',1600);
         }
       }
     }
@@ -3510,7 +3512,7 @@ function updateShore(dt){
           const cd=sh.crewDmg||12;
           sh.shots.push({x:fx,y:fy,vx:Math.cos(a)*460,vy:Math.sin(a)*460,life:0.8,dmg:rndi(Math.round(cd*0.8),Math.round(cd*1.2))});
           for(let k=0;k<3;k++)G.particles.push({x:fx+Math.cos(a)*10,y:fy+Math.sin(a)*10,vx:Math.cos(a)*40+rnd(-15,15),vy:Math.sin(a)*40+rnd(-15,15),life:.3,max:.3,c:'#ddd6c8',r:2});
-          if(typeof sfx!=='undefined'&&sfx.cannon)sfx.cannon();
+          if(typeof sfx!=='undefined'&&sfx.musket)sfx.musket();
         } else {
           c.reload=0.2;                                // nothing in range yet, check again soon
         }
@@ -3665,12 +3667,22 @@ function updateShore(dt){
     const tx=G.ship.x, ty=G.ship.y, d=dist(sh.dinghyX,sh.dinghyY,tx,ty);
     if(d<24){
       if(sh._failed){
-        // a failed raid: let the crew regroup, then the island can be tried again
-        toast('⚓ Crew retreated. Regroup before trying again.',2600);
+        // a failed raid: the carried plunder is LOST (never banked), and the island
+        // resets so it can be tried again — undo the trip's "looted" visual marks.
+        toast('🩸 Crew overrun — the plunder went down with them! Regroup and try again.',2800);
         sh.is.exploredOnce=false;                       // clear the one-trip lockout
         sh.is.shoreCooldownUntil=G.t+25;                // ~25s cooldown before re-landing
+        for(const L of sh.loot){ if(L.got && L.featIdx!==undefined && sh.is.features && sh.is.features[L.featIdx]) sh.is.features[L.featIdx].looted=false; }
       } else {
-        toast('⚓ Crew back aboard! Plundered '+sh.gotCount+' find'+(sh.gotCount===1?'':'s')+'.',2400);
+        // SAFE RETURN — only now does the plunder actually bank.
+        const eg=Math.round(sh.earnedGold||0), ew=Math.round(sh.earnedWood||0);
+        G.gold+=eg; if(ew){ G.wood+=ew; G.stats.woodEarned=(G.stats.woodEarned||0)+ew; }
+        G.stats.goldEarned=(G.stats.goldEarned||0)+eg;
+        G.stats.shoreLootGrabbed=(G.stats.shoreLootGrabbed||0)+sh.gotCount;
+        for(const cr of (sh.pendingCaches||[])) cr.state='looted';
+        for(const sid of (sh.pendingBottles||[])){ if(G.shanties.indexOf(sid)===-1){ G.shanties.push(sid); const sn=SHANTIES.find(s=>s.id===sid); if(sn)showBottlePop(sn.name); } }
+        updateHUD();
+        toast('⚓ Crew back aboard! Plundered '+eg+'g'+(ew?' +'+ew+'🪵':'')+' from '+sh.gotCount+' find'+(sh.gotCount===1?'':'s')+'.',2600);
         G.stats.islandsExplored=(G.stats.islandsExplored||0)+1;
         checkAchievements();
       }
@@ -3957,12 +3969,61 @@ function drawShore(){
     roundRect(bx,by,bw*frac,8,4);ctx.fill();
     ctx.fillStyle='#cfe8f4';ctx.font=`bold ${11}px 'Baloo 2',sans-serif`;ctx.textAlign='center';ctx.textBaseline='alphabetic';
     ctx.fillText('⚔ Landing Party',W/2,by-6);
+    // collectibles + carried plunder readout — decide whether to keep searching or leave.
+    // (plunder only banks when you make it back to the boat, hence "carrying".)
+    const got=sh.gotCount||0, tot=sh.loot.length;
+    ctx.font=`bold 12px 'Baloo 2',sans-serif`; ctx.fillStyle='#ffe6a6';
+    let line='💎 '+got+'/'+tot+'   💰 '+Math.round(sh.earnedGold||0)+'g';
+    if((sh.earnedWood||0)>0) line+='  🪵 '+Math.round(sh.earnedWood);
+    ctx.fillText(line, W/2, by+22);
+    if(got>=tot && tot>0){ ctx.fillStyle='#9be59b'; ctx.font=`bold 10px 'Baloo 2',sans-serif`; ctx.fillText('All loot found — head back to bank it!', W/2, by+37); }
+    // island minimap (find your way back to the boat)
+    drawShoreMinimap(sh);
     // red vignette flash when the party is hurt
     if(sh.hurtFlash>0){
       ctx.fillStyle='rgba(200,40,40,'+(sh.hurtFlash*0.5)+')';
       ctx.fillRect(0,0,W,H);
     }
   }
+}
+// Shore-party minimap: just the island being explored, with loot pips, the party,
+// and the boat (landing point) so the player can navigate back. World-aligned
+// (no camera rotation), top-right corner under the safe-area inset.
+function drawShoreMinimap(sh){
+  const is=sh.is; if(!is||!is.offs)return;
+  const safeTop=(window.__safeTop||0);
+  const MR=Math.min(62, W*0.15);
+  const cx=W-MR-16, cy=safeTop+MR+30;
+  const rot=is.rot||0, st=is.stretch||1, cs=Math.cos(rot), sn=Math.sin(rot);
+  let maxOff=0; for(const o of is.offs) if(o>maxOff)maxOff=o;
+  const sc=(MR*0.9)/(is.r*maxOff*Math.max(st,1));
+  ctx.save();
+  ctx.textAlign='center'; ctx.textBaseline='alphabetic';
+  // backing disc
+  ctx.fillStyle='rgba(8,24,34,0.62)'; ctx.beginPath(); ctx.arc(cx,cy,MR+7,0,TAU); ctx.fill();
+  ctx.strokeStyle='rgba(255,255,255,0.28)'; ctx.lineWidth=2; ctx.beginPath(); ctx.arc(cx,cy,MR+7,0,TAU); ctx.stroke();
+  ctx.beginPath(); ctx.arc(cx,cy,MR+5,0,TAU); ctx.clip();
+  // island silhouette (sand + grass), matching the island's drawn shape
+  const blob=(scale,fill)=>{ ctx.beginPath();
+    for(let i=0;i<=is.pts;i++){ const a=(i/is.pts)*TAU, rr=is.r*scale*is.offs[i%is.pts];
+      const lx=Math.cos(a)*rr*st, ly=Math.sin(a)*rr, px=cx+(lx*cs-ly*sn)*sc, py=cy+(lx*sn+ly*cs)*sc;
+      if(i===0)ctx.moveTo(px,py); else ctx.lineTo(px,py); }
+    ctx.closePath(); ctx.fillStyle=fill; ctx.fill(); };
+  blob(1.0,'#e9d9a8'); blob(0.86,'#76b86a');
+  const wp=(px,py)=>[cx+(px-is.x)*sc, cy+(py-is.y)*sc];
+  // loot pips: gold = still out there, faded = collected
+  for(const L of sh.loot){ const [px,py]=wp(L.x,L.y);
+    ctx.fillStyle = L.got ? 'rgba(180,180,170,0.5)' : '#ffcf4d';
+    ctx.beginPath(); ctx.arc(px,py,L.got?1.6:2.6,0,TAU); ctx.fill(); }
+  // boat / landing point — your way back (anchor marker, gently pulsing)
+  { const [bx,by2]=wp(sh.dinghyX,sh.dinghyY); const pl=1+Math.sin(G.t*4)*0.15;
+    ctx.fillStyle='#6b4a2c'; ctx.beginPath(); ctx.ellipse(bx,by2,4.5*pl,3*pl,0,0,TAU); ctx.fill();
+    ctx.fillStyle='#ffe6a6'; ctx.font='bold 7px sans-serif'; ctx.fillText('⚓',bx,by2-5); }
+  // the shore party
+  { const [px,py]=wp(sh.px,sh.py);
+    ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(px,py,3,0,TAU); ctx.fill();
+    ctx.strokeStyle='#2a3a4a'; ctx.lineWidth=1; ctx.stroke(); }
+  ctx.restore();
 }
 /* When near a REVEALED cache, the port-style prompt offers a landing party.
    The party is a little dinghy that rows ashore, digs, and returns the loot. */
@@ -3997,9 +4058,9 @@ function updateLandingParty(dt){
     const d=dist(lp.x,lp.y,tx,ty);
     if(d<24){ // delivered
       const c=lp.is.cache; c.state='looted';
-      G.gold+=c.gold; G.wood+=c.wood;
+      G.gold+=c.gold; G.wood+=c.wood; G.stats.woodEarned=(G.stats.woodEarned||0)+(c.wood||0);
       let msg='💰 Cache plundered! +'+c.gold+'g +'+c.wood+'🪵';
-      if(c.special){ G.wood+=20; msg='🏆 Great hoard! +'+c.gold+'g +'+(c.wood+20)+'🪵'; }
+      if(c.special){ G.wood+=20; G.stats.woodEarned=(G.stats.woodEarned||0)+20; msg='🏆 Great hoard! +'+c.gold+'g +'+(c.wood+20)+'🪵'; }
       toast(msg,2400); sfx.treasure(); updateHUD();
       for(let i=0;i<14;i++)G.particles.push({x:G.ship.x+rnd(-20,20),y:G.ship.y+rnd(-20,20),vx:rnd(-40,40),vy:rnd(-70,-20),life:.8,max:.8,c:'#ffe08a',r:4});
       G.landingParty=null; saveGame(); return;
@@ -4952,7 +5013,10 @@ function roundRect(x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,
    Damage shows in chunks — destroyed cannons go dark, walls crumble, smoke rises. */
 function drawFort(e,z,sx,sy){
   const R=e.r*z, face=e.faceA;
-  const stone='#9a958c', stoneDk='#6f6a62', stoneLt='#bcb6ab';
+  // warmer, richer stone palette + wood & iron tones for a more detailed fort
+  const stone='#9a958c', stoneDk='#6f6a62', stoneLt='#c6c0b4', stoneSh='#565249';
+  const wood='#7a4a30', woodDk='#5a3622', woodLt='#9c6a40';
+  const ironDk='#2b2b32', iron='#43434c', ironLt='#6e6e78';
   ctx.save();
   ctx.translate(sx,sy);
 
@@ -5008,9 +5072,12 @@ function drawFort(e,z,sx,sy){
   // ground shadow
   ctx.save(); ctx.globalAlpha=0.25; ctx.fillStyle='#06283a';
   ctx.translate(7*z,9*z); ctx.beginPath(); ctx.ellipse(0,0,R*1.0,R*0.78,0,0,TAU); ctx.fill(); ctx.restore();
-  // interior courtyard floor (packed earth)
-  ctx.fillStyle='#b89a6a';
-  ctx.beginPath(); ctx.ellipse(0,0,R*0.82,R*0.74,0,0,TAU); ctx.fill();
+  // interior courtyard floor (packed earth, lit from upper-left, faint flagstone rings)
+  const cg=ctx.createRadialGradient(-R*0.14,-R*0.14,R*0.08, 0,0,R*0.86);
+  cg.addColorStop(0,'#caab79'); cg.addColorStop(1,'#9a7c52');
+  ctx.fillStyle=cg; ctx.beginPath(); ctx.ellipse(0,0,R*0.82,R*0.74,0,0,TAU); ctx.fill();
+  ctx.strokeStyle='rgba(86,62,34,0.22)'; ctx.lineWidth=1*z;
+  for(let i=1;i<=2;i++){ ctx.beginPath(); ctx.ellipse(0,0,R*0.82*i/3,R*0.74*i/3,0,0,TAU); ctx.stroke(); }
   // interior buildings (more with tier)
   const nb=Math.min(4,1+e.tier);
   let rb=(e.seed*13.1)%1; const br=()=>{rb=(rb*9301+49297)%233280/233280;return rb;};
@@ -5020,21 +5087,36 @@ function drawFort(e,z,sx,sy){
     const bx=Math.cos(ba)*bd, by=Math.sin(ba)*bd;
     const bw=R*(0.20+br()*0.12), bh=R*(0.16+br()*0.1);
     ctx.save(); ctx.translate(bx,by); ctx.rotate(br()*TAU);
-    ctx.fillStyle = br()<0.5?'#8a5a3c':'#7a4a30';
-    roundRect(-bw/2,-bh/2,bw,bh,3*z); ctx.fill();
-    ctx.fillStyle='rgba(0,0,0,0.18)'; roundRect(-bw/2,-bh/2+bh*0.6,bw,bh*0.4,3*z); ctx.fill();
+    ctx.fillStyle='rgba(0,0,0,0.22)'; roundRect(-bw/2+2*z,-bh/2+3*z,bw,bh,3*z); ctx.fill();   // cast shadow
+    ctx.fillStyle = br()<0.5?wood:woodDk; roundRect(-bw/2,-bh/2,bw,bh,3*z); ctx.fill();          // timber body
+    ctx.fillStyle=woodLt; roundRect(-bw/2,-bh/2,bw,bh*0.36,3*z); ctx.fill();                       // sunlit roof ridge
+    ctx.fillStyle='rgba(0,0,0,0.30)'; roundRect(-bw*0.12,bh*0.04,bw*0.24,bh*0.42,1*z); ctx.fill(); // doorway
     ctx.restore();
   }
   // sea-facing WALL: thick stone arc wrapping ~half the seaward perimeter
   const wh = e.wallHalf||1.6;
   const wallA0=face-wh, wallA1=face+wh;
   ctx.lineCap='butt';
-  ctx.strokeStyle=stoneDk; ctx.lineWidth=R*0.26;
-  ctx.beginPath(); ctx.arc(0,0,R*0.9,wallA0,wallA1); ctx.stroke();
-  ctx.strokeStyle=stone; ctx.lineWidth=R*0.18;
-  ctx.beginPath(); ctx.arc(0,0,R*0.9,wallA0,wallA1); ctx.stroke();
-  ctx.strokeStyle=stoneLt; ctx.lineWidth=R*0.05;
-  ctx.beginPath(); ctx.arc(0,0,R*0.98,wallA0,wallA1); ctx.stroke();
+  // layered band: deep shadow base → dark → mid stone → sunlit cap at the top edge
+  ctx.strokeStyle=stoneSh; ctx.lineWidth=R*0.30; ctx.beginPath(); ctx.arc(0,0,R*0.9,wallA0,wallA1); ctx.stroke();
+  ctx.strokeStyle=stoneDk; ctx.lineWidth=R*0.24; ctx.beginPath(); ctx.arc(0,0,R*0.9,wallA0,wallA1); ctx.stroke();
+  ctx.strokeStyle=stone;   ctx.lineWidth=R*0.17; ctx.beginPath(); ctx.arc(0,0,R*0.9,wallA0,wallA1); ctx.stroke();
+  ctx.strokeStyle=stoneLt; ctx.lineWidth=R*0.045; ctx.beginPath(); ctx.arc(0,0,R*0.985,wallA0,wallA1); ctx.stroke();
+  // masonry: two courses of stone blocks (running bond) with mortar gaps + per-block shade
+  const nBlk=Math.max(6,Math.round((wallA1-wallA0)/0.17));
+  for(let course=0;course<2;course++){
+    const rr=R*0.9 + (course?-R*0.05:R*0.05);
+    for(let i=0;i<nBlk;i++){
+      const t=(i+(course?0.5:0))/nBlk; if(t<0||t>1)continue;
+      const a=wallA0+(wallA1-wallA0)*t;
+      ctx.save(); ctx.translate(Math.cos(a)*rr,Math.sin(a)*rr); ctx.rotate(a+Math.PI/2);
+      ctx.fillStyle=((i+course)%2)?stoneLt:shade(stone,0.04);
+      roundRect(-R*0.06,-R*0.038,R*0.12,R*0.076,1.5*z); ctx.fill();
+      ctx.restore();
+    }
+  }
+  // inner base shadow for depth where the wall meets the courtyard
+  ctx.strokeStyle='rgba(0,0,0,0.22)'; ctx.lineWidth=R*0.03; ctx.beginPath(); ctx.arc(0,0,R*0.81,wallA0,wallA1); ctx.stroke();
   // crenellations (merlons), some knocked out by damage
   const merlons=11+e.tier*2;
   for(let i=0;i<merlons;i++){
@@ -5042,7 +5124,9 @@ function drawFort(e,z,sx,sy){
     if(e.stage>0 && (i % Math.max(1,(7-Math.min(5,e.stage)))===0) && Math.abs(t-0.5)<e.stage*0.12) continue;
     const mx=Math.cos(a)*R*0.99, my=Math.sin(a)*R*0.99;
     ctx.save(); ctx.translate(mx,my); ctx.rotate(a+Math.PI/2);
-    ctx.fillStyle=stoneLt; roundRect(-R*0.045,-R*0.05,R*0.09,R*0.1,2*z); ctx.fill();
+    ctx.fillStyle=stoneDk; roundRect(-R*0.05,-R*0.05,R*0.10,R*0.11,2*z); ctx.fill();          // shadowed block
+    ctx.fillStyle=stone;   roundRect(-R*0.045,-R*0.05,R*0.085,R*0.09,2*z); ctx.fill();         // body
+    ctx.fillStyle=stoneLt; roundRect(-R*0.045,-R*0.05,R*0.085,R*0.035,2*z); ctx.fill();        // sunlit cap
     ctx.restore();
   }
   // crumbled rubble where the wall is breached
@@ -5057,24 +5141,30 @@ function drawFort(e,z,sx,sy){
   const aimAng = (G.ship && !G.ship.dead) ? Math.atan2(G.ship.y-e.y, G.ship.x-e.x) : face;
   for(const c of e.cannons){
     const gx=Math.cos(c.offA)*R*0.9, gy=Math.sin(c.offA)*R*0.9;
-    // the port/base sits fixed on the wall...
+    // stone embrasure (gun port): light stone frame around a dark recess
     ctx.save(); ctx.translate(gx,gy); ctx.rotate(c.offA);
-    ctx.fillStyle='#2c2722'; roundRect(-R*0.06,-R*0.07,R*0.16,R*0.14,2*z); ctx.fill();
+    ctx.fillStyle=stoneLt; roundRect(-R*0.075,-R*0.085,R*0.15,R*0.17,2*z); ctx.fill();
+    ctx.fillStyle='#221e1a'; roundRect(-R*0.055,-R*0.062,R*0.11,R*0.124,2*z); ctx.fill();
     ctx.restore();
     if(c.alive){
-      // ...but the barrel rotates toward the player, clamped to a forward arc so it
+      // ...the barrel rotates toward the player, clamped to a forward arc so it
       // never points back into the fort (looks like it's tracking you).
       let rel=aimAng-c.offA;
       while(rel> Math.PI)rel-=TAU; while(rel<-Math.PI)rel+=TAU;
       rel=clamp(rel,-1.0,1.0);                 // ±~57° swivel around the mount
       const barrelA=c.offA+rel;
       ctx.save(); ctx.translate(gx,gy); ctx.rotate(barrelA);
-      ctx.fillStyle='#3a3a40'; roundRect(0,-R*0.028,R*0.22,R*0.056,2*z); ctx.fill();
-      ctx.fillStyle='#54545c'; ctx.beginPath(); ctx.arc(R*0.22,0,R*0.035,0,TAU); ctx.fill();
+      ctx.fillStyle=woodDk; roundRect(-R*0.03,-R*0.05,R*0.12,R*0.10,2*z); ctx.fill();          // wooden carriage
+      ctx.fillStyle=ironDk; roundRect(0,-R*0.03,R*0.24,R*0.06,2*z); ctx.fill();                 // iron barrel
+      ctx.fillStyle=iron;   roundRect(0,-R*0.03,R*0.24,R*0.024,2*z); ctx.fill();                // top sheen
+      ctx.fillStyle=ironLt; ctx.fillRect(R*0.07,-R*0.03,R*0.014,R*0.06); ctx.fillRect(R*0.15,-R*0.03,R*0.014,R*0.06); // reinforcing bands
+      ctx.fillStyle='#0b0b0d'; ctx.beginPath(); ctx.arc(R*0.24,0,R*0.026,0,TAU); ctx.fill();    // muzzle bore
       ctx.restore();
     } else {
+      // blown-out port: blackened bore + scorch halo
       ctx.save(); ctx.translate(gx,gy); ctx.rotate(c.offA);
-      ctx.fillStyle='#1a1714'; ctx.beginPath(); ctx.arc(0,0,R*0.07,0,TAU); ctx.fill();
+      ctx.fillStyle='rgba(0,0,0,0.4)'; ctx.beginPath(); ctx.arc(R*0.02,0,R*0.10,0,TAU); ctx.fill();
+      ctx.fillStyle='#151210'; ctx.beginPath(); ctx.arc(0,0,R*0.06,0,TAU); ctx.fill();
       ctx.restore();
     }
   }
@@ -5107,37 +5197,51 @@ function drawFort(e,z,sx,sy){
   const towerAngs=[wallA0, wallA1];
   for(const ta of towerAngs){
     const tx=Math.cos(ta)*R*0.9, ty=Math.sin(ta)*R*0.9;
-    // tower shadow + body
-    ctx.fillStyle='rgba(0,0,0,0.2)'; ctx.beginPath(); ctx.arc(tx+2*z,ty+3*z,R*0.17,0,TAU); ctx.fill();
-    ctx.fillStyle=stoneDk; ctx.beginPath(); ctx.arc(tx,ty,R*0.17,0,TAU); ctx.fill();
-    ctx.fillStyle=stone;   ctx.beginPath(); ctx.arc(tx,ty,R*0.14,0,TAU); ctx.fill();
-    ctx.fillStyle=stoneLt; ctx.beginPath(); ctx.arc(tx-R*0.03,ty-R*0.03,R*0.07,0,TAU); ctx.fill();
-    // little merlon ring on top
-    for(let k=0;k<6;k++){ const ma=k/6*TAU; ctx.fillStyle=stoneLt;
-      const mx=tx+Math.cos(ma)*R*0.14, my=ty+Math.sin(ma)*R*0.14;
-      ctx.save();ctx.translate(mx,my);ctx.rotate(ma);roundRect(-R*0.022,-R*0.022,R*0.044,R*0.044,1*z);ctx.fill();ctx.restore(); }
-    // a tracking gun on the tower
+    // round stone drum: cast shadow → shadowed ring → dark → mid → sunlit highlight
+    ctx.fillStyle='rgba(0,0,0,0.22)'; ctx.beginPath(); ctx.arc(tx+2*z,ty+3*z,R*0.18,0,TAU); ctx.fill();
+    ctx.fillStyle=stoneSh; ctx.beginPath(); ctx.arc(tx,ty,R*0.18,0,TAU); ctx.fill();
+    ctx.fillStyle=stoneDk; ctx.beginPath(); ctx.arc(tx,ty,R*0.155,0,TAU); ctx.fill();
+    ctx.fillStyle=stone;   ctx.beginPath(); ctx.arc(tx,ty,R*0.135,0,TAU); ctx.fill();
+    ctx.fillStyle=stoneLt; ctx.beginPath(); ctx.arc(tx-R*0.035,ty-R*0.04,R*0.07,0,TAU); ctx.fill();
+    // arrow-slit facing the sea
+    ctx.save();ctx.translate(tx,ty);ctx.rotate(face);ctx.fillStyle='#201c18';ctx.fillRect(R*0.04,-R*0.013,R*0.085,R*0.026);ctx.restore();
+    // two-tone battlement ring on top
+    for(let k=0;k<7;k++){ const ma=k/7*TAU; ctx.fillStyle=(k%2)?stoneLt:stone;
+      const mx=tx+Math.cos(ma)*R*0.145, my=ty+Math.sin(ma)*R*0.145;
+      ctx.save();ctx.translate(mx,my);ctx.rotate(ma);roundRect(-R*0.023,-R*0.023,R*0.046,R*0.046,1*z);ctx.fill();ctx.restore(); }
+    // a tracking gun on the tower (carriage + banded barrel)
     const taim=(G.ship && !G.ship.dead)?Math.atan2(G.ship.y-e.y,G.ship.x-e.x):face;
     let trel=taim-ta; while(trel>Math.PI)trel-=TAU; while(trel<-Math.PI)trel+=TAU; trel=clamp(trel,-1.2,1.2);
     ctx.save();ctx.translate(tx,ty);ctx.rotate(ta+trel);
-    ctx.fillStyle='#3a3a40';roundRect(0,-R*0.025,R*0.17,R*0.05,2*z);ctx.fill();
-    ctx.fillStyle='#54545c';ctx.beginPath();ctx.arc(R*0.17,0,R*0.03,0,TAU);ctx.fill();
+    ctx.fillStyle=woodDk;roundRect(-R*0.02,-R*0.034,R*0.07,R*0.068,2*z);ctx.fill();
+    ctx.fillStyle=ironDk;roundRect(0,-R*0.022,R*0.18,R*0.044,2*z);ctx.fill();
+    ctx.fillStyle=iron;roundRect(0,-R*0.022,R*0.18,R*0.018,2*z);ctx.fill();
+    ctx.fillStyle='#0b0b0d';ctx.beginPath();ctx.arc(R*0.18,0,R*0.022,0,TAU);ctx.fill();
     ctx.restore();
+    // a fluttering pennant on a pole atop the tower
+    ctx.strokeStyle=woodDk;ctx.lineWidth=1.6*z;ctx.beginPath();ctx.moveTo(tx,ty-R*0.05);ctx.lineTo(tx,ty-R*0.21);ctx.stroke();
+    const pw=Math.sin(G.t*4+ta*3)*R*0.012;
+    ctx.fillStyle='#c4333a';ctx.beginPath();ctx.moveTo(tx,ty-R*0.21);ctx.lineTo(tx+R*0.075+pw,ty-R*0.185);ctx.lineTo(tx,ty-R*0.16);ctx.closePath();ctx.fill();
   }
   // central KEEP — a tall square tower with a banner, on tier-2+ forts
   if((e.tier||0)>=2){
     const kx=Math.cos(face+Math.PI)*R*0.32, ky=Math.sin(face+Math.PI)*R*0.32;  // set back from the wall
-    ctx.fillStyle='rgba(0,0,0,0.22)'; ctx.beginPath(); ctx.ellipse(kx+3*z,ky+4*z,R*0.26,R*0.2,0,0,TAU); ctx.fill();
+    ctx.fillStyle='rgba(0,0,0,0.24)'; ctx.beginPath(); ctx.ellipse(kx+3*z,ky+5*z,R*0.27,R*0.21,0,0,TAU); ctx.fill();
     ctx.save();ctx.translate(kx,ky);
-    ctx.fillStyle=stoneDk; roundRect(-R*0.2,-R*0.2,R*0.4,R*0.4,3*z); ctx.fill();
+    ctx.fillStyle=stoneSh; roundRect(-R*0.21,-R*0.21,R*0.42,R*0.42,3*z); ctx.fill();   // outer shadow
+    ctx.fillStyle=stoneDk; roundRect(-R*0.18,-R*0.18,R*0.36,R*0.36,3*z); ctx.fill();
     ctx.fillStyle=stone;   roundRect(-R*0.16,-R*0.16,R*0.32,R*0.32,3*z); ctx.fill();
-    ctx.fillStyle=stoneLt; roundRect(-R*0.16,-R*0.16,R*0.32,R*0.12,3*z); ctx.fill();
-    // keep merlons
-    for(let k=0;k<4;k++){ ctx.fillStyle=stoneLt; roundRect(-R*0.16+k*R*0.085,-R*0.21,R*0.05,R*0.05,1*z); ctx.fill(); }
-    // banner pole + flag (crown red)
-    ctx.strokeStyle='#3a2c1c';ctx.lineWidth=2*z;ctx.beginPath();ctx.moveTo(0,-R*0.18);ctx.lineTo(0,-R*0.42);ctx.stroke();
-    const fw=Math.sin(G.t*3+e.seed)*R*0.02;
-    ctx.fillStyle='#c4333a';ctx.beginPath();ctx.moveTo(0,-R*0.42);ctx.lineTo(R*0.14+fw,-R*0.38);ctx.lineTo(0,-R*0.34);ctx.closePath();ctx.fill();
+    ctx.fillStyle=stoneLt; roundRect(-R*0.16,-R*0.16,R*0.32,R*0.10,3*z); ctx.fill();    // sunlit parapet
+    // two-tone keep merlons
+    for(let k=0;k<4;k++){ ctx.fillStyle=(k%2)?stoneLt:stone; roundRect(-R*0.16+k*R*0.085,-R*0.215,R*0.05,R*0.06,1*z); ctx.fill(); }
+    // arrow-slit windows + door
+    ctx.fillStyle='#201c18'; ctx.fillRect(-R*0.10,-R*0.02,R*0.022,R*0.085); ctx.fillRect(R*0.078,-R*0.02,R*0.022,R*0.085);
+    ctx.fillStyle='#2a1d12'; roundRect(-R*0.035,R*0.06,R*0.07,R*0.10,2*z); ctx.fill();
+    // banner pole + animated swallowtail flag (crown red, with a highlight)
+    ctx.strokeStyle=woodDk;ctx.lineWidth=2.2*z;ctx.beginPath();ctx.moveTo(0,-R*0.16);ctx.lineTo(0,-R*0.44);ctx.stroke();
+    const fw=Math.sin(G.t*3+e.seed)*R*0.025;
+    ctx.fillStyle='#c4333a';ctx.beginPath();ctx.moveTo(0,-R*0.44);ctx.lineTo(R*0.16+fw,-R*0.405);ctx.lineTo(R*0.02+fw*0.4,-R*0.375);ctx.lineTo(0,-R*0.35);ctx.closePath();ctx.fill();
+    ctx.fillStyle='rgba(255,255,255,0.22)';ctx.beginPath();ctx.moveTo(0,-R*0.44);ctx.lineTo(R*0.16+fw,-R*0.405);ctx.lineTo(R*0.1,-R*0.398);ctx.closePath();ctx.fill();
     ctx.restore();
   }
   // persistent damage smoke
@@ -6172,6 +6276,22 @@ function showBottlePop(songName){
 function setObjective(){
   const def=G.world.def;
   if(G.endless){ G.objective='🌊 Open Seas'; el('objective').textContent=G.objective; return; }
+  // On the later seas (level 2+), show a compact breakdown of ALL objectives at once:
+  // treasure chests + corner guardians + big islands explored vs unexplored. The
+  // Shallows (level 1) keeps the original one-line hint.
+  if(G.mapIndex>=1){
+    const corners=G.world.corners||[];
+    const expl=(G.world.islands||[]).filter(is=>is.explorable);
+    const tDone=G.treasureFound>=G.treasureTotal;
+    const cDone=corners.length ? corners.filter(c=>c.cleared).length>=corners.length : true;
+    const bossDone=!def.boss || G.bossDead;
+    const parts=[`💎 ${G.treasureFound}/${G.treasureTotal}`];
+    if(corners.length) parts.push(`⚓ ${corners.filter(c=>c.cleared).length}/${corners.length}`);
+    if(expl.length)    parts.push(`🏝️ ${expl.filter(is=>is.exploredOnce).length}/${expl.length}`);
+    G.objective=(tDone&&cDone&&bossDone) ? ('✅ Sail to the next sea!   '+parts.join('  ')) : parts.join('    ');
+    el('objective').textContent=G.objective;
+    return;
+  }
   if(G.treasureFound<G.treasureTotal){
     G.objective=`Find treasure  💎 ${G.treasureFound}/${G.treasureTotal}`;
   } else if(G.world.corners && G.world.corners.length){
@@ -6388,15 +6508,24 @@ function gameOver(){
     : `This run: <b>${runScore}g</b> &nbsp;·&nbsp; Best: <b>${G.bestRun}g</b><br>`;
   el('endbody').innerHTML=`Your ship slipped beneath the waves. The sea keeps your gold… but not your spirit.<br><br>${bestLine}${streakLine}<br>Try this sea again?`;
   el('endbtn').textContent='Respawn';
-  el('endbtn').onclick=()=>{ G.gold=Math.floor(G.gold*0.7); G.runGold=0; G.runKills=0; G.combo=0; startMap(G.mapIndex); };
+  el('endbtn').onclick=()=>{ G.gold=Math.floor(G.gold*0.7); resetRun(); startMap(G.mapIndex); };
   el('ov-end').classList.add('show');
 }
 
 /* ================================================================
    FLOW
    ================================================================ */
+// --- Current-run stats via snapshot: capture lifetime counters at run start, then
+// "this run" = lifetime - snapshot. Avoids threading a second counter through every
+// kill site. resetRun() is called wherever a fresh voyage begins.
+function runSnap(){ const s=G.stats||{}; const f={};
+  ['navySunk','cargoRaided','monstersSlain','fortsDestroyed','bossesDefeated','shorePartiesSent','shoreLootGrabbed','islandsExplored','distanceSailed','cannonballsFired','woodEarned','timePlayed'].forEach(k=>f[k]=s[k]||0);
+  return f; }
+function resetRun(){ resetRun(); G.comboBest=0; G.runStatsBase=runSnap(); }
 function startMap(idx, restore){
   G.mapIndex=idx; G.world=genWorld(idx); G.discovered=new Set();
+  G.stats.deepestSea=Math.max(G.stats.deepestSea||0, idx+1);   // deepest sea reached
+  if(!G.runStatsBase) G.runStatsBase=runSnap();                 // baseline for a continued run
   populate();
   // when continuing a save, mark already-looted caches so cleared islands stay cleared
   if(restore && restore.lootedCaches){
@@ -6443,7 +6572,7 @@ function newVoyage(){
   initAudio();
   G.gold=0; G.wood=0; G.mapIndex=0; G.maxMapCleared=-1; G.bossDead=false;
   G.cursed=false; G.endless=false;
-  G.runGold=0; G.runKills=0; G.combo=0; G.comboBest=0;
+  resetRun(); G.comboBest=0;
   G.stats.voyages=(G.stats.voyages||0)+1;
   G.upgrades={hull:0,sails:0,cannons:0,crew:0,hold:0,hotshot:0,spread:0,ballast:0,chain:0,plating:0};
   el('ov-start').classList.remove('show');
@@ -6473,7 +6602,7 @@ function startEndless(){
   G.endless=true; G.cursed=false;
   G.endlessT=0; G.endlessScore=0;
   G.gold=0; G.wood=0; G.maxMapCleared=999; G.bossDead=true; G.bossSpawned=true;
-  G.runGold=0; G.runKills=0; G.combo=0; G.comboBest=0;
+  resetRun(); G.comboBest=0;
   // a generous fixed loadout so endless is about survival, not grinding upgrades
   G.upgrades={hull:3,sails:3,cannons:3,crew:3,hold:3,hotshot:1,spread:1,ballast:1,chain:1,plating:1};
   G.mapIndex=MAPS.length-1;
@@ -6531,7 +6660,7 @@ function openVoyage(){
         `<div class="cb-sub">Replay the whole campaign under a blood moon — tougher foes (+60% HP), richer plunder (+50% gold), and glory for those who finish.</div>`;
       const btn=document.createElement('button'); btn.className='cb-btn'; btn.textContent='Begin Cursed Voyage';
       btn.onclick=()=>{ G.cursed=true; G.gold=0; G.mapIndex=0; G.maxMapCleared=-1; G.bossDead=false;
-        G.runGold=0; G.runKills=0; G.combo=0;
+        resetRun();
         G.upgrades={hull:0,sails:0,cannons:0,crew:0,hold:0,hotshot:0,spread:0,ballast:0,chain:0,plating:0};
         closeVoyage(); startMap(0); };
       box.appendChild(btn);
@@ -6681,26 +6810,38 @@ function buildLogbook(){
     }
   } else if(_logTab==='rec'){
     const s=G.stats;
-    const creatures=(s.creaturesShot.crab||0)+(s.creaturesShot.boar||0)+(s.creaturesShot.snake||0);
+    // current run = lifetime minus the snapshot captured when the run began
+    const base=G.runStatsBase||{};
+    const run=k=>Math.max(0,(s[k]||0)-(base[k]||0));
+    const lg=v=>Math.round((v||0)/100)+' lg';
+    const tm=sec=>{ sec=Math.max(0,Math.floor(sec||0)); const m=Math.floor(sec/60);
+      return m>=60 ? (Math.floor(m/60)+'h '+(m%60)+'m') : (m+'m '+(sec%60)+'s'); };
     const rows=[
-      ['🏆 Best run', (G.bestRun|0)+' g'],
-      ['🌊 Best Open Seas score', (G.endlessBest|0)],
-      ['🔥 Best kill streak', 'x'+(s.bestCombo||0)],
-      ['💰 Gold earned (all-time)', Math.floor(s.goldEarned||0)+' g'],
-      ['⚔️ Enemy ships sunk', s.navySunk||0],
-      ['🪙 Cargo ships raided', s.cargoRaided||0],
-      ['🦈 Sea monsters slain', s.monstersSlain||0],
-      ['🏰 Forts destroyed', s.fortsDestroyed||0],
-      ['🐙 Bosses defeated', s.bossesDefeated||0],
-      ['🏝️ Islands explored', s.islandsExplored||0],
-      ['🐗 Island creatures shot', creatures],
-      ['🎵 Shanties collected', (G.shanties||[]).length+' / '+SHANTIES.length],
-      ['⛵ Voyages set out', s.voyages||0],
-      ['🧭 Distance sailed', Math.round((s.distanceSailed||0)/100)+' leagues'],
+      // [label, This Run, Lifetime]
+      ['⚔️ Enemy ships sunk', run('navySunk'), s.navySunk||0],
+      ['🪙 Cargo ships raided', run('cargoRaided'), s.cargoRaided||0],
+      ['🦈 Sea monsters slain', run('monstersSlain'), s.monstersSlain||0],
+      ['🏰 Forts destroyed', run('fortsDestroyed'), s.fortsDestroyed||0],
+      ['🐙 Bosses defeated', run('bossesDefeated'), s.bossesDefeated||0],
+      ['🏝️ Islands explored', run('islandsExplored'), s.islandsExplored||0],
+      ['📦 Shore loot grabbed', run('shoreLootGrabbed'), s.shoreLootGrabbed||0],
+      ['💰 Gold earned', (G.runGold|0)+'g', Math.floor(s.goldEarned||0)+'g'],
+      ['🪵 Wood gathered', run('woodEarned'), s.woodEarned||0],
+      ['💥 Cannonballs fired', run('cannonballsFired'), s.cannonballsFired||0],
+      ['🧭 Distance sailed', lg(run('distanceSailed')), lg(s.distanceSailed)],
+      ['⏱️ Time at sea', tm(run('timePlayed')), tm(s.timePlayed)],
+      ['🔥 Best kill streak', 'x'+(G.comboBest||0), 'x'+(s.bestCombo||0)],
+      ['🌊 Deepest sea reached', '—', 'Sea '+(s.deepestSea||1)],
+      ['🏆 Best run', '—', (G.bestRun|0)+'g'],
+      ['🎵 Shanties', '—', (G.shanties||[]).length+'/'+SHANTIES.length],
+      ['⛵ Voyages set out', '—', s.voyages||0],
     ];
-    for(const [label,val] of rows){
+    const head=document.createElement('div'); head.className='recrow'; head.style.opacity='0.7';
+    head.innerHTML=`<span style="flex:1"></span><b style="width:68px;text-align:right;color:#9fd0ff">This Run</b><b style="width:92px;text-align:right">Lifetime</b>`;
+    body.appendChild(head);
+    for(const [label,rv,lv] of rows){
       const r=document.createElement('div'); r.className='recrow';
-      r.innerHTML=`<span>${label}</span><b>${val}</b>`;
+      r.innerHTML=`<span style="flex:1">${label}</span><b style="width:68px;text-align:right;color:#9fd0ff">${rv}</b><b style="width:92px;text-align:right">${lv}</b>`;
       body.appendChild(r);
     }
   } else if(_logTab==='daily'){
@@ -7032,7 +7173,9 @@ const SND={ctx:null,master:null,muted:false,windGain:null,ready:false};
 /* audio samples loaded from external files (de-bloated from base64 data URIs) */
 const SAMPLE_SRC={
   cannon:'assets/cannon.mp3',
-  explosion:'assets/explosion.mp3'
+  explosion:'assets/explosion.mp3',
+  storm:'assets/storm.mp3',       // lightning/thunder clap
+  musket:'assets/musket.mp3'      // shore-party muskets
 };
 // ---- rock sprites for explorable-island mountains (authored top-down/3-4 art) ----
 const ROCK_SPRITES=[];     // loaded <img> elements; index referenced by peak.sprite
@@ -7084,6 +7227,14 @@ function initAudio(){
   }catch(e){ /* audio unsupported — game still runs silently */ }
 }
 function aNow(){return SND.ctx.currentTime;}
+// iOS WebView suspends the AudioContext when the app is backgrounded, and it stays
+// suspended on return — which silenced the game until a full restart. Resume it
+// whenever the player comes back or next interacts (resume() may need a gesture).
+function resumeAudio(){ try{ if(SND.ctx && SND.ctx.state==='suspended') SND.ctx.resume(); }catch(e){} }
+document.addEventListener('visibilitychange',()=>{ if(!document.hidden) resumeAudio(); });
+window.addEventListener('focus',resumeAudio);
+window.addEventListener('pageshow',resumeAudio);
+['pointerdown','touchend','keydown'].forEach(ev=>window.addEventListener(ev,resumeAudio,{passive:true}));
 // short noise buffer for impacts/splashes
 let _noiseBuf=null;
 function noiseBuffer(){
@@ -7346,14 +7497,24 @@ const sfx={
     thump(150,80,0.08,0.22);
     noise(0.05,0.06,700,'lowpass',0,0.4);
   },
-  thunder(){ // rolling thunder: low rumble + a noise crack that decays
-    thump(55,28,1.4,0.5);
-    noise(1.2,0.35,300,'lowpass',0,0.8);
-    impact(1.0,0.25,180,50,1.6,0.04);
-  },
-  whaleSpout(){ // breathy upward whoosh of misty water from the blowhole
-    noise(0.7,0.3,900,'bandpass',0.0,0.7);     // airy spray
-    thump(120,200,0.35,0.18);                   // a low "pphhoo" breath that rises
+  thunder(){ playSample('storm',0.9,0.03); },    // custom storm/thunder recording
+  musket(){ playSample('musket',0.45,0.12); },   // shore-party musket (pitch-varied for volleys)
+  whaleSpout(){ // a real spout: a sharp pressurized BLOW rushing up, then spray pattering back down
+    if(!SND.ready)return;
+    const t0=aNow();
+    // 1) the blow — breathy noise whose bandpass sweeps UP fast (water shooting up)
+    const s=SND.ctx.createBufferSource(); s.buffer=noiseBuffer(); s.playbackRate.value=0.95;
+    const f=SND.ctx.createBiquadFilter(); f.type='bandpass'; f.Q.value=0.8;
+    f.frequency.setValueAtTime(260,t0); f.frequency.exponentialRampToValueAtTime(2000,t0+0.16);
+    const g=SND.ctx.createGain();
+    g.gain.setValueAtTime(0.0001,t0);
+    g.gain.linearRampToValueAtTime(0.36,t0+0.035);          // quick punchy onset
+    g.gain.exponentialRampToValueAtTime(0.06,t0+0.24);
+    s.connect(f); f.connect(g); g.connect(SND.master); s.start(t0); s.stop(t0+0.7);
+    // 2) a low breathy body under the blow ("phhoo")
+    thump(90,150,0.28,0.13);
+    // 3) water falling back to the sea — soft lowpass spray, delayed so it reads as a sequence
+    noise(0.5,0.16,1300,'lowpass',0,0.22);
   },
 };
 function updateWind(speed,maxspeed){
@@ -7396,38 +7557,43 @@ function boot(){
 function runSplash(){
   const splash=el('splash'), icon=el('splashicon');
   if(!splash||!icon){ el('ov-start').classList.add('show'); return; }
-  const vw=window.innerWidth, vh=window.innerHeight;
-  // 1) icon shown large but CONTAINED — sized to the SMALLER dimension with margin, centered,
-  //    so it never bleeds off the sides of a tall phone (it's a logo, not a wallpaper).
-  //    The sky-gradient #splash background fills the rest of the screen behind it.
-  const fill=Math.min(vw,vh)*0.86;          // comfortably within the screen, no overscan
-  const place=(L,T,Wd,H2,radius)=>{ icon.style.left=L+'px'; icon.style.top=T+'px';
-    icon.style.width=Wd+'px'; icon.style.height=H2+'px'; if(radius!=null)icon.style.borderRadius=radius+'px'; };
-  // start state (no transition yet)
-  icon.style.transition='none';
-  place((vw-fill)/2,(vh-fill)/2,fill,fill,fill*0.16);
-  // force reflow so the next change animates
-  void icon.offsetWidth;
-  icon.style.transition='';
-
-  // prepare the menu underneath but keep it hidden until the icon starts shrinking
-  const hero=document.querySelector('#ov-start .hero-art');
-  if(hero) hero.style.visibility='hidden';
-
-  // 2) hold the full-screen icon, then shrink to the hero's measured rect
-  setTimeout(()=>{
-    el('ov-start').classList.add('show');     // menu fades in as the icon shrinks
-    let r=hero?hero.getBoundingClientRect():null;
-    if(!r || r.width<10){ r={left:vw/2-110,top:vh*0.18,width:220,height:220}; } // fallback
-    place(r.left, r.top, r.width, r.height, 22);
-  }, 750);
-
-  // 3) when the icon lands, reveal the real hero and remove the splash
-  setTimeout(()=>{
-    if(hero) hero.style.visibility='';
-    splash.classList.add('hidden');
-    setTimeout(()=>{ splash.style.display='none'; }, 450);
-  }, 750+820);   // hold + transition duration
+  // The logo is a large PNG. If it hadn't decoded yet, the splash showed a blank
+  // sky and the logo only popped in part-way through the shrink. Wait until the
+  // image is actually ready, THEN run the reveal so it shows at full size from
+  // the first frame.
+  const start=()=>{
+    const vw=window.innerWidth, vh=window.innerHeight;
+    // icon shown large but CONTAINED — sized to the smaller dimension with margin,
+    // centered, so it never bleeds off the sides of a tall phone.
+    const fill=Math.min(vw,vh)*0.86;
+    const place=(L,T,Wd,H2,radius)=>{ icon.style.left=L+'px'; icon.style.top=T+'px';
+      icon.style.width=Wd+'px'; icon.style.height=H2+'px'; if(radius!=null)icon.style.borderRadius=radius+'px'; };
+    icon.style.transition='none';
+    place((vw-fill)/2,(vh-fill)/2,fill,fill,fill*0.16);
+    void icon.offsetWidth;                 // force reflow so the next change animates
+    icon.style.transition='';
+    const hero=document.querySelector('#ov-start .hero-art');
+    if(hero) hero.style.visibility='hidden';
+    // hold the full-screen icon, then shrink to the hero's measured rect
+    setTimeout(()=>{
+      el('ov-start').classList.add('show');
+      let r=hero?hero.getBoundingClientRect():null;
+      if(!r || r.width<10){ r={left:vw/2-110,top:vh*0.18,width:220,height:220}; }
+      place(r.left, r.top, r.width, r.height, 22);
+    }, 750);
+    // when the icon lands, reveal the real hero and remove the splash
+    setTimeout(()=>{
+      if(hero) hero.style.visibility='';
+      splash.classList.add('hidden');
+      setTimeout(()=>{ splash.style.display='none'; }, 450);
+    }, 750+820);
+  };
+  if(icon.complete && icon.naturalWidth>0){ start(); return; }
+  let begun=false; const go=()=>{ if(begun)return; begun=true; start(); };
+  icon.addEventListener('load',go,{once:true});
+  icon.addEventListener('error',go,{once:true});   // missing image: don't hang, just proceed
+  if(icon.decode){ icon.decode().then(go).catch(go); }
+  setTimeout(go,1500);                              // failsafe so the splash never stalls
 }
 // wait for fonts then boot
 if(document.fonts&&document.fonts.ready){document.fonts.ready.then(()=>setTimeout(boot,150));}
