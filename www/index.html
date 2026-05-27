@@ -1630,7 +1630,12 @@ function islandEdge(is, px, py, frac){
   const pts=is.pts, offs=is.offs;
   const t=((localA%( Math.PI*2))+Math.PI*2)%(Math.PI*2)/(Math.PI*2)*pts;
   const i0=Math.floor(t)%pts, i1=(i0+1)%pts, fr=t-Math.floor(t);
-  const off=offs[i0]*(1-fr)+offs[i1]*fr;
+  // Match islandPath's quadratic curve (control radius = min of the two neighbours
+  // *0.99, at the angular midpoint) so collision tracks the PAINTED shore. A plain
+  // linear chord bows OUTSIDE the drawn sand on lumpy islands, which let the shore
+  // party (and boats) sit on open water just past the visible edge.
+  const r0=offs[i0], r1=offs[i1], rmid=Math.min(r0,r1)*0.99, om=1-fr;
+  const off=om*om*r0 + 2*om*fr*rmid + fr*fr*r1;
   const baseR=is.r*off*frac;
   // account for stretch: a unit direction in local space scaled by (st on x, 1 on y)
   const ux=Math.cos(localA), uy=Math.sin(localA);
@@ -1676,7 +1681,13 @@ function islandPath(is,scale){
 function drawIsland(is){
   const z=G.cam.zoom;
   const sx=wx(is.x), sy=wy(is.y), R=is.r*z;
-  if(sx<-R-80||sx>W+R+80||sy<-R-80||sy>H+R+80)return;
+  // Generous cull margin: an island draws a halo past R AND a tall mountain sprite
+  // that rises well above centre, so a tight 80px margin made big islands appear only
+  // once nearly centred ("hidden until close"). Scale the margin with R (+ a flat pad)
+  // so islands start drawing while still off-screen. (Wider margin only ever draws MORE,
+  // so it can't hide anything — worst case is a touch more offscreen drawing.)
+  const m=R*0.6+260;
+  if(sx<-R-m||sx>W+R+m||sy<-R-m||sy>H+R+m)return;
 
   // shallow water halo (outermost, drawn FIRST so foam/sand layer on top cleanly)
   islandPath(is,1.16);
@@ -3331,12 +3342,12 @@ function startShoreParty(is){
   G.shore={ is, dinghyX:s.x, dinghyY:s.y, landX:lx, landY:ly,
     px:s.x, py:s.y, pa:a, phase:'rowin', t:0, loot, gotCount:0, walkPhase:0, shipX:s.x, shipY:s.y,
     creatures:[], shots:[], partyHp:100, partyMaxHp:100, fireT:0, hurtFlash:0 };
-  // crew = bigger landing party. base 2, +1 per 2 crew levels, capped at 6.
+  // crew = bigger landing party. Pirates ashore scale straight off the Crew upgrade:
+  // 2 at crew 0, up to 8 at crew 8 (max). These are the marines that go ashore.
   const crewLv=(G.upgrades&&G.upgrades.crew)||0;
   const hullLv=(G.upgrades&&G.upgrades.hull)||0;
   const cannonLv=(G.upgrades&&G.upgrades.cannons)||0;
-  // a bigger crew brings more pirates ashore (up to 8 at max crew)
-  const partyN=Math.min(8, 2+Math.floor(crewLv/1.5));
+  const partyN=clamp(2+Math.round(crewLv*0.75), 2, 8);   // crew 0->2, 4->5, 8->8
   // party toughness scales with hull (armor) AND crew (numbers) so a maxed ship
   // can actually survive a dangerous island, not get smoked in seconds.
   G.shore.partyMaxHp = 120 + partyN*22 + hullLv*30;     // ~340 at max vs ~200 before
@@ -3483,6 +3494,7 @@ function updateShore(dt){
     }
     if(sh.crew){
       for(const c of sh.crew){
+        if(c.dead) continue;                                 // fallen pirates don't fire
         if(c.reload===undefined){ c.reload=rnd(0.2,1.0); }   // desync initial timers
         c.reload-=dt;
         if(c.reload>0) continue;
@@ -3593,6 +3605,27 @@ function updateShore(dt){
         const nx=c.x+Math.cos(c.a)*c.spd*0.4*dt, ny=c.y+Math.sin(c.a)*c.spd*0.4*dt;
         const edge=islandEdge(sh.is,nx,ny,0.98);
         if(dist(nx,ny,sh.is.x,sh.is.y)<edge){ c.x=nx; c.y=ny; } else { c.a=rnd(TAU); }
+      }
+    }
+    // 3b) pirates fall as the party bleeds out. Purely visual flavour: partyHp is the
+    // real health bar; this just maps the remaining fraction to how many marines are
+    // still standing (always ≥1 until the party is wiped). Does NOT touch upgrades or
+    // the crew aboard the ship.
+    if(sh.crew && sh.crew.length){
+      const n=sh.crew.length;
+      const frac = sh.partyMaxHp>0 ? sh.partyHp/sh.partyMaxHp : 0;
+      const aliveTarget = sh.partyHp<=0 ? 0 : Math.max(1, Math.ceil(n*frac));
+      let aliveNow=0; for(const c of sh.crew) if(!c.dead) aliveNow++;
+      while(aliveNow>aliveTarget){
+        for(let i=n-1;i>=0;i--){ const c=sh.crew[i];
+          if(!c.dead){
+            c.dead=true; c.deathT=0; c.fallA=(Math.random()<0.5?-1:1);
+            for(let k=0;k<8;k++)G.particles.push({x:c.lx,y:c.ly,vx:rnd(-40,40),vy:rnd(-60,5),life:.5,max:.5,c:'#a33',r:2});
+            if(typeof sfx!=='undefined'&&sfx.thud)sfx.thud();
+            break;
+          }
+        }
+        aliveNow--;
       }
     }
     // 4) party driven off when health runs out → forced retreat
@@ -3727,6 +3760,23 @@ function drawShore(){
     });
     for(const idx of order){
       const c=crew[idx];
+      // fallen marine: tip over from the feet and desaturate to a grey heap.
+      if(c.dead){
+        c.deathT=(c.deathT||0)+G.dt;
+        const fall=Math.min(1,c.deathT*4);                 // quick tip-over, then settle
+        const cx=wx(c.lx), cy=wy(c.ly);
+        ctx.fillStyle='rgba(20,50,40,0.22)';
+        ctx.beginPath();ctx.ellipse(cx,cy+7*z,7*z,3*z,0,0,TAU);ctx.fill();   // ground shadow
+        ctx.save();
+        ctx.translate(cx,cy+6*z);
+        ctx.rotate((c.fallA||1)*1.35*fall);                // rotate onto one side
+        ctx.globalAlpha=0.9;
+        ctx.fillStyle='#6f6f6f';roundRect(-4*z,-9*z,8*z,9*z,2*z);ctx.fill();          // grey body
+        ctx.fillStyle='#8c8c8c';ctx.beginPath();ctx.arc(0,-12*z,3.4*z,0,TAU);ctx.fill(); // grey head
+        ctx.globalAlpha=1;
+        ctx.restore();
+        continue;
+      }
       // slow personal drift so the cluster keeps shifting (not a rigid formation)
       c.wanderT-=G.dt;
       if(c.wanderT<=0){ c.wanderT=1.5+Math.random()*2.5; c.wanderA=Math.random()*TAU; }
@@ -4639,17 +4689,8 @@ function drawWeather(){
   // 1) darken/desaturate the scene with a stormy blue-grey wash
   ctx.fillStyle='rgba(30,38,54,'+(0.42*I)+')';
   ctx.fillRect(0,0,W,H);
-  // 2) drifting dark cloud shadows sweeping across (large soft blobs)
-  ctx.save();
-  ctx.globalAlpha=0.22*I;
-  ctx.fillStyle='#1c2536';
-  const drift=(G.t*40)% (W+400) - 200;
-  for(let i=0;i<4;i++){
-    const cx=drift + i*((W+400)/4) - ((i%2)*120);
-    const cy=H*(0.15+0.22*i);
-    ctx.beginPath();ctx.ellipse(cx,cy,260,120,0,0,TAU);ctx.fill();
-  }
-  ctx.restore();
+  // (removed) drifting dark cloud-shadow ovals — they read as ugly blobs, not clouds.
+  // The blue-grey wash above already sells the gloom; rain + lightning do the rest.
   // 3) rain streaks (slanted)
   if(w.rain.length){
     ctx.strokeStyle='rgba(200,220,240,0.5)';ctx.lineWidth=1.4;
@@ -6045,12 +6086,13 @@ function loop(now){
     applyKeyboardInput();   // WASD walks the shore party on PC
     updateShore(G.dt);
     updateParticles(G.dt);
+    updateWeather(G.dt);    // keep the storm/rain animating ashore (was frozen here)
     // camera follows the shore party at a FIXED, close zoom (personal & fun) —
     // independent of how big the ship has grown.
     const sh=G.shore;
     if(sh){
       G.cam.x=lerp(G.cam.x,sh.px,G.dt*3); G.cam.y=lerp(G.cam.y,sh.py,G.dt*3);
-      const shoreZoom=(H>W)?1.9:1.7;             // tight, character-scale view
+      const shoreZoom=(H>W)?1.55:1.4;            // a touch wider so you can see around you
       G.cam.zoom=lerp(G.cam.zoom, shoreZoom, G.dt*3);
     }
     updateHUD();
