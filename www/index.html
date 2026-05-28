@@ -3355,24 +3355,37 @@ function startShoreParty(is){
     }
   }
   // a few loose coins + shanty bottles sprinkled around (kept clear of mountains)
-  const extra = is.explorable ? (4+Math.floor(rr()*4)) : (4+Math.floor(rr()*4));
+  const extra = 4+Math.floor(rr()*4);
   for(let i=0;i<extra;i++){
     const ang=rr()*TAU;
     // clamp the radius to the REAL shore in this direction (islandEdge handles
     // offs+rot+stretch+bay), so loot never lands out in the water.
     const shoreR=islandEdge(is, is.x+Math.cos(ang), is.y+Math.sin(ang), 1.0);
-    const rad=shoreR*lerp(0.12,0.80,rr());
+    const depth=lerp(0.12,0.80,rr());                       // how far in (fraction of shore dist)
+    const rad=shoreR*depth;
+    const inland=clamp((0.80-depth)/0.68,0,1);              // 0 at the beach → 1 deep inland
     const kind = rr()<0.3?'bottle':'coins';
     let lxp=is.x+Math.cos(ang)*rad, lyp=is.y+Math.sin(ang)*rad;
     [lxp,lyp]=clearMtn(lxp,lyp);
+    const base = kind==='bottle'?rndi(20,50):rndi(25,70);
+    // RISK/REWARD: the deeper inland (nearer the dangerous heart), the richer the find
     loot.push({ x:lxp, y:lyp, kind, got:false,
-      val: kind==='bottle'?rndi(20,50):rndi(25,70), wood:0, bob:rr()*TAU });
+      val: Math.round(base*(1+inland*2.2)), wood:0, bob:rr()*TAU });
   }
   // If this island's buried cache is already REVEALED (mapped), the shore party can
   // just dig it up here instead of needing a separate "send party" trip.
   if(is.cache && is.cache.state==='revealed'){
     loot.push({ x:is.cache.digX, y:is.cache.digY, kind:'cache', got:false,
       val:is.cache.gold, wood:is.cache.wood||0, big:is.cache.big, bob:rr()*TAU, _cacheRef:is.cache });
+  }
+  // CENTRAL HOARD — the richest prize sits deep at the island's heart, guarded.
+  if(is.explorable){
+    const hn=1+Math.floor(rr()*2);                         // 1-2 prize chests
+    for(let i=0;i<hn;i++){
+      const ha=rr()*TAU, hd=is.r*lerp(0.05,0.22,rr());
+      let hx=is.x+Math.cos(ha)*hd, hy=is.y+Math.sin(ha)*hd; [hx,hy]=clearMtn(hx,hy);
+      loot.push({ x:hx, y:hy, kind:'chest', got:false, val:rndi(220,420), wood:rndi(6,14), bob:rr()*TAU, hoard:true });
+    }
   }
   G.shore={ is, dinghyX:s.x, dinghyY:s.y, landX:lx, landY:ly,
     px:s.x, py:s.y, pa:a, phase:'rowin', t:0, loot, gotCount:0, walkPhase:0, shipX:s.x, shipY:s.y,
@@ -3448,6 +3461,16 @@ function startShoreParty(is){
         wanderT:rr()*2, attackT:0, reload:rr()*1.2,
         hp:46, r:14, spd:74, dmg:9, range:300, gold:rndi(25,55) });
     }
+  }
+  // GUARDIAN — a hulking Tidal Brute (giant crab) squats over the central hoard on
+  // bigger islands; the party must fight through it for the richest loot. Tanky, hits
+  // hard, drops a fat purse.
+  if(is.explorable && is.r>=300){
+    const ba=rr()*TAU, bd=is.r*lerp(0.06,0.18,rr());
+    let bx=is.x+Math.cos(ba)*bd, by=is.y+Math.sin(ba)*bd; [bx,by]=clearMtn(bx,by);
+    G.shore.creatures.push({ x:bx, y:by, kind:'crab', boss:true,
+      a:rr()*TAU, t:rr()*TAU, dead:false, hitflash:0, state:'wander', wanderT:rr()*2, attackT:0,
+      hp:300+G.mapIndex*55, r:36, spd:48, dmg:22, range:210, gold:rndi(180,340) });
   }
   // retention: a shore party was sent; mark creatures encountered in the bestiary
   G.stats.shorePartiesSent=(G.stats.shorePartiesSent||0)+1;
@@ -3567,7 +3590,7 @@ function updateShore(dt){
             if(c.kind==='native' && typeof seeKind==='function') seeKind('native');
             G.stats.goldEarned=(G.stats.goldEarned||0)+c.gold;
             checkAchievements();
-            toast((c.kind==='crab'?'🦀':c.kind==='boar'?'🐗':c.kind==='native'?'🏹':'🐍')+' +'+c.gold+'g',1200);
+            toast((c.boss?'🦀 Tidal Brute felled! ':(c.kind==='crab'?'🦀 ':c.kind==='boar'?'🐗 ':c.kind==='native'?'🏹 ':'🐍 '))+'+'+c.gold+'g',c.boss?2400:1200);
             for(let k=0;k<10;k++)G.particles.push({x:c.x,y:c.y,vx:rnd(-50,50),vy:rnd(-60,10),life:.6,max:.6,c:'#ffe08a',r:3});
           }
           break;
@@ -3920,8 +3943,8 @@ function drawShore(){
       for(let L=-1;L<=1;L++){ const ox=L*cr*0.5;
         ctx.beginPath();ctx.moveTo(cx+ox,cy);ctx.lineTo(cx+ox-cr*0.5,cy+cr*0.5+wob*L);ctx.stroke();
         ctx.beginPath();ctx.moveTo(cx+ox,cy);ctx.lineTo(cx+ox+cr*0.5,cy+cr*0.5-wob*L);ctx.stroke(); }
-      ctx.fillStyle=flash?'#fff':'#e0552a';ctx.beginPath();ctx.ellipse(cx,cy,cr,cr*0.7,0,0,TAU);ctx.fill();
-      ctx.fillStyle=flash?'#fff':'#e0552a';ctx.beginPath();ctx.arc(cx-cr,cy-cr*0.3,cr*0.4,0,TAU);ctx.arc(cx+cr,cy-cr*0.3,cr*0.4,0,TAU);ctx.fill();
+      ctx.fillStyle=flash?'#fff':(c.boss?'#8a3fa0':'#e0552a');ctx.beginPath();ctx.ellipse(cx,cy,cr,cr*0.7,0,0,TAU);ctx.fill();
+      ctx.fillStyle=flash?'#fff':(c.boss?'#8a3fa0':'#e0552a');ctx.beginPath();ctx.arc(cx-cr,cy-cr*0.3,cr*0.4,0,TAU);ctx.arc(cx+cr,cy-cr*0.3,cr*0.4,0,TAU);ctx.fill();
       ctx.fillStyle='#1a1a22';ctx.beginPath();ctx.arc(cx-cr*0.3,cy-cr*0.5,cr*0.18,0,TAU);ctx.arc(cx+cr*0.3,cy-cr*0.5,cr*0.18,0,TAU);ctx.fill();
     } else if(c.kind==='boar'){
       ctx.save();ctx.translate(cx,cy);ctx.rotate(c.a+Math.PI/2);
