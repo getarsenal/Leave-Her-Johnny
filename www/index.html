@@ -6645,6 +6645,7 @@ function loop(now){
     G.cam.x=lerp(G.cam.x,G.ship.x,G.dt*1.5);
     G.cam.y=lerp(G.cam.y,G.ship.y,G.dt*1.5);
   }
+  if(SND&&SND.ready) updateMusic();   // swap background track to match the moment
   if(G.world) render();
  }catch(err){
   // surface the real error once instead of a silent freeze ("Script error.")
@@ -7742,7 +7743,11 @@ const SAMPLE_SRC={
   cannon:'assets/cannon.mp3',
   explosion:'assets/explosion.mp3',
   storm:'assets/storm.mp3',       // lightning/thunder clap
-  musket:'assets/musket.mp3'      // shore-party muskets
+  musket:'assets/musket.mp3',     // shore-party muskets
+  // looping background music (gracefully silent until the files exist):
+  musicBoss:'assets/music_boss.mp3',    // "Caribbean Adventure" — plays during ALL boss fights
+  musicShore:'assets/music_shore.mp3',  // "Roguish Captain" — plays during shore parties
+  musicMain:'assets/music_main.mp3'     // main sailing/menu theme (optional)
 };
 // ---- rock sprites for explorable-island mountains (authored top-down/3-4 art) ----
 const ROCK_SPRITES=[];     // loaded <img> elements; index referenced by peak.sprite
@@ -7781,6 +7786,36 @@ function playSample(key,vol=1,rateVar=0){
     src.connect(g); g.connect(SND.master); src.start();
   }catch(e){}
 }
+/* ---- looping BACKGROUND MUSIC: one track for the moment (boss / shore / sailing).
+   Crossfades; no-ops if a track file isn't present, so it's safe before the mp3s
+   are added. updateMusic() (called each frame) picks the track for the game state. */
+function startMusic(key,vol){
+  if(!SND.ready||!SND.ctx||SND.ctx.state!=='running')return;
+  if(SND.music && SND.music.key===key)return;        // already playing this one
+  stopMusic();
+  const buf=SND.buffers[key]; if(!buf)return;         // track not loaded (yet) — silent
+  try{
+    const src=SND.ctx.createBufferSource(); src.buffer=buf; src.loop=true;
+    const g=SND.ctx.createGain(); g.gain.value=0.0001;
+    src.connect(g); g.connect(SND.master); src.start();
+    g.gain.exponentialRampToValueAtTime(SND.muted?0.0001:(vol||0.5), aNow()+1.2);   // fade in
+    SND.music={key,src,gain:g};
+  }catch(e){}
+}
+function stopMusic(){
+  if(!SND.music)return; const m=SND.music; SND.music=null;
+  try{ const g=m.gain.gain; g.cancelScheduledValues(aNow()); g.setValueAtTime(Math.max(0.0001,g.value||0.0001),aNow());
+    g.exponentialRampToValueAtTime(0.0001,aNow()+0.6); m.src.stop(aNow()+0.7); }catch(e){}
+}
+function updateMusic(){
+  let want=null;
+  if(G.state==='shore') want='musicShore';
+  else if(G.state==='play' && G.entities && G.entities.some(e=>e.type==='boss'&&!e.dead)) want='musicBoss';
+  else if(G.state==='play'||G.state==='menu') want='musicMain';
+  if(want && !(SND.buffers&&SND.buffers[want])) want=null;   // only play tracks that are loaded
+  const cur=SND.music?SND.music.key:null;
+  if(want!==cur){ if(want) startMusic(want, want==='musicBoss'?0.55:0.45); else stopMusic(); }
+}
 function initAudio(){
   if(SND.ctx)return;
   try{
@@ -7807,7 +7842,7 @@ let _audioWasInterrupted=false;
 function resumeAudio(){ try{ if(SND.ctx && SND.ctx.state!=='running' && SND.ctx.state!=='closed') SND.ctx.resume(); }catch(e){} }
 function rebuildAudio(){
   try{ if(SND.ctx) SND.ctx.close(); }catch(e){}
-  SND.ctx=null; SND.master=null; SND.windGain=null; SND.windFilter=null; SND.ready=false;
+  SND.ctx=null; SND.master=null; SND.windGain=null; SND.windFilter=null; SND.ready=false; SND.music=null;  // music restarts via updateMusic
   _noiseBuf=null;                 // noise buffer is generated per-context — regenerate it
   // NB: keep SND.buffers — decoded sample AudioBuffers replay fine on the new context,
   // and loadSamples() skips already-cached keys, so no re-fetch/re-decode.
