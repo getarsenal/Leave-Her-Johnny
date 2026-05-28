@@ -731,7 +731,7 @@ const G = {
   gold:0, wood:0,
   ship:null,
   entities:[], cannonballs:[], particles:[], floaters:[], wakes:[],
-  upgrades:{hull:0,sails:0,cannons:0,crew:0,hold:0,hotshot:0,spread:0,ballast:0,chain:0,plating:0},
+  upgrades:{hull:0,sails:0,cannons:0,crew:0,hold:0,hotshot:0,spread:0,ballast:0,chain:0,plating:0,boarding:0},
   dev:{invincible:false, oneShot:false},   // developer god-mode toggles
   objective:'', objectiveDone:false,
   treasureFound:0, treasureTotal:0,
@@ -801,6 +801,11 @@ const UP = {
     tiers:['Drilled Crew','Veteran Crew','Legendary Crew'],
     cost:l=>({g:Math.round(225*Math.pow(1.47,l)), w:8+l*5}),
     gate:l=>l<=2?0:l<=3?1:l<=4?2:l<=5?3:l<=6?4:l<=7?5:6 },
+  boarding:{ name:'Boarding Parties', emoji:'🪝', max:6,
+    desc:'Storm a crippled ship for DOUBLE loot — each level sends one more marine',
+    tiers:['Grapple Crew','Cutlass Squad','Dread Boarders'],
+    cost:l=>({g:Math.round(280*Math.pow(1.5,l)), w:14+l*9}),
+    gate:l=>l<=1?1:l<=2?2:l<=3?3:l<=4?4:5 },
   hold:{ name:'Cargo Hold', emoji:'🪙', max:6,
     desc:'More gold & wood per kill',
     tiers:['Ship Hold','Strong Vault','Dragon\u2019s Hold'],
@@ -3561,6 +3566,7 @@ function startShoreParty(is){
 }
 function updateShore(dt){
   const sh=G.shore; if(!sh)return;
+  if(sh.boarding){ updateBoarding(sh,dt); return; }   // boarding is a self-contained module
   const sp=90;
   if(sh.phase==='rowin'){
     const d=dist(sh.px,sh.py,sh.landX,sh.landY);
@@ -3856,6 +3862,7 @@ function shoreReturn(){ if(G.shore){ G.shore.phase='rowout'; hideShorePrompt(); 
 function shoreKeepExploring(){ hideShorePrompt(); if(G.shore){ G.shore.promptUp=false; G.shore.promptDismissed=true; } }
 function drawShore(){
   const sh=G.shore; if(!sh)return;
+  if(sh.boarding){ drawBoarding(sh); return; }   // boarding is a self-contained module
   const z=G.cam.zoom;
   // rival raider camp: crates, a campfire and a tattered flag
   if(sh.camp){
@@ -4182,6 +4189,332 @@ function drawShore(){
       ctx.fillRect(0,0,W,H);
     }
   }
+}
+/* ================================================================
+   ⚔️ BOARDING PARTIES — storm a crippled enemy ship's deck.
+   Reuses the shore session machinery (state 'shore', input controls,
+   zoomed camera, HUD-hide) but is otherwise fully self-contained so the
+   island shore code is untouched. World-space so wx/wy/zoom just work.
+   Trigger: knock a big warship / rich merchant below 50% HP (sea 2+),
+   sail alongside, accept the prompt. Win = sink + DOUBLE loot; lose =
+   survivors swing back, the ship lives on, your hull takes a hit.
+   Marine count scales with the Boarding upgrade level.
+   ================================================================ */
+function isBoardable(e){
+  if(!e || e.dead) return false;
+  if(e.type==='navy')  return e.cls==='frigate'||e.cls==='galleon'||e.cls==='manowar';
+  if(e.type==='cargo') return !!e.rich;        // treasure barge / trade galleon / convoy ships
+  return false;
+}
+function deckToWorld(sh,along,across){
+  return { x: sh.cx + along*Math.cos(sh.ang) - across*Math.sin(sh.ang),
+           y: sh.cy + along*Math.sin(sh.ang) + across*Math.cos(sh.ang) };
+}
+function worldToDeck(sh,x,y){
+  const dx=x-sh.cx, dy=y-sh.cy;
+  return { along: dx*Math.cos(sh.ang)+dy*Math.sin(sh.ang),
+           across:-dx*Math.sin(sh.ang)+dy*Math.cos(sh.ang) };
+}
+function startBoarding(enemy){
+  if(!enemy || G.shore) return;
+  const s=G.ship, mi=G.mapIndex;
+  const lv=(G.upgrades&&G.upgrades.boarding)||0;
+  const marines=clamp(2+lv,3,8);                                   // upgrade level = more marines
+  const hullLv=(G.upgrades&&G.upgrades.hull)||0, cannonLv=(G.upgrades&&G.upgrades.cannons)||0, crewLv=(G.upgrades&&G.upgrades.crew)||0;
+  const ang=enemy.a||0, halfL=120, halfW=46;
+  // which long side faces our ship? marines board (and retreat) over that rail
+  const dx=s.x-enemy.x, dy=s.y-enemy.y;
+  const nearSide = (-dx*Math.sin(ang)+dy*Math.cos(ang))>=0 ? 1 : -1;
+  const sh={ boarding:true, enemy, cx:enemy.x, cy:enemy.y, ang, halfL, halfW, nearSide,
+    px:0,py:0,pa:ang, crew:[], partyMaxHp:90+marines*22+hullLv*18, partyHp:0, crewDmg:9+cannonLv*2+crewLv*1,
+    enemies:[], shots:[], ethrows:[], hatches:[], ropes:[],
+    waves:0, waveT:1.0, toKill:0, killed:0, spawnedTotal:0,
+    phase:'swingin', t:0, walkPhase:0, hurtFlash:0, aimAng:0, aimT:0, resolveT:0 };
+  sh.partyHp=sh.partyMaxHp;
+  const w0=deckToWorld(sh,0,nearSide*halfW*0.45); sh.px=w0.x; sh.py=w0.y;
+  for(let i=0;i<marines;i++){ const ca=Math.random()*TAU, cd=4+Math.random()*16;
+    sh.crew.push({ ox:Math.cos(ca)*cd, oy:Math.sin(ca)*cd*0.8, wanderA:Math.random()*TAU, wanderT:Math.random()*2,
+      phase:Math.random()*TAU, gait:0.85+Math.random()*0.4, wob:Math.random()*TAU, shirt:i,
+      reload:rnd(0.2,1.0), fireFlash:0, lx:sh.px, ly:sh.py, deathT:0 }); }
+  sh.hatches=[ {a:-halfL*0.42,c:0}, {a:0,c:0}, {a:halfL*0.42,c:0}, {a:halfL*0.78,c:0} ];
+  for(let i=0;i<4;i++){ const a=lerp(-halfL*0.7,halfL*0.7,i/3); sh.ropes.push({a, c0:nearSide*(halfW+34), c1:nearSide*(halfW*0.55)}); }
+  const base = enemy.type==='cargo' ? 3 : (enemy.cls==='manowar'?7:enemy.cls==='galleon'?5:4);
+  sh.toKill = base + Math.floor(mi*0.8);
+  sh.waves  = clamp(Math.ceil(sh.toKill/3), 2, 4);
+  enemy._boarding=true; if(G.ship) G.ship._boarding=true;          // hide the tiny ship sprites under the deck art
+  G.shore=sh; G.state='shore';
+  G.stats.boardingsStarted=(G.stats.boardingsStarted||0)+1;
+  hidePortPrompt(); G.portPromptShown=false;
+  toast('🪝 Grapples away — board her!',1800);
+}
+function spawnBoardWave(sh){
+  const mi=G.mapIndex;
+  const remaining=sh.toKill-sh.spawnedTotal; if(remaining<=0) return;
+  const per=Math.ceil(sh.toKill/sh.waves), n=Math.min(per,remaining);
+  for(let i=0;i<n;i++){
+    const h=sh.hatches[Math.floor(Math.random()*sh.hatches.length)];
+    const w=deckToWorld(sh, h.a+rnd(-10,10), h.c+rnd(-10,10));
+    const ranged=Math.random()<0.3 && mi>=2;
+    sh.enemies.push({ x:w.x, y:w.y, a:sh.ang, t:Math.random()*TAU, dead:false, hitflash:0, kind:'boarder', ranged,
+      hp:(ranged?22:30)+mi*6, r:12, spd:ranged?70:90, dmg:(ranged?8:11)+mi, range:ranged?260:30,
+      reload:rnd(0.6,1.6), fireFlash:0, attackT:0, shirt:Math.floor(Math.random()*3) });
+  }
+  sh.spawnedTotal+=n;
+}
+function updateBoardCrew(sh,dt){
+  const moving=input.active&&input.mag>0;
+  const cs=Math.cos(sh.pa+Math.PI/2), sn=Math.sin(sh.pa+Math.PI/2);
+  for(const c of sh.crew){
+    if(c.dead){ c.deathT+=dt; continue; }
+    c.wanderT-=dt; if(c.wanderT<=0){ c.wanderT=1.5+Math.random()*2.5; c.wanderA=Math.random()*TAU; }
+    c.ox+=Math.cos(c.wanderA)*6*dt; c.oy+=Math.sin(c.wanderA)*5*dt;
+    const od=Math.hypot(c.ox,c.oy); if(od>22){ c.ox*=22/od; c.oy*=22/od; }
+    const slotX=sh.px + c.ox*cs - c.oy*sn, slotY=sh.py + c.ox*sn + c.oy*cs;
+    const ease=0.12*c.gait;
+    c.lx+=(slotX-c.lx)*ease; c.ly+=(slotY-c.ly)*ease;
+    const L=worldToDeck(sh,c.lx,c.ly), pad=10;
+    if(Math.abs(L.along)>sh.halfL-pad||Math.abs(L.across)>sh.halfW-pad){
+      L.along=clamp(L.along,-sh.halfL+pad,sh.halfL-pad); L.across=clamp(L.across,-sh.halfW+pad,sh.halfW-pad);
+      const w=deckToWorld(sh,L.along,L.across); c.lx=w.x; c.ly=w.y; }
+    c.phase+=dt*(moving?10*c.gait:2.2);
+    if(c.fireFlash>0)c.fireFlash-=dt;
+  }
+}
+function updateBoarding(sh,dt){
+  sh.t+=dt;
+  if(sh.hurtFlash>0) sh.hurtFlash-=dt;
+  if(sh.phase==='swingin'){
+    if(sh.t>1.6){ sh.phase='fight'; spawnBoardWave(sh); sh.waveT=1.0; toast('⚔️ Cut them down!',1500); }
+    return;
+  }
+  if(sh.phase==='win' || sh.phase==='retreat'){
+    sh.resolveT+=dt; if(sh.resolveT>1.3) resolveBoarding(sh, sh.phase==='win'); return;
+  }
+  // ---- FIGHT ----
+  if(input.active && input.mag>0){
+    sh.pa=input.ang;
+    const nx=sh.px+Math.cos(input.ang)*78*input.mag*dt, ny=sh.py+Math.sin(input.ang)*78*input.mag*dt;
+    const L=worldToDeck(sh,nx,ny), pad=12;
+    L.along=clamp(L.along,-sh.halfL+pad,sh.halfL-pad); L.across=clamp(L.across,-sh.halfW+pad,sh.halfW-pad);
+    const w=deckToWorld(sh,L.along,L.across); sh.px=w.x; sh.py=w.y;
+  }
+  const live=sh.enemies.filter(e=>!e.dead);
+  if(sh.aimT>0) sh.aimT-=dt;
+  if(live.length){ let nd=1e9,nr=null; for(const e of live){const d=dist(sh.px,sh.py,e.x,e.y); if(d<nd){nd=d;nr=e;}} if(nr&&nd<340){ sh.aimAng=angTo(sh.px,sh.py,nr.x,nr.y); sh.aimT=Math.max(sh.aimT,0.2);} }
+  // marines fire muskets
+  for(const c of sh.crew){
+    if(c.dead) continue;
+    c.reload-=dt; if(c.reload>0) continue;
+    if(!live.length){ c.reload=0.2; continue; }
+    let best=null,bd=1e9; for(const e of live){const d=dist(c.lx,c.ly,e.x,e.y); if(d<bd){bd=d;best=e;}}
+    if(best && bd<300){
+      c.reload=rnd(0.55,1.15); const a=angTo(c.lx,c.ly,best.x,best.y)+rnd(-0.06,0.06);
+      sh.aimAng=a; sh.aimT=0.4; c.fireFlash=0.12;
+      const cd=sh.crewDmg||12;
+      sh.shots.push({x:c.lx,y:c.ly,vx:Math.cos(a)*470,vy:Math.sin(a)*470,life:0.7,dmg:rndi(Math.round(cd*0.8),Math.round(cd*1.2))});
+      for(let k=0;k<3;k++)G.particles.push({x:c.lx+Math.cos(a)*10,y:c.ly+Math.sin(a)*10,vx:Math.cos(a)*40+rnd(-15,15),vy:Math.sin(a)*40+rnd(-15,15),life:.3,max:.3,c:'#ddd6c8',r:2});
+      if(typeof sfx!=='undefined'&&sfx.musket)sfx.musket();
+    } else c.reload=0.2;
+  }
+  // advance marine shots
+  for(const sht of sh.shots){
+    sht.x+=sht.vx*dt; sht.y+=sht.vy*dt; sht.life-=dt;
+    for(const e of live){
+      if(e.dead) continue;                                   // already felled this frame — don't double-count
+      if(dist(sht.x,sht.y,e.x,e.y)<e.r+4){
+        e.hp-=sht.dmg; e.hitflash=1; sht.life=0;
+        for(let k=0;k<5;k++)G.particles.push({x:sht.x,y:sht.y,vx:rnd(-40,40),vy:rnd(-50,10),life:.4,max:.4,c:'#c44',r:2});
+        if(e.hp<=0){ e.dead=true; sh.killed++;
+          for(let k=0;k<10;k++)G.particles.push({x:e.x,y:e.y,vx:rnd(-50,50),vy:rnd(-60,10),life:.6,max:.6,c:'#ffd27a',r:3}); }
+        break;
+      }
+    }
+  }
+  sh.shots=sh.shots.filter(s=>s.life>0);
+  // enemy musket/thrown shots at the party
+  for(const t of sh.ethrows){ t.x+=t.vx*dt; t.y+=t.vy*dt; t.life-=dt;
+    if(t.life>0 && dist(t.x,t.y,sh.px,sh.py)<20){ t.life=0; sh.partyHp-=t.dmg; sh.hurtFlash=0.3;
+      for(let k=0;k<6;k++)G.particles.push({x:sh.px+rnd(-8,8),y:sh.py+rnd(-8,8),vx:rnd(-40,40),vy:rnd(-50,10),life:.4,max:.4,c:'#c44',r:3}); } }
+  sh.ethrows=sh.ethrows.filter(t=>t.life>0);
+  // boarder AI
+  for(const e of live){
+    if(e.hitflash>0)e.hitflash-=dt*4; e.t+=dt;
+    const dp=dist(e.x,e.y,sh.px,sh.py);
+    if(e.ranged){
+      const aw=angTo(e.x,e.y,sh.px,sh.py); e.a=aw;
+      const want=dp<150?-1:(dp>e.range*0.85?1:0);
+      e.x+=Math.cos(aw)*e.spd*0.5*want*dt; e.y+=Math.sin(aw)*e.spd*0.5*want*dt;
+      if(e.fireFlash>0)e.fireFlash-=dt;
+      e.reload-=dt; if(e.reload<=0 && dp<e.range){ e.reload=rnd(1.3,2.2); const aa=aw+rnd(-0.08,0.08); e.fireFlash=0.15;
+        sh.ethrows.push({x:e.x,y:e.y,vx:Math.cos(aa)*330,vy:Math.sin(aa)*330,life:1.2,dmg:e.dmg}); if(typeof sfx!=='undefined'&&sfx.musket)sfx.musket(); }
+    } else {
+      const a=angTo(e.x,e.y,sh.px,sh.py); e.a=a;
+      e.x+=Math.cos(a)*e.spd*dt; e.y+=Math.sin(a)*e.spd*dt; e.attackT-=dt;
+      if(dp<e.r+18 && e.attackT<=0){ e.attackT=1.0; sh.partyHp-=e.dmg; sh.hurtFlash=0.3; if(typeof sfx!=='undefined'&&sfx.thud)sfx.thud();
+        for(let k=0;k<6;k++)G.particles.push({x:sh.px+rnd(-8,8),y:sh.py+rnd(-8,8),vx:rnd(-40,40),vy:rnd(-50,10),life:.4,max:.4,c:'#c44',r:3}); }
+    }
+    const L=worldToDeck(sh,e.x,e.y), pad=8;
+    if(Math.abs(L.along)>sh.halfL-pad||Math.abs(L.across)>sh.halfW-pad){
+      L.along=clamp(L.along,-sh.halfL+pad,sh.halfL-pad); L.across=clamp(L.across,-sh.halfW+pad,sh.halfW-pad);
+      const w=deckToWorld(sh,L.along,L.across); e.x=w.x; e.y=w.y; }
+  }
+  // crew fall as the party bleeds (visual, mirrors shore)
+  if(sh.crew.length){
+    const n=sh.crew.length, frac=sh.partyMaxHp>0?sh.partyHp/sh.partyMaxHp:0;
+    const aliveTarget=sh.partyHp<=0?0:Math.max(1,Math.ceil(n*frac));
+    let aliveNow=0; for(const c of sh.crew) if(!c.dead) aliveNow++;
+    while(aliveNow>aliveTarget){ for(let i=n-1;i>=0;i--){ const c=sh.crew[i]; if(!c.dead){ c.dead=true; c.deathT=0; c.fallA=(Math.random()<0.5?-1:1);
+      for(let k=0;k<8;k++)G.particles.push({x:c.lx,y:c.ly,vx:rnd(-40,40),vy:rnd(-60,5),life:.5,max:.5,c:'#a33',r:2}); if(typeof sfx!=='undefined'&&sfx.thud)sfx.thud(); break; } } aliveNow--; }
+  }
+  updateBoardCrew(sh,dt);
+  if(sh.partyHp<=0){ sh.partyHp=0; sh.phase='retreat'; sh.resolveT=0; toast('🩸 Boarders repelled — swing back to the ship!',2400); return; }
+  // waves + victory
+  if(sh.phase==='fight' && !live.length){
+    if(sh.spawnedTotal<sh.toKill){ sh.waveT-=dt; if(sh.waveT<=0){ spawnBoardWave(sh); sh.waveT=1.0; } }
+    else { sh.phase='win'; sh.resolveT=0; toast('🏴‍☠️ The deck is yours!',2000); }
+  }
+}
+function resolveBoarding(sh, won){
+  const e=sh.enemy;
+  if(e) e._boarding=false; if(G.ship) G.ship._boarding=false;
+  if(won && e && !e.dead){
+    const lootMul=(G.ship&&G.ship.loot)||1;
+    const bonus = e.type==='cargo' ? Math.floor((e.cargo||0)*lootMul) : Math.floor((e.bounty||100)*lootMul);
+    killEntity(e, G.ship);                       // normal sink + base reward + stats + removal
+    G.gold+=bonus; G.stats.goldEarned=(G.stats.goldEarned||0)+bonus;
+    G.stats.boardingsWon=(G.stats.boardingsWon||0)+1;
+    updateHUD(); checkAchievements&&checkAchievements();
+    toast('🏴‍☠️ Plundered her hold — DOUBLE loot! +'+bonus+'g bonus',2800);
+  } else {
+    if(G.ship){ const dmg=Math.round(G.ship.maxhp*0.12); G.ship.hp=Math.max(1,G.ship.hp-dmg); G.ship.combatT=6; G._shakeBudget=(G._shakeBudget||0)+4; }
+    if(e){ e._boardCd=G.t+12; }                  // brief cooldown so the prompt doesn't instantly re-fire
+    toast('🩸 The survivors swung back — finish her with the guns!',2600);
+  }
+  G.shore=null; G.state='play'; document.body.classList.remove('shore-mode'); saveGame();
+}
+// ---- boarding sprites (compact pirates, world->screen via wx/wy) ----
+function drawMarineSprite(cx,cy,z,shirt,hat,o){
+  ctx.fillStyle='rgba(20,50,40,0.28)';ctx.beginPath();ctx.ellipse(cx,cy+7*z,6*z,3*z,0,0,TAU);ctx.fill();
+  const step=Math.sin(o.phase||0)*1.6*z;
+  ctx.strokeStyle='#3a2a1a';ctx.lineWidth=2.2*z;ctx.lineCap='round';
+  ctx.beginPath();ctx.moveTo(cx,cy+2*z);ctx.lineTo(cx-2*z,cy+8*z+step);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(cx,cy+2*z);ctx.lineTo(cx+2*z,cy+8*z-step);ctx.stroke();
+  ctx.fillStyle=shirt;roundRect(cx-4*z,cy-5*z,8*z,9*z,2*z);ctx.fill();
+  ctx.fillStyle='rgba(255,255,255,0.45)';ctx.fillRect(cx-4*z,cy-1*z,8*z,1.5*z);
+  // musket
+  ctx.save();ctx.translate(cx,cy-2*z);
+  if(o.aiming){ ctx.rotate(o.aimAng||0);
+    ctx.strokeStyle='#3a2a18';ctx.lineWidth=2*z;ctx.lineCap='round';ctx.beginPath();ctx.moveTo(-4*z,0);ctx.lineTo(11*z,0);ctx.stroke();
+    ctx.strokeStyle='#5a3c22';ctx.lineWidth=3.4*z;ctx.beginPath();ctx.moveTo(-4*z,0);ctx.lineTo(-8*z,2*z);ctx.stroke();
+    if(o.fireFlash>0){ ctx.fillStyle='rgba(255,224,140,0.9)';ctx.beginPath();ctx.arc(12*z,0,3.4*z,0,TAU);ctx.fill();
+      ctx.fillStyle='rgba(255,255,255,0.7)';ctx.beginPath();ctx.arc(12*z,0,1.8*z,0,TAU);ctx.fill(); }
+  } else { ctx.rotate(-0.6+Math.sin(o.phase||0)*0.05);
+    ctx.strokeStyle='#3a2a18';ctx.lineWidth=2*z;ctx.lineCap='round';ctx.beginPath();ctx.moveTo(-5*z,4*z);ctx.lineTo(8*z,-7*z);ctx.stroke();
+    ctx.strokeStyle='#5a3c22';ctx.lineWidth=3*z;ctx.beginPath();ctx.moveTo(-5*z,4*z);ctx.lineTo(-7*z,6*z);ctx.stroke(); }
+  ctx.restore();
+  ctx.fillStyle='#e8b88a';ctx.beginPath();ctx.arc(cx,cy-8*z,3.6*z,0,TAU);ctx.fill();
+  ctx.fillStyle=hat;ctx.beginPath();ctx.moveTo(cx-5.5*z,cy-9.5*z);ctx.lineTo(cx+5.5*z,cy-9.5*z);ctx.lineTo(cx,cy-15*z);ctx.closePath();ctx.fill();
+  ctx.fillStyle='rgba(255,230,160,0.5)';ctx.fillRect(cx-5*z,cy-10*z,10*z,1.4*z);
+}
+function drawBoarderSprite(e,z){
+  const cx=wx(e.x), cy=wy(e.y);
+  ctx.fillStyle='rgba(20,50,40,0.28)';ctx.beginPath();ctx.ellipse(cx,cy+7*z,6*z,3*z,0,0,TAU);ctx.fill();
+  const flash=e.hitflash>0;
+  ctx.strokeStyle='#2a1d12';ctx.lineWidth=2.2*z;ctx.lineCap='round';
+  const step=Math.sin(e.t*8)*1.4*z;
+  ctx.beginPath();ctx.moveTo(cx,cy+2*z);ctx.lineTo(cx-2*z,cy+8*z+step);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(cx,cy+2*z);ctx.lineTo(cx+2*z,cy+8*z-step);ctx.stroke();
+  ctx.fillStyle=flash?'#fff':(e.ranged?'#5a4a6a':'#7a352e');roundRect(cx-4*z,cy-5*z,8*z,9*z,2*z);ctx.fill();
+  // weapon: cutlass (melee) raised, or musket (ranged) leveled at the party
+  ctx.save();ctx.translate(cx,cy-2*z);ctx.rotate(e.a||0);
+  if(e.ranged){ ctx.strokeStyle='#2a2018';ctx.lineWidth=2*z;ctx.lineCap='round';ctx.beginPath();ctx.moveTo(-4*z,0);ctx.lineTo(10*z,0);ctx.stroke();
+    if(e.fireFlash>0){ ctx.fillStyle='rgba(255,224,140,0.9)';ctx.beginPath();ctx.arc(11*z,0,3*z,0,TAU);ctx.fill(); } }
+  else { ctx.strokeStyle='#d8d2c0';ctx.lineWidth=2.2*z;ctx.lineCap='round';
+    const sw=Math.sin(e.t*9)*0.4;
+    ctx.beginPath();ctx.moveTo(2*z,0);ctx.lineTo(12*z,-3*z+sw*4*z);ctx.stroke(); }
+  ctx.restore();
+  ctx.fillStyle=flash?'#fff':'#cfa274';ctx.beginPath();ctx.arc(cx,cy-8*z,3.6*z,0,TAU);ctx.fill();
+  // bandana
+  ctx.fillStyle=e.ranged?'#3a2f55':'#5a201c';roundRect(cx-4*z,cy-11*z,8*z,3*z,1.5*z);ctx.fill();
+}
+function drawBoardFallen(cx,cy,z,c){
+  const fall=Math.min(1,(c.deathT||0)*4);
+  ctx.fillStyle='rgba(20,50,40,0.22)';ctx.beginPath();ctx.ellipse(cx,cy+7*z,7*z,3*z,0,0,TAU);ctx.fill();
+  ctx.save();ctx.translate(cx,cy+6*z);ctx.rotate((c.fallA||1)*1.35*fall);ctx.globalAlpha=0.9;
+  ctx.fillStyle='#6f6f6f';roundRect(-4*z,-9*z,8*z,9*z,2*z);ctx.fill();
+  ctx.fillStyle='#8c8c8c';ctx.beginPath();ctx.arc(0,-12*z,3.4*z,0,TAU);ctx.fill();
+  ctx.globalAlpha=1;ctx.restore();
+}
+function drawBoardHud(sh){
+  const cw=Math.min(360,W*0.6), cx=W/2, by=40;
+  ctx.save();
+  ctx.fillStyle='#fff';ctx.font='800 14px "Baloo 2"';ctx.textAlign='center';
+  ctx.shadowColor='rgba(0,0,0,0.5)';ctx.shadowBlur=4;
+  ctx.fillText('⚔️ Boarding Party', cx, by-8);
+  ctx.shadowBlur=0;
+  ctx.fillStyle='rgba(0,0,0,0.4)';roundRect(cx-cw/2,by,cw,14,7);ctx.fill();
+  const frac=clamp(sh.partyHp/sh.partyMaxHp,0,1);
+  ctx.fillStyle=frac>0.5?'#7ec96b':frac>0.25?'#e8b84a':'#d8584a';roundRect(cx-cw/2+2,by+2,(cw-4)*frac,10,5);ctx.fill();
+  const left=Math.max(0,sh.toKill-sh.killed);
+  ctx.fillStyle='#ffe7b0';ctx.font='800 12px "Baloo 2"';ctx.shadowColor='rgba(0,0,0,0.5)';ctx.shadowBlur=4;
+  ctx.fillText(left>0?('Enemies left: '+left):'Deck cleared!', cx, by+30);
+  ctx.restore(); ctx.textAlign='left';
+}
+function drawBoarding(sh){
+  const z=G.cam.zoom;
+  const P=p=>[wx(p.x),wy(p.y)];
+  const c0=deckToWorld(sh,-sh.halfL,-sh.halfW), c1=deckToWorld(sh,sh.halfL,-sh.halfW),
+        c2=deckToWorld(sh,sh.halfL,sh.halfW), c3=deckToWorld(sh,-sh.halfL,sh.halfW);
+  const s0=P(c0),s1=P(c1),s2=P(c2),s3=P(c3);
+  // hull shadow + deck base
+  ctx.fillStyle='rgba(8,28,42,0.4)';ctx.beginPath();ctx.moveTo(s0[0]+6,s0[1]+9);ctx.lineTo(s1[0]+6,s1[1]+9);ctx.lineTo(s2[0]+6,s2[1]+9);ctx.lineTo(s3[0]+6,s3[1]+9);ctx.closePath();ctx.fill();
+  ctx.fillStyle='#b08a52';ctx.beginPath();ctx.moveTo(s0[0],s0[1]);ctx.lineTo(s1[0],s1[1]);ctx.lineTo(s2[0],s2[1]);ctx.lineTo(s3[0],s3[1]);ctx.closePath();ctx.fill();
+  // planks
+  ctx.strokeStyle='rgba(90,60,34,0.5)';ctx.lineWidth=1.4*z;
+  for(let i=1;i<10;i++){ const cc=lerp(-sh.halfW,sh.halfW,i/10); const A=P(deckToWorld(sh,-sh.halfL,cc)),B=P(deckToWorld(sh,sh.halfL,cc)); ctx.beginPath();ctx.moveTo(A[0],A[1]);ctx.lineTo(B[0],B[1]);ctx.stroke(); }
+  // rails
+  ctx.strokeStyle='#6b4a2c';ctx.lineWidth=4*z;ctx.lineJoin='round';
+  ctx.beginPath();ctx.moveTo(s0[0],s0[1]);ctx.lineTo(s1[0],s1[1]);ctx.lineTo(s2[0],s2[1]);ctx.lineTo(s3[0],s3[1]);ctx.closePath();ctx.stroke();
+  // hatches
+  for(const h of sh.hatches){ const w=P(deckToWorld(sh,h.a,h.c)); const hx=w[0],hy=w[1];
+    ctx.fillStyle='#2a1d12';roundRect(hx-9*z,hy-7*z,18*z,14*z,2*z);ctx.fill();
+    ctx.strokeStyle='#5a3c22';ctx.lineWidth=1.2*z; for(let i=1;i<3;i++){ctx.beginPath();ctx.moveTo(hx-9*z+i*6*z,hy-7*z);ctx.lineTo(hx-9*z+i*6*z,hy+7*z);ctx.stroke();} }
+  // masts
+  for(const ma of [-sh.halfL*0.5, sh.halfL*0.15]){ const w=P(deckToWorld(sh,ma,0)); const mx=w[0],my=w[1];
+    ctx.fillStyle='rgba(8,28,42,0.25)';ctx.beginPath();ctx.arc(mx+3*z,my+3*z,7*z,0,TAU);ctx.fill();
+    ctx.fillStyle='#7a5836';ctx.beginPath();ctx.arc(mx,my,6*z,0,TAU);ctx.fill();
+    ctx.fillStyle='#8f6a40';ctx.beginPath();ctx.arc(mx,my,3.5*z,0,TAU);ctx.fill(); }
+  // grapple ropes on the near rail
+  ctx.strokeStyle='rgba(60,42,24,0.85)';ctx.lineWidth=2*z;
+  for(const r of sh.ropes){ const A=P(deckToWorld(sh,r.a,r.c0)),B=P(deckToWorld(sh,r.a,r.c1)); ctx.beginPath();ctx.moveTo(A[0],A[1]);ctx.lineTo(B[0],B[1]);ctx.stroke(); }
+  // enemy boarders
+  for(const e of sh.enemies){ if(!e.dead) drawBoarderSprite(e,z); }
+  // marines
+  const SHIRTS=['#3a5a8a','#c4493f','#4f9e57','#caa23f','#5a7a9a','#a85a3a'], HATS=['#2a2a30','#6a2f2a','#3a2f22'];
+  if(sh.phase==='swingin'){
+    const k=clamp(sh.t/1.6,0,1);
+    sh.crew.forEach((c,i)=>{ const kk=clamp(k*1.25 - i*0.06,0,1);
+      const across=lerp(sh.nearSide*(sh.halfW+30), sh.nearSide*(sh.halfW*0.4), kk);
+      const along=lerp(-sh.halfL*0.4, sh.halfL*0.2, i/Math.max(1,sh.crew.length-1))+Math.sin(k*4+i)*4;
+      const w=P(deckToWorld(sh,along,across));
+      drawMarineSprite(w[0],w[1]-Math.sin(kk*Math.PI)*10*z, z, SHIRTS[i%SHIRTS.length], HATS[i%HATS.length], {phase:sh.t*6+i});
+    });
+  } else {
+    const order=sh.crew.map((c,i)=>i).sort((a,b)=>(sh.crew[a].ly||0)-(sh.crew[b].ly||0));
+    for(const i of order){ const c=sh.crew[i]; const w=P({x:c.lx,y:c.ly});
+      if(c.dead){ drawBoardFallen(w[0],w[1],z,c); continue; }
+      drawMarineSprite(w[0],w[1],z,SHIRTS[c.shirt%SHIRTS.length],HATS[i%HATS.length],{aiming:(sh.aimT>0||c.fireFlash>0),aimAng:sh.aimAng,fireFlash:c.fireFlash,phase:c.phase});
+    }
+    // lead-party marker ring
+    const pw=P({x:sh.px,y:sh.py});
+    ctx.strokeStyle='rgba(255,206,92,0.35)';ctx.lineWidth=2*z;ctx.beginPath();ctx.arc(pw[0],pw[1]+2*z,16*z+Math.sin(G.t*3)*2*z,0,TAU);ctx.stroke();
+  }
+  // marine musket shots
+  for(const s of sh.shots){ const w=P({x:s.x,y:s.y}); ctx.fillStyle='#ffe08a';ctx.beginPath();ctx.arc(w[0],w[1],2.2*z,0,TAU);ctx.fill(); }
+  for(const t of sh.ethrows){ const w=P({x:t.x,y:t.y}); ctx.fillStyle='#caa';ctx.beginPath();ctx.arc(w[0],w[1],2.2*z,0,TAU);ctx.fill(); }
+  // damage flash vignette
+  if(sh.hurtFlash>0){ ctx.fillStyle='rgba(190,40,30,'+(0.25*sh.hurtFlash)+')';ctx.fillRect(0,0,W,H); }
+  drawBoardHud(sh);
 }
 // Shore-party minimap: just the island being explored, with loot pips, the party,
 // and the boat (landing point) so the player can navigate back. World-aligned
@@ -6441,7 +6774,7 @@ function render(){
   drawEelBodies();      // serpentine eel-boss trail (world space, under the head)
   // entities sorted by y for depth
   const sorted=[...G.entities].sort((a,b)=>a.y-b.y);
-  for(const e of sorted) drawEntity(e);
+  for(const e of sorted){ if(e._boarding) continue; drawEntity(e); }   // boarded/own ship hidden under the deck arena
   // cannonballs (with little shadow + arc height)
   for(const b of G.cannonballs){
     const sx=wx(b.x), sy=wy(b.y), z=G.cam.zoom;
@@ -6627,7 +6960,7 @@ function loop(now){
     const sh=G.shore;
     if(sh){
       G.cam.x=lerp(G.cam.x,sh.px,G.dt*3); G.cam.y=lerp(G.cam.y,sh.py,G.dt*3);
-      const shoreZoom=(H>W)?1.55:1.4;            // a touch wider so you can see around you
+      const shoreZoom = sh.boarding ? ((H>W)?1.85:1.7) : ((H>W)?1.55:1.4);  // boarding zooms in tighter on the deck
       G.cam.zoom=lerp(G.cam.zoom, shoreZoom, G.dt*3);
     }
     updateHUD();
@@ -6892,7 +7225,7 @@ function endMap(victory){
     el('endtitle').textContent='🏴‍☠️ Legend of the Tides!';
     el('endbody').innerHTML=`You conquered every sea and slew the Kraken. Your name is sung in every port.<br><br>Gold amassed: <b>${Math.floor(G.gold)}</b>`;
     el('endbtn').textContent='Sail Again';
-    el('endbtn').onclick=()=>{G.mapIndex=0;G.gold=0;G.wood=0;G.maxMapCleared=-1;G.collectedGems={};G.upgrades={hull:0,sails:0,cannons:0,crew:0,hold:0,hotshot:0,spread:0,ballast:0,chain:0,plating:0};clearSave();startMap(0);};
+    el('endbtn').onclick=()=>{G.mapIndex=0;G.gold=0;G.wood=0;G.maxMapCleared=-1;G.collectedGems={};G.upgrades={hull:0,sails:0,cannons:0,crew:0,hold:0,hotshot:0,spread:0,ballast:0,chain:0,plating:0,boarding:0};clearSave();startMap(0);};
     // on the final map you can still choose to linger and mop up treasure
     b2.style.display='';
     b2.textContent='Stay & Explore';
@@ -7010,7 +7343,7 @@ function newVoyage(){
   G.cursed=false; G.endless=false;
   resetRun(); G.comboBest=0;
   G.stats.voyages=(G.stats.voyages||0)+1;
-  G.upgrades={hull:0,sails:0,cannons:0,crew:0,hold:0,hotshot:0,spread:0,ballast:0,chain:0,plating:0};
+  G.upgrades={hull:0,sails:0,cannons:0,crew:0,hold:0,hotshot:0,spread:0,ballast:0,chain:0,plating:0,boarding:0};
   el('ov-start').classList.remove('show');
   startMap(0);
 }
@@ -7026,7 +7359,7 @@ function continueGame(){
   G.cursed=!!d.cursed;
   G.endless=false;
   loadLifetime(d);
-  G.upgrades=Object.assign({hull:0,sails:0,cannons:0,crew:0,hold:0,hotshot:0,spread:0,ballast:0,chain:0,plating:0}, d.upgrades||{});
+  G.upgrades=Object.assign({hull:0,sails:0,cannons:0,crew:0,hold:0,hotshot:0,spread:0,ballast:0,chain:0,plating:0,boarding:0}, d.upgrades||{});
   el('ov-start').classList.remove('show');
   startMap(Math.min(d.mapIndex||0, MAPS.length-1), d);
 }
@@ -7096,7 +7429,7 @@ function startEndless(){
   G.gold=0; G.wood=0; G.maxMapCleared=999; G.bossDead=true; G.bossSpawned=true;
   resetRun(); G.comboBest=0;
   // a generous fixed loadout so endless is about survival, not grinding upgrades
-  G.upgrades={hull:3,sails:3,cannons:3,crew:3,hold:3,hotshot:1,spread:1,ballast:1,chain:1,plating:1};
+  G.upgrades={hull:3,sails:3,cannons:3,crew:3,hold:3,hotshot:1,spread:1,ballast:1,chain:1,plating:1,boarding:3};
   G.mapIndex=MAPS.length-1;
   el('ov-start').classList.remove('show');
   startMap(MAPS.length-1);
@@ -7154,7 +7487,7 @@ function openVoyage(){
       const btn=document.createElement('button'); btn.className='cb-btn'; btn.textContent='Begin Cursed Voyage';
       btn.onclick=()=>{ G.cursed=true; G.gold=0; G.mapIndex=0; G.maxMapCleared=-1; G.bossDead=false;
         resetRun();
-        G.upgrades={hull:0,sails:0,cannons:0,crew:0,hold:0,hotshot:0,spread:0,ballast:0,chain:0,plating:0};
+        G.upgrades={hull:0,sails:0,cannons:0,crew:0,hold:0,hotshot:0,spread:0,ballast:0,chain:0,plating:0,boarding:0};
         closeVoyage(); startMap(0); };
       box.appendChild(btn);
     }
@@ -7656,6 +7989,7 @@ bindTouchBtn('btn-logbook',openLogbook);
 /* ---- Port-entry prompt: pops up when you drift near a dock ---- */
 function enterPortFromPrompt(){
   if(G._shorePromptUp){ shoreReturn(); return; }   // ashore: "Return to Ship"
+  if(G.promptMode==='board' && G.nearTargetEnemy){ hidePortPrompt(); startBoarding(G.nearTargetEnemy); G.nearTargetEnemy=null; return; }
   const mode=G.promptMode, target=G.nearTargetIsland;
   hidePortPrompt();
   if(mode==='explore' && target){ startShoreParty(target); }
@@ -7673,6 +8007,31 @@ function checkPortPrompt(){
   if(G.state!=='play'){ return; }
   const s=G.ship; if(!s)return;
   const inCombat = (s.combatT||0)>0;
+
+  // 0) a crippled, boardable ship right alongside? (needs the Boarding upgrade, sea 2+).
+  // This takes priority over everything and is allowed mid-combat — you just shot her down.
+  if((G.upgrades&&G.upgrades.boarding>0) && G.mapIndex>=1 && !G.shore){
+    let bt=null;
+    for(const e of G.entities){
+      if(e.dead || !isBoardable(e)) continue;
+      if(e.hp > e.maxhp*0.5) continue;                          // must be below half health
+      if(e._boardCd && G.t < e._boardCd) continue;              // recently failed → cooling down
+      if(dist(s.x,s.y,e.x,e.y) < e.r + s.r + 64){ bt=e; break; }// alongside (grapple range)
+    }
+    if(bt){
+      if(!bt._bid){ G._bidSeq=(G._bidSeq||0)+1; bt._bid=G._bidSeq; }
+      const key='board:'+bt._bid;
+      if(G.portPromptDismissed!==key && (!G.portPromptShown || G.promptKey!==key)){
+        G.portPromptShown=true; G.promptMode='board'; G.promptKey=key; G.nearTargetEnemy=bt;
+        el('pp-title').textContent='⚔️ She’s crippled — alongside!';
+        el('pp-name').textContent='Send a boarding party for DOUBLE loot?';
+        el('pp-enter').textContent='Board Her!';
+        el('pp-leave').textContent='Sail On';
+        el('portprompt').classList.add('show');
+      }
+      return;   // while alongside a crippled prize, the boarding prompt owns the UI
+    }
+  }
 
   // 1) revealed treasure cache nearby (and not already being dug / looted)?
   let cacheIs=null;
