@@ -1133,7 +1133,8 @@ function genWorld(idx){
       const edgeFrac=Math.hypot(txp,typ)/r;             // 0 center → 1 shore
       let k;
       const roll=rng();
-      if(edgeFrac>0.62) k = roll<0.7?'palm':'bush';     // coastal: palms
+      if(def.hazard==='ice') k = roll<0.82?'pine':'bush';   // frozen seas: conifers/shrubs only, never palms
+      else if(edgeFrac>0.62) k = roll<0.7?'palm':'bush';     // coastal: palms
       else k = roll<0.34?'pine' : roll<0.6?'leafy' : roll<0.8?'bush' : 'palm';
       trees.push({x:txp,y:typ,s:lerp(.8,1.35,rng())*(explorable?1.05:1),k,
         f:rng()});                                       // f = per-tree variation seed
@@ -1148,7 +1149,8 @@ function genWorld(idx){
         const rr=rng()*shoreAt(a)*0.88, fx=Math.cos(a)*rr, fy=Math.sin(a)*rr;
         if(onMountain(fx,fy))continue;
         const roll=rng();
-        const kind = roll<0.34?'grass' : roll<0.58?'flower' : roll<0.78?'fern' : roll<0.92?'rock' : 'mushroom';
+        const kind = def.hazard==='ice' ? (roll<0.6?'rock':'grass')   // frozen: rocks & hardy grass only, no tropical blooms
+          : roll<0.34?'grass' : roll<0.58?'flower' : roll<0.78?'fern' : roll<0.92?'rock' : 'mushroom';
         flora.push({x:fx,y:fy,k:kind,s:lerp(0.7,1.2,rng()),f:rng(),
           hue: kind==='flower' ? ['#e8607a','#f2c14e','#d96ae0','#fff','#6ab0e8'][(rng()*5)|0] : null});
       }
@@ -2048,6 +2050,18 @@ function drawIsland(is){
       ctx.fillStyle=getCss('--leaf');
       ctx.beginPath();ctx.arc(tx-3*s,ty-7*s,6*s,0,TAU);ctx.fill();
     }
+    // a dusting of snow on every tree in the frozen seas
+    if(G.world.def&&G.world.def.hazard==='ice'){
+      ctx.fillStyle='rgba(248,252,255,0.85)';
+      if(t.k==='pine'){
+        for(let L=0;L<3;L++){ const ly=ty-6*s-L*6*s, w=(11-L*2.4)*s;
+          ctx.beginPath();ctx.moveTo(tx-w*0.75,ly);ctx.quadraticCurveTo(tx,ly-4*s,tx+w*0.75,ly);ctx.quadraticCurveTo(tx,ly-1*s,tx-w*0.75,ly);ctx.fill(); }
+        ctx.beginPath();ctx.arc(tx,ty-6*s-2*6*s-10*s,2.2*s,0,TAU);ctx.fill();
+      } else {
+        const cy2 = t.k==='palm'?ty-22*s : t.k==='leafy'?ty-18*s : ty-9*s;
+        ctx.beginPath();ctx.ellipse(tx,cy2,5*s,2.4*s,0,0,TAU);ctx.fill();
+      }
+    }
   }
   // ground cover (flowers, ferns, grass, rocks, mushrooms) — drawn under trees' feet
   if(is.flora){
@@ -2646,7 +2660,7 @@ const BOSS_STATS={
   eel:    {hp:42000,r:60, dmg:56,speed:150,name:'The Leviathan Eel',  fireRate:0,    range:110, shipL:0, phases:3},
   wraith: {hp:54000,r:54, dmg:58,speed:112,name:'The Coral Colossus', fireRate:0.6,  range:400, shipL:1.7, phases:3},
   narwhal:{hp:50000,r:64, dmg:58,speed:142,name:'The Hoarfrost Leviathan', fireRate:0.5, range:380, shipL:0, phases:3},
-  drowned:{hp:96000,r:130,dmg:66,speed:90, name:'DAVY JONES',          fireRate:0.4,  range:460, shipL:2.0, phases:5},
+  drowned:{hp:112000,r:130,dmg:66,speed:92, name:'DAVY JONES',         fireRate:0.4,  range:460, shipL:2.0, phases:5},
   // Heavy Man-o-War — the corner guardians. Base stats; scaled per corner/map at spawn.
   manowar:{hp:5200,r:54, dmg:30,speed:84, name:'Heavy Man-o-War',     fireRate:0.5,  range:360, shipL:1.9, phases:2},
 };
@@ -3093,6 +3107,31 @@ function updateCannonballs(dt){
             hitFort=true; break;
           }
         }
+      }
+      // ICEBERGS: a player shell shatters drifting ice — bigger bergs take a few hits,
+      // then break up and sink.
+      if(b.friendly && !hitFort){
+        const hz=G.world.hazards;
+        if(hz) for(const h of hz){
+          if(h.type==='ice' && h._sink===undefined && dist(b.x,b.y,h.x,h.y)<h.r+b.r){
+            h.hp=(h.hp===undefined?Math.max(1,Math.round(h.r/45)):h.hp)-1;
+            b.life=0; splash(b.x,b.y,'#dff0ff');
+            for(let k=0;k<10;k++)G.particles.push({x:b.x,y:b.y,vx:rnd(-60,60),vy:rnd(-70,10),life:.5,max:.5,c:'#e6f4ff',r:rnd(2,5)});
+            if(typeof sfx!=='undefined'&&sfx.hitWood)sfx.hitWood();
+            if(h.hp<=0){ h._sink=0; if(typeof sfx!=='undefined'&&sfx.splash)sfx.splash();
+              for(let k=0;k<14;k++)G.particles.push({x:h.x+rnd(-h.r*0.5,h.r*0.5),y:h.y+rnd(-h.r*0.5,h.r*0.5),vx:rnd(-50,50),vy:rnd(-60,10),life:.7,max:.7,c:'#dff0ff',r:rnd(3,6)}); }
+            break;
+          }
+        }
+        if(b.life<=0) continue;
+      }
+      // OCTOPUSES: your shells can shoot the kraken-spawn off the water (and off your hull)
+      if(b.friendly && G.octopi && G.octopi.length){
+        for(const o of G.octopi){ if(o.dead)continue;
+          if(dist(b.x,b.y,o.x,o.y)<13+b.r){ o.hp=(o.hp||1)-1; b.life=0; splash(b.x,b.y,'#a86fbe');
+            for(let k=0;k<8;k++)G.particles.push({x:o.x,y:o.y,vx:rnd(-50,50),vy:rnd(-60,10),life:.5,max:.5,c:'#8a4f9a',r:3});
+            if(o.hp<=0){ o.dead=true; if(typeof sfx!=='undefined'&&sfx.hitWood)sfx.hitWood(); } break; } }
+        if(b.life<=0) continue;
       }
       // terrain: shells burst against island shores and shipwrecks (no damage, just impact)
       let hitTerrain=false;
@@ -4561,6 +4600,21 @@ function drawOctopi(){
 function updateDrowned(e,dt,s,dp,low){
   const spd=(low?1.18:1)*(e._spdBoost||1);
   e.fade=lerp(e.fade||0,0,dt*3);
+  // SHARKS FROM HIS CANNONS — fired on a steady interval in EVERY phase, straight from
+  // the gun ports (with muzzle smoke), so they're a constant menace a maxed ship can't
+  // just facetank.
+  e._sharkGlobalCd=(e._sharkGlobalCd||rnd(1.0,2.0))-dt;
+  if(e._sharkGlobalCd<=0 && dp<e.range*1.4){
+    e._sharkGlobalCd=low?1.1:1.9;
+    const info=broadsideInfo(e,s), mounts=cannonMounts(e,info.side), reps=low?2:1;
+    for(let q=0;q<reps;q++){
+      const m=mounts.length?mounts[(Math.random()*mounts.length)|0]:{x:e.x,y:e.y};
+      const a=angTo(m.x,m.y,s.x,s.y)+rnd(-0.12,0.12);
+      G.cannonballs.push({x:m.x,y:m.y,vx:Math.cos(a)*190,vy:Math.sin(a)*190,life:4.8,dmg:Math.round(e.dmg*0.55),friendly:false,owner:e,h:0,vh:0,r:6,shark:true,homing:4.0,spd:255});
+      smoke(m.x,m.y);
+    }
+    if(typeof sfx!=='undefined'&&sfx.enemyCannon)sfx.enemyCannon();
+  }
   const nextPhase=()=>{
     const seq = low ? ['broadside','octopus','maelstrom','broadside','summon']
                     : ['broadside','octopus','broadside','maelstrom','summon'];
@@ -4574,19 +4628,13 @@ function updateDrowned(e,dt,s,dp,low){
     else { const side=e._orbitSide||(e._orbitSide=Math.random()<0.5?1:-1); want=toP+Math.PI/2*side; }
     steer(e,want,dt); e.speed=lerp(e.speed,e.maxspeed*0.72*spd,dt);
     tryFire(e,dt,s);
-    e._sharkCd=(e._sharkCd||rnd(1.4,2.4))-dt;
-    if(e._sharkCd<=0){ e._sharkCd=low?1.3:2.2; const n=low?3:2;
-      for(let i=0;i<n;i++){ const a=angTo(e.x,e.y,s.x,s.y)+rnd(-0.5,0.5);
-        G.cannonballs.push({x:e.x+Math.cos(a)*e.r,y:e.y+Math.sin(a)*e.r,vx:Math.cos(a)*185,vy:Math.sin(a)*185,life:4.4,dmg:Math.round(e.dmg*0.5),friendly:false,owner:e,h:0,vh:0,r:6,shark:true,homing:3.6,spd:240}); }
-      toast('🦈 Davy Jones looses the sharks!',1400);
-    }
     if(dp<e.r+s.r){ dealDamage(s,e.dmg*dt*1.2,e); }
     if(e.phaseT<=0) nextPhase();
   } else if(e.phase==='octopus'){
     e.speed=lerp(e.speed,e.maxspeed*0.32,dt*2); steer(e,angTo(e.x,e.y,s.x,s.y),dt*0.6); tryFire(e,dt,s);
-    if(!e._octoDone){ e._octoDone=true; if(!G.octopi)G.octopi=[]; const n=low?6:4;
+    if(!e._octoDone){ e._octoDone=true; if(!G.octopi)G.octopi=[]; const n=low?8:6;
       for(let i=0;i<n;i++){ const a=rnd(TAU), d=rnd(30,90);
-        G.octopi.push({x:e.x+Math.cos(a)*d,y:e.y+Math.sin(a)*d,spd:rnd(120,175),latched:false,life:5,bite:low?6:4,owner:e}); }
+        G.octopi.push({x:e.x+Math.cos(a)*d,y:e.y+Math.sin(a)*d,spd:rnd(120,180),latched:false,life:5,bite:low?6:4,hp:1,owner:e}); }
       toast('🐙 The deep spews octopuses onto your hull — sail hard to shake them!',2200);
     }
     if(e.phaseT<=0) nextPhase();
@@ -5084,17 +5132,19 @@ function updateHazards(dt){
         if(s._reefT>0.5){ s._reefT=0; G.shake=Math.max(G.shake,3); if(typeof sfx!=='undefined'&&sfx.hit)sfx.hit(); }
       }
     } else if(h.type==='ice'){
+      if(h._sink!==undefined){ h._sink+=dt; if(h._sink>0.9){ h._dead=true; _hadTemp=true; } continue; }  // shattered berg: sinking, no collision
       // drift slowly, wrap at edges
       h.x+=h.vx*dt; h.y+=h.vy*dt; h.rot+=(h.spin||0)*dt;
       if(h.x<-200)h.x=S+150; if(h.x>S+200)h.x=-150;
       if(h.y<-200)h.y=S+150; if(h.y>S+200)h.y=-150;
-      // solid collision with the ship: push out + bounce + minor damage
+      // solid collision: shove the ship out + a real jolt of damage
       const d=dist(s.x,s.y,h.x,h.y), min=h.r+s.r*0.6;
       if(d<min && d>0.01){
         const nx=(s.x-h.x)/d, ny=(s.y-h.y)/d;
         s.x=h.x+nx*min; s.y=h.y+ny*min;            // shove the ship to the iceberg edge
-        s.speed*=0.6;
-        if(!h._hitCd||h._hitCd<=0){ s.hp-=6; G.shake=Math.max(G.shake,4); h._hitCd=0.6; if(typeof sfx!=='undefined'&&sfx.hit)sfx.hit(); }
+        s.speed*=0.5;
+        if(!h._hitCd||h._hitCd<=0){ s.hp-=14; s.combatT=6; G.shake=Math.max(G.shake,7); h._hitCd=0.6; if(typeof sfx!=='undefined'&&sfx.hitShip)sfx.hitShip();
+          for(let k=0;k<6;k++)G.particles.push({x:s.x,y:s.y,vx:rnd(-40,40),vy:rnd(-50,10),life:.4,max:.4,c:'#e6f4ff',r:3}); }
       }
       if(h._hitCd>0)h._hitCd-=dt;
     } else if(h.type==='whirlpool'){
@@ -5118,7 +5168,7 @@ function updateHazards(dt){
       } else if(s._wpEye){ s._wpEye=Math.max(0,s._wpEye-dt*2); }
     }
   }
-  if(_hadTemp) G.world.hazards=hs.filter(h=>h.tempLife===undefined||h.tempLife>0);
+  if(_hadTemp) G.world.hazards=hs.filter(h=>!h._dead && (h.tempLife===undefined||h.tempLife>0));
 }
 function drawHazards(){
   const hs=G.world.hazards; if(!hs||!hs.length)return;
@@ -5154,6 +5204,7 @@ function drawHazards(){
       for(let i=0;i<5;i++){const a=rr()*TAU,d=rr()*R*0.5;ctx.beginPath();ctx.arc(sx+Math.cos(a)*d,sy+Math.sin(a)*d*0.78,2.5*z+rr()*2*z,0,TAU);ctx.fill();}
     } else if(h.type==='ice'){
       ctx.save();ctx.translate(sx,sy);ctx.rotate(h.rot||0);
+      if(h._sink!==undefined){ const k=clamp(h._sink/0.9,0,1); ctx.globalAlpha*=(1-k); ctx.scale(1-k*0.6,1-k*0.6); }  // shattered: shrink + fade under
       // shadow under the berg
       ctx.fillStyle='rgba(20,50,70,0.25)';ctx.beginPath();ctx.ellipse(2*z,4*z,R*0.95,R*0.7,0,0,TAU);ctx.fill();
       // jagged ice body
