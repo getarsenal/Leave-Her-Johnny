@@ -3472,6 +3472,37 @@ function startShoreParty(is){
       a:rr()*TAU, t:rr()*TAU, dead:false, hitflash:0, state:'wander', wanderT:rr()*2, attackT:0,
       hp:300+G.mapIndex*55, r:36, spd:48, dmg:22, range:210, gold:rndi(180,340) });
   }
+  // ---- TIME OF DAY: each landing rolls a mood (day-weighted) for variety & atmosphere
+  G.shore.tod = ['dawn','day','day','day','dusk','night'][Math.floor(rr()*6)];
+  // ---- RIVAL PIRATE CAMP: on some islands a band of raiders has dug in around a camp,
+  // guarding a loot stash. They lie low until the party nears, then open fire.
+  if(is.explorable && !is.village && is.r>=240 && rr()<0.45){
+    const ca2=rr()*TAU, cd2=is.r*lerp(0.25,0.55,rr());
+    let camX=is.x+Math.cos(ca2)*cd2, camY=is.y+Math.sin(ca2)*cd2; [camX,camY]=clearMtn(camX,camY);
+    G.shore.camp={x:camX,y:camY};
+    const nRaid=2+Math.floor(rr()*3);
+    for(let i=0;i<nRaid;i++){
+      const ra=rr()*TAU, rd=14+rr()*26;
+      let rx=camX+Math.cos(ra)*rd, ry=camY+Math.sin(ra)*rd; [rx,ry]=clearMtn(rx,ry);
+      const ed=islandEdge(is,rx,ry,0.95), dd2=dist(is.x,is.y,rx,ry)||1;
+      if(dd2>ed){ const aa=angTo(is.x,is.y,rx,ry); rx=is.x+Math.cos(aa)*ed; ry=is.y+Math.sin(aa)*ed; }
+      G.shore.creatures.push({ x:rx, y:ry, kind:'native', raider:true,
+        homeX:camX, homeY:camY, a:rr()*TAU, t:rr()*TAU, dead:false, hitflash:0, state:'dormant',
+        wanderT:rr()*2, attackT:0, reload:rr()*1.2,
+        hp:40+G.mapIndex*6, r:14, spd:80, dmg:10, range:300, gold:rndi(30,60) });
+    }
+    // the stash they guard
+    for(let i=0;i<2;i++){ const sa=rr()*TAU, sdd=8+rr()*20;
+      let sx2=camX+Math.cos(sa)*sdd, sy2=camY+Math.sin(sa)*sdd; [sx2,sy2]=clearMtn(sx2,sy2);
+      G.shore.loot.push({ x:sx2, y:sy2, kind:'chest', got:false, val:rndi(120,260), wood:rndi(3,9), bob:rr()*TAU }); }
+  }
+  // ---- CAPTIVE: sometimes a marooned soul is tied up ashore — free them for a
+  // reward AND a morale boost that heals the landing party.
+  if(is.explorable && rr()<0.4){
+    const pa2=rr()*TAU, pd=is.r*lerp(0.2,0.6,rr());
+    let px2=is.x+Math.cos(pa2)*pd, py2=is.y+Math.sin(pa2)*pd; [px2,py2]=clearMtn(px2,py2);
+    G.shore.loot.push({ x:px2, y:py2, kind:'captive', got:false, val:rndi(80,160), wood:0, bob:rr()*TAU, heal:60 });
+  }
   // retention: a shore party was sent; mark creatures encountered in the bestiary
   G.stats.shorePartiesSent=(G.stats.shorePartiesSent||0)+1;
   for(const c of G.shore.creatures) seeKind(c.kind);
@@ -3533,6 +3564,11 @@ function updateShore(dt){
           const locked=SHANTIES.filter(s=>G.shanties.indexOf(s.id)===-1 && sh.pendingBottles.indexOf(s.id)===-1);
           if(locked.length){ sh.pendingBottles.push(locked[0].id); toast('🍾 A shanty in a bottle — carry it home!',1900); }
           else toast('🍾 '+L.val+'g — get it home!',1500);
+        } else if(L.kind==='captive'){
+          sh.partyHp=Math.min(sh.partyMaxHp, sh.partyHp+(L.heal||50)); sh.hurtFlash=0;
+          sfx.treasure&&sfx.treasure();
+          toast('🙌 Freed a captive! +'+L.val+'g · the crew is heartened (+health)',2400);
+          for(let i=0;i<10;i++)G.particles.push({x:L.x,y:L.y,vx:rnd(-40,40),vy:rnd(-70,-20),life:.7,max:.7,c:'#9be59b',r:3});
         } else {
           toast((L.kind==='chest'?'📦 Chest! ':'🪙 ')+L.val+'g'+(L.wood?' +'+L.wood+'🪵':'')+' — get it home!',1600);
         }
@@ -3590,7 +3626,7 @@ function updateShore(dt){
             if(c.kind==='native' && typeof seeKind==='function') seeKind('native');
             G.stats.goldEarned=(G.stats.goldEarned||0)+c.gold;
             checkAchievements();
-            toast((c.boss?'🦀 Tidal Brute felled! ':(c.kind==='crab'?'🦀 ':c.kind==='boar'?'🐗 ':c.kind==='native'?'🏹 ':'🐍 '))+'+'+c.gold+'g',c.boss?2400:1200);
+            toast((c.boss?'🦀 Tidal Brute felled! ':(c.kind==='crab'?'🦀 ':c.kind==='boar'?'🐗 ':c.kind==='native'?(c.raider?'🏴‍☠️ Raider! ':'🏹 '):'🐍 '))+'+'+c.gold+'g',c.boss?2400:1200);
             for(let k=0;k<10;k++)G.particles.push({x:c.x,y:c.y,vx:rnd(-50,50),vy:rnd(-60,10),life:.6,max:.6,c:'#ffe08a',r:3});
           }
           break;
@@ -3619,7 +3655,9 @@ function updateShore(dt){
       if(c.kind==='native'){
         // wake when the party nears the village; once roused they stay hostile
         if(c.state==='dormant'){
-          if(dp<c.range){ c.state='hostile'; if(!sh._villageRoused){ sh._villageRoused=true; toast('🏹 Islanders! They loose arrows from the village!',2600); } }
+          if(dp<c.range){ c.state='hostile';
+            if(c.raider){ if(!sh._campRoused){ sh._campRoused=true; toast('🏴‍☠️ Raiders spring their ambush!',2400); } }
+            else if(!sh._villageRoused){ sh._villageRoused=true; toast('🏹 Islanders! They loose arrows from the village!',2600); } }
           continue;                                  // stand by the hut until roused
         }
         // hostile: hold loose ground near the village, strafe a little, and fire arrows
@@ -3772,6 +3810,21 @@ function shoreKeepExploring(){ hideShorePrompt(); if(G.shore){ G.shore.promptUp=
 function drawShore(){
   const sh=G.shore; if(!sh)return;
   const z=G.cam.zoom;
+  // rival raider camp: crates, a campfire and a tattered flag
+  if(sh.camp){
+    const fx=wx(sh.camp.x), fy=wy(sh.camp.y);
+    if(fx>-70&&fx<W+70&&fy>-70&&fy<H+70){
+      const flick=0.7+Math.sin(G.t*9)*0.3;
+      ctx.fillStyle='#7a4a30'; roundRect(fx-26*z,fy-3*z,12*z,11*z,2*z); ctx.fill();
+      roundRect(fx+15*z,fy-1*z,11*z,10*z,2*z); ctx.fill();
+      ctx.fillStyle='rgba(255,150,40,'+(0.18*flick)+')'; ctx.beginPath();ctx.ellipse(fx,fy,17*z,11*z,0,0,TAU);ctx.fill();
+      ctx.strokeStyle='#5a3c22';ctx.lineWidth=2.4*z;ctx.lineCap='round';
+      ctx.beginPath();ctx.moveTo(fx-5*z,fy+2*z);ctx.lineTo(fx+5*z,fy-2*z);ctx.moveTo(fx-4*z,fy-3*z);ctx.lineTo(fx+5*z,fy+2*z);ctx.stroke();
+      ctx.fillStyle='#ff7a1e';ctx.beginPath();ctx.moveTo(fx-4*z,fy);ctx.quadraticCurveTo(fx-2*z,fy-(10+4*flick)*z,fx,fy-2*z);ctx.quadraticCurveTo(fx+2*z,fy-(12+5*flick)*z,fx+4*z,fy);ctx.closePath();ctx.fill();
+      ctx.strokeStyle='#3a2c1c';ctx.lineWidth=2*z;ctx.beginPath();ctx.moveTo(fx+22*z,fy+6*z);ctx.lineTo(fx+22*z,fy-15*z);ctx.stroke();
+      ctx.fillStyle='#7a2f2f';ctx.beginPath();ctx.moveTo(fx+22*z,fy-15*z);ctx.lineTo(fx+33*z,fy-12*z);ctx.lineTo(fx+22*z,fy-8*z);ctx.closePath();ctx.fill();
+    }
+  }
   for(const L of sh.loot){
     if(L.got)continue;
     const lx=wx(L.x), ly=wy(L.y), bob=Math.sin(G.t*2+L.bob)*2*z;
@@ -3795,6 +3848,16 @@ function drawShore(){
       ctx.strokeStyle=L.big?'#d8482f':'#6a4326';ctx.lineWidth=2.4*z;ctx.lineCap='round';
       ctx.beginPath();ctx.moveTo(lx-6*z,ly-5*z);ctx.lineTo(lx+6*z,ly+5*z);ctx.moveTo(lx+6*z,ly-5*z);ctx.lineTo(lx-6*z,ly+5*z);ctx.stroke();
       if(Math.sin(G.t*3+L.bob)>0.6){ctx.fillStyle='rgba(255,255,255,0.85)';ctx.beginPath();ctx.arc(lx+8*z,ly-9*z,1.8*z,0,TAU);ctx.fill();}
+      continue;
+    } else if(L.kind==='captive'){
+      const pulse=0.5+Math.sin(G.t*3+L.bob)*0.5;
+      ctx.fillStyle='rgba(150,230,150,'+(0.12+pulse*0.16)+')';
+      ctx.beginPath();ctx.ellipse(lx,ly,18*z,11*z,0,0,TAU);ctx.fill();                  // hopeful glow
+      ctx.strokeStyle='#6a4326';ctx.lineWidth=2.4*z;ctx.lineCap='round';
+      ctx.beginPath();ctx.moveTo(lx,ly+6*z);ctx.lineTo(lx,ly-9*z);ctx.stroke();          // stake
+      ctx.fillStyle='#caa37a';ctx.beginPath();ctx.arc(lx,ly-10*z,3*z,0,TAU);ctx.fill();   // head
+      ctx.fillStyle='#7a8a9a';roundRect(lx-3*z,ly-8*z,6*z,8*z,2*z);ctx.fill();            // body
+      ctx.strokeStyle='#e8e0c8';ctx.lineWidth=1*z;ctx.beginPath();ctx.moveTo(lx-3.5*z,ly-4*z);ctx.lineTo(lx+3.5*z,ly-4*z);ctx.stroke(); // ropes
       continue;
     } else if(L.kind==='chest'){
       ctx.fillStyle='#7a4a24';roundRect(lx-9*z,ly-7*z+bob,18*z,12*z,2*z);ctx.fill();
@@ -3961,30 +4024,42 @@ function drawShore(){
       // shadow
       ctx.fillStyle='rgba(20,50,40,0.28)';ctx.beginPath();ctx.ellipse(cx,cy+7*z,6*z,3*z,0,0,TAU);ctx.fill();
       // legs (alternating, bare)
-      ctx.strokeStyle=flash?'#fff':'#5a3a22';ctx.lineWidth=2.2*z;ctx.lineCap='round';
+      ctx.strokeStyle=flash?'#fff':(c.raider?'#3a2a1a':'#5a3a22');ctx.lineWidth=2.2*z;ctx.lineCap='round';
       ctx.beginPath();ctx.moveTo(cx,cy+2*z);ctx.lineTo(cx-2*z,cy+8*z+step);ctx.stroke();
       ctx.beginPath();ctx.moveTo(cx,cy+2*z);ctx.lineTo(cx+2*z,cy+8*z-step);ctx.stroke();
-      // body (bare chest, earthy tone) + a grass/cloth waist wrap
-      ctx.fillStyle=flash?'#fff':'#6e4326';roundRect(cx-4*z+sway*0.2,cy-5*z,8*z,9*z,2*z);ctx.fill();
-      ctx.fillStyle=flash?'#fff':'#9c6b2e';ctx.fillRect(cx-4*z+sway*0.2,cy+1*z,8*z,3*z);   // waist wrap
-      // head (darker skin)
-      ctx.fillStyle=flash?'#fff':'#6b4327';ctx.beginPath();ctx.arc(cx+sway*0.2,cy-8*z,3.6*z,0,TAU);ctx.fill();
-      // feathered headband: a band + two upright feathers
-      ctx.strokeStyle='#7a3320';ctx.lineWidth=1.4*z;
-      ctx.beginPath();ctx.moveTo(cx-3.4*z+sway*0.2,cy-9.4*z);ctx.lineTo(cx+3.4*z+sway*0.2,cy-9.4*z);ctx.stroke();
-      ctx.fillStyle='#d8483a';
-      ctx.beginPath();ctx.moveTo(cx-1.4*z+sway*0.2,cy-10*z);ctx.lineTo(cx-2.2*z+sway*0.2,cy-14*z);ctx.lineTo(cx-0.4*z+sway*0.2,cy-10.6*z);ctx.closePath();ctx.fill();
-      ctx.fillStyle='#e8c34a';
-      ctx.beginPath();ctx.moveTo(cx+0.6*z+sway*0.2,cy-10.4*z);ctx.lineTo(cx+0.8*z+sway*0.2,cy-14.4*z);ctx.lineTo(cx+2.2*z+sway*0.2,cy-10.6*z);ctx.closePath();ctx.fill();
-      // bow, raised toward the party when firing
-      const aimA=angTo(c.x,c.y,sh.px,sh.py);
-      ctx.save();ctx.translate(cx,cy-2*z);ctx.rotate(aimA);
-      ctx.strokeStyle='#5a3c22';ctx.lineWidth=1.8*z;ctx.lineCap='round';
-      ctx.beginPath();ctx.arc(6*z,0,5*z,-1.2,1.2);ctx.stroke();             // bow stave held out front
-      ctx.strokeStyle='rgba(240,235,210,0.7)';ctx.lineWidth=0.9*z;
-      ctx.beginPath();ctx.moveTo(6*z+Math.cos(-1.2)*5*z,Math.sin(-1.2)*5*z);ctx.lineTo(6*z+Math.cos(1.2)*5*z,Math.sin(1.2)*5*z);ctx.stroke();
-      if(c.fireFlash>0){ c.fireFlash-=0.016; ctx.strokeStyle='#6a4a28';ctx.lineWidth=1.2*z;ctx.beginPath();ctx.moveTo(2*z,0);ctx.lineTo(11*z,0);ctx.stroke(); }
-      ctx.restore();
+      // body: islander wrap, or a dark-red raider coat
+      ctx.fillStyle=flash?'#fff':(c.raider?'#7a2f2f':'#6e4326');roundRect(cx-4*z+sway*0.2,cy-5*z,8*z,9*z,2*z);ctx.fill();
+      ctx.fillStyle=flash?'#fff':(c.raider?'#2a1f14':'#9c6b2e');ctx.fillRect(cx-4*z+sway*0.2,cy+1*z,8*z,3*z);   // waist / belt
+      // head (islander dark skin, or a lighter raider)
+      ctx.fillStyle=flash?'#fff':(c.raider?'#e0a878':'#6b4327');ctx.beginPath();ctx.arc(cx+sway*0.2,cy-8*z,3.6*z,0,TAU);ctx.fill();
+      if(!c.raider){
+        // feathered headband: a band + two upright feathers
+        ctx.strokeStyle='#7a3320';ctx.lineWidth=1.4*z;
+        ctx.beginPath();ctx.moveTo(cx-3.4*z+sway*0.2,cy-9.4*z);ctx.lineTo(cx+3.4*z+sway*0.2,cy-9.4*z);ctx.stroke();
+        ctx.fillStyle='#d8483a';
+        ctx.beginPath();ctx.moveTo(cx-1.4*z+sway*0.2,cy-10*z);ctx.lineTo(cx-2.2*z+sway*0.2,cy-14*z);ctx.lineTo(cx-0.4*z+sway*0.2,cy-10.6*z);ctx.closePath();ctx.fill();
+        ctx.fillStyle='#e8c34a';
+        ctx.beginPath();ctx.moveTo(cx+0.6*z+sway*0.2,cy-10.4*z);ctx.lineTo(cx+0.8*z+sway*0.2,cy-14.4*z);ctx.lineTo(cx+2.2*z+sway*0.2,cy-10.6*z);ctx.closePath();ctx.fill();
+        // bow, raised toward the party when firing
+        const aimA=angTo(c.x,c.y,sh.px,sh.py);
+        ctx.save();ctx.translate(cx,cy-2*z);ctx.rotate(aimA);
+        ctx.strokeStyle='#5a3c22';ctx.lineWidth=1.8*z;ctx.lineCap='round';
+        ctx.beginPath();ctx.arc(6*z,0,5*z,-1.2,1.2);ctx.stroke();             // bow stave held out front
+        ctx.strokeStyle='rgba(240,235,210,0.7)';ctx.lineWidth=0.9*z;
+        ctx.beginPath();ctx.moveTo(6*z+Math.cos(-1.2)*5*z,Math.sin(-1.2)*5*z);ctx.lineTo(6*z+Math.cos(1.2)*5*z,Math.sin(1.2)*5*z);ctx.stroke();
+        if(c.fireFlash>0){ c.fireFlash-=0.016; ctx.strokeStyle='#6a4a28';ctx.lineWidth=1.2*z;ctx.beginPath();ctx.moveTo(2*z,0);ctx.lineTo(11*z,0);ctx.stroke(); }
+        ctx.restore();
+      } else {
+        // raider: a red bandana + a leveled musket
+        ctx.fillStyle='#8a2f2f';roundRect(cx-3.9*z+sway*0.2,cy-11*z,7.8*z,2.6*z,1*z);ctx.fill();
+        ctx.fillStyle='#8a2f2f';ctx.beginPath();ctx.moveTo(cx+3.5*z+sway*0.2,cy-10.6*z);ctx.lineTo(cx+6.5*z+sway*0.2,cy-9.4*z);ctx.lineTo(cx+3.5*z+sway*0.2,cy-8.6*z);ctx.closePath();ctx.fill(); // bandana tail
+        const aimA=angTo(c.x,c.y,sh.px,sh.py);
+        ctx.save();ctx.translate(cx,cy-2*z);ctx.rotate(aimA);
+        ctx.strokeStyle='#2a2a30';ctx.lineWidth=2*z;ctx.lineCap='round';
+        ctx.beginPath();ctx.moveTo(-3*z,0);ctx.lineTo(10*z,0);ctx.stroke();   // musket barrel
+        if(c.fireFlash>0){ c.fireFlash-=0.016; ctx.fillStyle='rgba(255,224,140,0.9)';ctx.beginPath();ctx.arc(11*z,0,2.4*z,0,TAU);ctx.fill(); }
+        ctx.restore();
+      }
     } else { // snake
       ctx.save();ctx.translate(cx,cy);ctx.rotate(c.a+Math.PI/2);
       ctx.strokeStyle=flash?'#fff':'#4f7a3a';ctx.lineWidth=cr*0.7;ctx.lineCap='round';
@@ -4018,6 +4093,18 @@ function drawShore(){
     ctx.strokeStyle='rgba(255,230,150,0.5)';ctx.lineWidth=1.5*z;
     ctx.beginPath();ctx.moveTo(sx2,sy2);ctx.lineTo(sx2-sht.vx*0.02*z,sy2-sht.vy*0.02*z);ctx.stroke();
     ctx.fillStyle='#3a3027';ctx.beginPath();ctx.arc(sx2,sy2,2*z,0,TAU);ctx.fill();
+  }
+  // ---- TIME-OF-DAY wash over the whole excursion (atmosphere); drawn under the HUD ----
+  if(sh.tod && sh.tod!=='day'){
+    if(sh.tod==='dawn'){ ctx.fillStyle='rgba(255,184,120,0.15)'; ctx.fillRect(0,0,W,H); }
+    else if(sh.tod==='dusk'){ ctx.fillStyle='rgba(255,120,66,0.22)'; ctx.fillRect(0,0,W,H); }
+    else if(sh.tod==='night'){
+      ctx.fillStyle='rgba(18,30,66,0.44)'; ctx.fillRect(0,0,W,H);
+      const px=wx(sh.px), py=wy(sh.py);                       // a lantern pool of light around the party
+      const g=ctx.createRadialGradient(px,py,18, px,py,230);
+      g.addColorStop(0,'rgba(255,232,165,0.20)'); g.addColorStop(1,'rgba(255,232,165,0)');
+      ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+    }
   }
   // ---- party health bar (screen-space, below the top HUD so it never overlaps) ----
   if(sh.phase==='explore'||sh.phase==='rowout'){
