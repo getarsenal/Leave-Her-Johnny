@@ -7743,11 +7743,8 @@ const SAMPLE_SRC={
   cannon:'assets/cannon.mp3',
   explosion:'assets/explosion.mp3',
   storm:'assets/storm.mp3',       // lightning/thunder clap
-  musket:'assets/musket.mp3',     // shore-party muskets
-  // looping background music (gracefully silent until the files exist):
-  musicBoss:'assets/music_boss.mp3',    // "Caribbean Adventure" — plays during ALL boss fights
-  musicShore:'assets/music_shore.mp3',  // "Roguish Captain" — plays during shore parties
-  musicMain:'assets/music_main.mp3'     // main sailing/menu theme (optional)
+  musket:'assets/musket.mp3'      // shore-party muskets
+  // Background music is PROCEDURAL (see THEMES / playTheme below) — no audio files.
 };
 // ---- rock sprites for explorable-island mountains (authored top-down/3-4 art) ----
 const ROCK_SPRITES=[];     // loaded <img> elements; index referenced by peak.sprite
@@ -7786,36 +7783,8 @@ function playSample(key,vol=1,rateVar=0){
     src.connect(g); g.connect(SND.master); src.start();
   }catch(e){}
 }
-/* ---- looping BACKGROUND MUSIC: one track for the moment (boss / shore / sailing).
-   Crossfades; no-ops if a track file isn't present, so it's safe before the mp3s
-   are added. updateMusic() (called each frame) picks the track for the game state. */
-function startMusic(key,vol){
-  if(!SND.ready||!SND.ctx||SND.ctx.state!=='running')return;
-  if(SND.music && SND.music.key===key)return;        // already playing this one
-  stopMusic();
-  const buf=SND.buffers[key]; if(!buf)return;         // track not loaded (yet) — silent
-  try{
-    const src=SND.ctx.createBufferSource(); src.buffer=buf; src.loop=true;
-    const g=SND.ctx.createGain(); g.gain.value=0.0001;
-    src.connect(g); g.connect(SND.master); src.start();
-    g.gain.exponentialRampToValueAtTime(SND.muted?0.0001:(vol||0.5), aNow()+1.2);   // fade in
-    SND.music={key,src,gain:g};
-  }catch(e){}
-}
-function stopMusic(){
-  if(!SND.music)return; const m=SND.music; SND.music=null;
-  try{ const g=m.gain.gain; g.cancelScheduledValues(aNow()); g.setValueAtTime(Math.max(0.0001,g.value||0.0001),aNow());
-    g.exponentialRampToValueAtTime(0.0001,aNow()+0.6); m.src.stop(aNow()+0.7); }catch(e){}
-}
-function updateMusic(){
-  let want=null;
-  if(G.state==='shore') want='musicShore';
-  else if(G.state==='play' && G.entities && G.entities.some(e=>e.type==='boss'&&!e.dead)) want='musicBoss';
-  else if(G.state==='play'||G.state==='menu') want='musicMain';
-  if(want && !(SND.buffers&&SND.buffers[want])) want=null;   // only play tracks that are loaded
-  const cur=SND.music?SND.music.key:null;
-  if(want!==cur){ if(want) startMusic(want, want==='musicBoss'?0.55:0.45); else stopMusic(); }
-}
+/* Background music is PROCEDURAL — see THEMES / playTheme / updateMusic, defined
+   below alongside the shanty engine (it needs the note dictionary N). */
 function initAudio(){
   if(SND.ctx)return;
   try{
@@ -7842,7 +7811,9 @@ let _audioWasInterrupted=false;
 function resumeAudio(){ try{ if(SND.ctx && SND.ctx.state!=='running' && SND.ctx.state!=='closed') SND.ctx.resume(); }catch(e){} }
 function rebuildAudio(){
   try{ if(SND.ctx) SND.ctx.close(); }catch(e){}
-  SND.ctx=null; SND.master=null; SND.windGain=null; SND.windFilter=null; SND.ready=false; SND.music=null;  // music restarts via updateMusic
+  SND.ctx=null; SND.master=null; SND.windGain=null; SND.windFilter=null; SND.ready=false;
+  // background music lives on its own bus (dead with the old context) — drop it so updateMusic restarts the theme
+  SND.musicBus=null; try{ _themeTimers.forEach(clearTimeout); _themeTimers.length=0; }catch(e){} _themeLoopId=null;
   _noiseBuf=null;                 // noise buffer is generated per-context — regenerate it
   // NB: keep SND.buffers — decoded sample AudioBuffers replay fine on the new context,
   // and loadSamples() skips already-cached keys, so no re-fetch/re-decode.
@@ -7921,7 +7892,7 @@ function reedTone(freq,dur,vol=0.14,delay=0){
    Bottles unlock these into the Songbook, replayable any time.
    ================================================================ */
 const N={ G2:98,A2:110,B2:123,C3:131,D3:147,E3:165,F3:175,Fs3:185,G3:196,A3:220,B3:247,
-  C4:262,Cs4:277,D4:294,E4:330,F4:349,Fs4:370,G4:392,A4:440,B4:494,C5:523,Cs5:554,D5:587,E5:659,F5:698,Fs5:740,G5:784, R:0 };
+  C4:262,Cs4:277,D4:294,E4:330,F4:349,Fs4:370,G4:392,A4:440,As4:466,B4:494,C5:523,Cs5:554,D5:587,E5:659,F5:698,Fs5:740,G5:784,A5:880,B5:988, R:0 };
 const SHANTIES=[
   { id:'admiralbenbow', name:'Admiral Benbow', beat:0.5, root:N.G2, notes:[
     [N.D4,1],[N.G4,1],[N.B4,1],[N.A4,0.5],[N.G4,0.5],[N.Fs4,1],[N.G4,2],[N.B4,1],[N.C5,1],[N.D5,2],[N.C5,1],[N.B4,1],[N.A4,1],[N.C5,1],[N.B4,1],[N.A4,1],[N.G4,1],[N.G4,1],[N.A4,1],[N.Fs4,1],[N.G4,1],[N.D4,1],[N.E4,1],[N.C4,1],[N.D4,3],[N.C5,1],[N.B4,1],[N.A4,1],[N.B4,1],[N.C5,1],[N.D5,3],[N.B4,1],[N.A4,1],[N.G4,1],[N.Fs4,1],[N.E4,1],[N.D4,1],[N.E4,1],[N.Fs4,1],[N.D4,1],[N.G4,3] ] },
@@ -7976,6 +7947,105 @@ function stopShanty(){
       SND.shantyBus.disconnect(); }catch(e){}
     SND.shantyBus=null;
   }
+}
+
+/* ===== BACKGROUND MUSIC THEMES =================================================
+   Original homage themes from the ABC collection, transcribed to the procedural
+   engine (eighth = 0.5 beats; beat = seconds per quarter = 60/Q). They loop on a
+   DEDICATED bus (SND.musicBus) so they never fight the songbook's shanty bus.
+   - "Caribbean Adventure" (Dm, q=126)  -> every boss fight
+   - "Roguish Captain"     (Em, 6/8 q=122) -> shore parties                       */
+const THEMES={
+  boss:{ beat:0.476, root:N.D3, notes:[                 // Caribbean Adventure Theme
+    [N.D4,1],[N.F4,0.5],[N.A4,0.5],[N.D5,1],[N.F5,0.5],[N.A5,0.5],
+    [N.G5,1],[N.F5,0.5],[N.E5,0.5],[N.D5,1],[N.A4,0.5],[N.F4,0.5],
+    [N.G4,1],[N.As4,0.5],[N.G4,0.5],[N.E5,1],[N.D5,0.5],[N.C5,0.5],
+    [N.A4,3],[N.A4,1],
+    [N.D5,1],[N.F5,0.5],[N.A5,0.5],[N.A5,1],[N.G5,0.5],[N.F5,0.5],
+    [N.E5,1],[N.D5,0.5],[N.C5,0.5],[N.A4,1],[N.F4,0.5],[N.A4,0.5],
+    [N.G4,1],[N.As4,0.5],[N.G4,0.5],[N.E5,1],[N.D5,0.5],[N.C5,0.5],
+    [N.D5,3],[N.R,1],
+    [N.A4,1],[N.D5,1],[N.F5,1],[N.E5,1],
+    [N.D5,1],[N.C5,1],[N.A4,1],[N.F4,1],
+    [N.G4,1],[N.As4,1],[N.E5,1],[N.D5,1],
+    [N.C5,3],[N.A4,1],
+    [N.D5,1],[N.F5,1],[N.A5,1],[N.G5,1],
+    [N.F5,1],[N.E5,1],[N.D5,1],[N.C5,1],
+    [N.A4,1],[N.G4,1],[N.F4,1],[N.E4,1],
+    [N.D4,4] ] },
+  shore:{ beat:0.328, root:N.E3, notes:[                // Roguish Captain Theme
+    [N.B4,1],[N.E5,0.5],[N.G5,1],[N.E5,0.5],
+    [N.B4,1],[N.E5,0.5],[N.D5,1],[N.B4,0.5],
+    [N.A4,1],[N.C5,0.5],[N.E5,1],[N.C5,0.5],
+    [N.B4,1.5],[N.G4,1.5],
+    [N.B4,1],[N.E5,0.5],[N.G5,1],[N.B5,0.5],
+    [N.A5,1],[N.G5,0.5],[N.E5,1],[N.D5,0.5],
+    [N.B4,1],[N.A4,0.5],[N.G4,1],[N.Fs4,0.5],
+    [N.E4,1.5],[N.R,1.5],
+    [N.E5,1],[N.Fs5,0.5],[N.G5,1],[N.E5,0.5],
+    [N.D5,1],[N.B4,0.5],[N.G4,1],[N.E4,0.5],
+    [N.A4,1],[N.C5,0.5],[N.E5,1],[N.D5,0.5],
+    [N.B4,1.5],[N.G4,1.5],
+    [N.E5,1],[N.G5,0.5],[N.B5,1],[N.A5,0.5],
+    [N.G5,1],[N.E5,0.5],[N.D5,1],[N.B4,0.5],
+    [N.A4,1],[N.G4,0.5],[N.Fs4,1],[N.E4,0.5],
+    [N.E4,3] ] },
+};
+let _themeTimers=[], _themeLoopId=null;
+function musicBus(){
+  if(!SND.ready)return null;
+  if(!SND.musicBus){ SND.musicBus=SND.ctx.createGain(); SND.musicBus.gain.value=0.5; SND.musicBus.connect(SND.master); }
+  return SND.musicBus;
+}
+function musicTone(freq,dur,type,vol,delay){
+  if(!SND.ready)return; const bus=musicBus(); if(!bus)return;
+  const t0=aNow()+delay;
+  const o=SND.ctx.createOscillator(),g=SND.ctx.createGain();
+  o.type=type; o.frequency.setValueAtTime(freq,t0);
+  g.gain.setValueAtTime(0.0001,t0);
+  g.gain.exponentialRampToValueAtTime(vol,t0+0.02);
+  g.gain.exponentialRampToValueAtTime(0.0001,t0+dur);
+  o.connect(g); g.connect(bus); o.start(t0); o.stop(t0+dur+0.05);
+}
+function playTheme(id){
+  if(!SND.ready||!SND.ctx||SND.ctx.state!=='running')return;   // wait for a running context
+  stopTheme();
+  const s=THEMES[id]; if(!s)return;
+  _themeLoopId=id;
+  let t=0, barLen=0; const root=s.root;
+  for(const [f,beats] of s.notes){
+    const dur=beats*s.beat;
+    if(f>0){                       // melody: soft square + sine sub, an octave down
+      musicTone(f, dur*0.92, 'square', 0.11, t);
+      musicTone(f/2, dur*0.92, 'sine', 0.06, t);
+    }
+    if(barLen<=0){                 // bass pluck (root + fifth) every 2 beats
+      musicTone(root, s.beat*1.4, 'triangle', 0.10, t);
+      musicTone(root*1.5, s.beat*1.4, 'triangle', 0.045, t);
+      barLen=2;
+    }
+    barLen-=beats; t+=dur;
+  }
+  const lt=setTimeout(()=>{ if(_themeLoopId===id) playTheme(id); }, (t+0.5)*1000);
+  _themeTimers.push(lt);
+}
+function stopTheme(){
+  _themeLoopId=null;
+  _themeTimers.forEach(clearTimeout); _themeTimers.length=0;
+  if(SND.ready && SND.musicBus){
+    try{ SND.musicBus.gain.cancelScheduledValues(aNow());
+      SND.musicBus.gain.setValueAtTime(0.0001, aNow());
+      SND.musicBus.disconnect(); }catch(e){}
+    SND.musicBus=null;
+  }
+}
+// Called each frame: pick the theme for the current game state (boss / shore / none).
+function updateMusic(){
+  if(!SND.ready) return;
+  let want=null;
+  if(G.state==='shore') want='shore';
+  else if(G.state==='play' && G.entities && G.entities.some(e=>e.type==='boss'&&!e.dead)) want='boss';
+  if(want!==_themeLoopId){ if(want) playTheme(want); else stopTheme(); }
 }
 // a tone that plays onto the shanty bus (so stopShanty can cut it instantly)
 function shantyTone(freq,dur,type,vol,delay){
