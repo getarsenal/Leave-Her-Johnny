@@ -4215,32 +4215,62 @@ function worldToDeck(sh,x,y){
   return { along: dx*Math.cos(sh.ang)+dy*Math.sin(sh.ang),
            across:-dx*Math.sin(sh.ang)+dy*Math.cos(sh.ang) };
 }
+// ship-hull width profile (deck-local): tapers to a point at the bow (+along),
+// broad & rounded at the stern (-along). Used for both movement clamp AND drawing.
+function deckHalfWidthAt(sh,along){
+  const t=clamp(along/sh.halfL,-1,1);
+  const prof = t>=0 ? Math.sqrt(Math.max(0,1-Math.pow(t,3))) : (1-0.4*t*t);
+  return sh.halfW*Math.max(0.05,prof);
+}
+function clampToDeck(sh,x,y,pad){
+  const L=worldToDeck(sh,x,y);
+  L.along=clamp(L.along,-sh.halfL+pad,sh.halfL-pad*0.6);
+  const maxC=Math.max(6,deckHalfWidthAt(sh,L.along)-pad);
+  L.across=clamp(L.across,-maxC,maxC);
+  return deckToWorld(sh,L.along,L.across);
+}
 function startBoarding(enemy){
   if(!enemy || G.shore) return;
   const s=G.ship, mi=G.mapIndex;
   const lv=(G.upgrades&&G.upgrades.boarding)||0;
   const marines=clamp(2+lv,3,8);                                   // upgrade level = more marines
   const hullLv=(G.upgrades&&G.upgrades.hull)||0, cannonLv=(G.upgrades&&G.upgrades.cannons)||0, crewLv=(G.upgrades&&G.upgrades.crew)||0;
-  const ang=enemy.a||0, halfL=120, halfW=46;
-  // which long side faces our ship? marines board (and retreat) over that rail
+  const navy=enemy.type==='navy', cls=enemy.cls;
+  // deck SIZE scales with the ship's class — roughly 2x the old deck, bigger for heavies
+  const sizeF = navy ? (cls==='manowar'?1.5 : cls==='galleon'?1.28 : 1.08) : (cls==='galleon'?1.25 : 1.12);
+  const ang=enemy.a||0, halfL=Math.round(235*sizeF), halfW=Math.round(84*sizeF);
+  const hasCaptain = navy ? (cls==='galleon'||cls==='manowar') : (cls==='galleon');   // big prizes have a captain
   const dx=s.x-enemy.x, dy=s.y-enemy.y;
   const nearSide = (-dx*Math.sin(ang)+dy*Math.cos(ang))>=0 ? 1 : -1;
-  const sh={ boarding:true, enemy, cx:enemy.x, cy:enemy.y, ang, halfL, halfW, nearSide,
+  const sh={ boarding:true, enemy, cx:enemy.x, cy:enemy.y, ang, halfL, halfW, nearSide, sizeF,
     px:0,py:0,pa:ang, crew:[], partyMaxHp:90+marines*22+hullLv*18, partyHp:0, crewDmg:9+cannonLv*2+crewLv*1,
-    enemies:[], shots:[], ethrows:[], hatches:[], ropes:[],
-    waves:0, waveT:1.0, toKill:0, killed:0, spawnedTotal:0,
+    enemies:[], shots:[], ethrows:[], hatches:[], doors:[], ropes:[], kegs:[], loot:[], earnedGold:0,
+    hasCaptain, captainSpawned:false, captainDown:false, gruntsSpawned:0,
+    waves:0, waveIdx:0, waveT:1.0, toKill:0, killed:0,
     phase:'swingin', t:0, walkPhase:0, hurtFlash:0, aimAng:0, aimT:0, resolveT:0 };
   sh.partyHp=sh.partyMaxHp;
+  sh.camZoom = clamp((H>W?1.75:1.6)/Math.sqrt(sizeF), 1.3, 1.85);   // bigger decks zoom out so you see more
   const w0=deckToWorld(sh,0,nearSide*halfW*0.45); sh.px=w0.x; sh.py=w0.y;
   for(let i=0;i<marines;i++){ const ca=Math.random()*TAU, cd=4+Math.random()*16;
     sh.crew.push({ ox:Math.cos(ca)*cd, oy:Math.sin(ca)*cd*0.8, wanderA:Math.random()*TAU, wanderT:Math.random()*2,
       phase:Math.random()*TAU, gait:0.85+Math.random()*0.4, wob:Math.random()*TAU, shirt:i,
       reload:rnd(0.2,1.0), fireFlash:0, lx:sh.px, ly:sh.py, deathT:0 }); }
-  sh.hatches=[ {a:-halfL*0.42,c:0}, {a:0,c:0}, {a:halfL*0.42,c:0}, {a:halfL*0.78,c:0} ];
-  for(let i=0;i<4;i++){ const a=lerp(-halfL*0.7,halfL*0.7,i/3); sh.ropes.push({a, c0:nearSide*(halfW+34), c1:nearSide*(halfW*0.55)}); }
-  const base = enemy.type==='cargo' ? 3 : (enemy.cls==='manowar'?7:enemy.cls==='galleon'?5:4);
-  sh.toKill = base + Math.floor(mi*0.8);
-  sh.waves  = clamp(Math.ceil(sh.toKill/3), 2, 4);
+  // hatches down the centreline + cabin DOORS at the stern (both spawn enemies)
+  sh.hatches=[ {a:-halfL*0.2,c:0}, {a:halfL*0.16,c:0}, {a:halfL*0.48,c:0} ];
+  sh.doors=[ {a:-halfL*0.78,c:-halfW*0.32}, {a:-halfL*0.78,c:halfW*0.32} ];
+  // grapples along the near rail, hooked to the hull edge
+  for(let i=0;i<5;i++){ const a=lerp(-halfL*0.55,halfL*0.55,i/4); sh.ropes.push({a, c0:nearSide*(deckHalfWidthAt(sh,a)+40), c1:nearSide*deckHalfWidthAt(sh,a)*0.92}); }
+  // powder kegs (tactical AoE) — more on bigger ships
+  const nKeg=1+Math.floor(sizeF);
+  for(let i=0;i<nKeg;i++){ const a=rnd(-halfL*0.4,halfL*0.5), cm=deckHalfWidthAt(sh,a)*0.6; sh.kegs.push({a, c:rnd(-cm,cm), fuse:0, lit:false, dead:false}); }
+  // deck loot to grab (banked only if you WIN)
+  const nLoot=2+Math.floor(Math.random()*2)+(hasCaptain?1:0);
+  for(let i=0;i<nLoot;i++){ const a=rnd(-halfL*0.7,halfL*0.55), cm=deckHalfWidthAt(sh,a)*0.7;
+    sh.loot.push({a, c:rnd(-cm,cm), got:false, val:rndi(30,90)+mi*8, kind:Math.random()<0.3?'chest':'coins', bob:Math.random()*TAU}); }
+  // enemy crew count scales with the ship (and a captain on the heavies)
+  const baseCrew = navy ? (cls==='manowar'?9 : cls==='galleon'?7 : 5) : 5;
+  sh.toKill = baseCrew + Math.floor(mi*1.0) + (hasCaptain?1:0);
+  sh.waves  = clamp(Math.ceil((sh.toKill)/3), 2, 5);
   enemy._boarding=true; if(G.ship) G.ship._boarding=true;          // hide the tiny ship sprites under the deck art
   G.shore=sh; G.state='shore';
   G.stats.boardingsStarted=(G.stats.boardingsStarted||0)+1;
@@ -4248,18 +4278,42 @@ function startBoarding(enemy){
   toast('🪝 Grapples away — board her!',1800);
 }
 function spawnBoardWave(sh){
+  if(sh.waveIdx>=sh.waves) return;
   const mi=G.mapIndex;
-  const remaining=sh.toKill-sh.spawnedTotal; if(remaining<=0) return;
-  const per=Math.ceil(sh.toKill/sh.waves), n=Math.min(per,remaining);
+  const lastWave = sh.waveIdx===sh.waves-1;
+  const gruntsTotal = sh.toKill - (sh.hasCaptain?1:0);
+  const remaining = gruntsTotal - sh.gruntsSpawned;
+  const per = Math.ceil(gruntsTotal/sh.waves);
+  const n = lastWave ? remaining : Math.min(per, remaining);
+  const spawns = sh.hatches.concat(sh.doors);                    // pour from hatches AND cabin doors
   for(let i=0;i<n;i++){
-    const h=sh.hatches[Math.floor(Math.random()*sh.hatches.length)];
+    const h=spawns[Math.floor(Math.random()*spawns.length)];
     const w=deckToWorld(sh, h.a+rnd(-10,10), h.c+rnd(-10,10));
     const ranged=Math.random()<0.3 && mi>=2;
     sh.enemies.push({ x:w.x, y:w.y, a:sh.ang, t:Math.random()*TAU, dead:false, hitflash:0, kind:'boarder', ranged,
       hp:(ranged?22:30)+mi*6, r:12, spd:ranged?70:90, dmg:(ranged?8:11)+mi, range:ranged?260:30,
-      reload:rnd(0.6,1.6), fireFlash:0, attackT:0, shirt:Math.floor(Math.random()*3) });
+      reload:rnd(0.6,1.6), fireFlash:0, attackT:0, fleeing:false, shirt:Math.floor(Math.random()*3) });
+    sh.gruntsSpawned++;
   }
-  sh.spawnedTotal+=n;
+  // CAPTAIN: storms out of the stern cabin in the final wave (big prizes only)
+  if(lastWave && sh.hasCaptain && !sh.captainSpawned){
+    const w=deckToWorld(sh, -sh.halfL*0.72, 0);
+    sh.enemies.push({ x:w.x, y:w.y, a:sh.ang, t:0, dead:false, hitflash:0, kind:'boarder', captain:true, ranged:false,
+      hp:180+mi*40, maxhp:180+mi*40, r:17, spd:62, dmg:18+mi*2, range:34,
+      reload:0, fireFlash:0, attackT:0, fleeing:false, gold:rndi(120,240)+mi*20, shirt:0 });
+    sh.captainSpawned=true;
+    toast('☠️ The Captain joins the fray!',2000);
+  }
+  sh.waveIdx++;
+}
+// felling a boarder (from a musket OR a keg) — counts the kill, banks any purse,
+// and on the CAPTAIN's death routs the surviving crew (they break and flee).
+function boardSlay(sh,e){
+  if(e.dead) return; e.dead=true; sh.killed++;
+  if(e.gold) sh.earnedGold=(sh.earnedGold||0)+e.gold;
+  for(let k=0;k<10;k++)G.particles.push({x:e.x,y:e.y,vx:rnd(-50,50),vy:rnd(-60,10),life:.6,max:.6,c:'#ffd27a',r:3});
+  if(e.captain){ sh.captainDown=true; toast('🏴 The Captain falls — her crew breaks!',2600);
+    for(const o of sh.enemies){ if(!o.dead && !o.captain){ o.fleeing=true; o.fleeT=0.8+Math.random()*1.0; } } }
 }
 function updateBoardCrew(sh,dt){
   const moving=input.active&&input.mag>0;
@@ -4272,10 +4326,7 @@ function updateBoardCrew(sh,dt){
     const slotX=sh.px + c.ox*cs - c.oy*sn, slotY=sh.py + c.ox*sn + c.oy*cs;
     const ease=0.12*c.gait;
     c.lx+=(slotX-c.lx)*ease; c.ly+=(slotY-c.ly)*ease;
-    const L=worldToDeck(sh,c.lx,c.ly), pad=10;
-    if(Math.abs(L.along)>sh.halfL-pad||Math.abs(L.across)>sh.halfW-pad){
-      L.along=clamp(L.along,-sh.halfL+pad,sh.halfL-pad); L.across=clamp(L.across,-sh.halfW+pad,sh.halfW-pad);
-      const w=deckToWorld(sh,L.along,L.across); c.lx=w.x; c.ly=w.y; }
+    const w=clampToDeck(sh,c.lx,c.ly,10); c.lx=w.x; c.ly=w.y;   // keep marines inside the hull shape
     c.phase+=dt*(moving?10*c.gait:2.2);
     if(c.fireFlash>0)c.fireFlash-=dt;
   }
@@ -4294,19 +4345,31 @@ function updateBoarding(sh,dt){
   if(input.active && input.mag>0){
     sh.pa=input.ang;
     const nx=sh.px+Math.cos(input.ang)*78*input.mag*dt, ny=sh.py+Math.sin(input.ang)*78*input.mag*dt;
-    const L=worldToDeck(sh,nx,ny), pad=12;
-    L.along=clamp(L.along,-sh.halfL+pad,sh.halfL-pad); L.across=clamp(L.across,-sh.halfW+pad,sh.halfW-pad);
-    const w=deckToWorld(sh,L.along,L.across); sh.px=w.x; sh.py=w.y;
+    const w=clampToDeck(sh,nx,ny,12); sh.px=w.x; sh.py=w.y;
   }
+  // grab deck loot you walk over (banked only on a WIN)
+  for(const L of sh.loot){ if(L.got)continue; const w=deckToWorld(sh,L.a,L.c);
+    if(dist(sh.px,sh.py,w.x,w.y)<22){ L.got=true; sh.earnedGold=(sh.earnedGold||0)+L.val;
+      if(typeof sfx!=='undefined'&&sfx.coin)sfx.coin();
+      toast('🪙 +'+L.val+'g on deck — win to keep it!',1300);
+      for(let k=0;k<8;k++)G.particles.push({x:w.x,y:w.y,vx:rnd(-40,40),vy:rnd(-70,-20),life:.6,max:.6,c:'#ffe08a',r:3}); } }
+  // POWDER KEGS: walk close to light the fuse, then a blast rocks nearby boarders (and singes you if you linger)
+  for(const kg of sh.kegs){ if(kg.dead)continue; const w=deckToWorld(sh,kg.a,kg.c);
+    if(!kg.lit && dist(sh.px,sh.py,w.x,w.y)<26){ kg.lit=true; kg.fuse=1.1; toast('🧨 Keg lit — clear out!',1100); }
+    if(kg.lit){ kg.fuse-=dt; if(kg.fuse<=0){ kg.dead=true;
+      G._shakeBudget=(G._shakeBudget||0)+7; if(typeof sfx!=='undefined'&&sfx.explosion)sfx.explosion();
+      for(const e of sh.enemies){ if(e.dead)continue; if(dist(e.x,e.y,w.x,w.y)<82){ e.hp-=130; e.hitflash=1; if(e.hp<=0) boardSlay(sh,e); } }
+      if(dist(sh.px,sh.py,w.x,w.y)<54){ sh.partyHp-=16; sh.hurtFlash=0.4; }
+      for(let k=0;k<30;k++)G.particles.push({x:w.x,y:w.y,vx:rnd(-150,150),vy:rnd(-150,150),life:.6,max:.6,c:Math.random()<0.5?'#ff7a1e':'#ffd84a',r:rnd(2,5)});
+    } } }
   const live=sh.enemies.filter(e=>!e.dead);
   if(sh.aimT>0) sh.aimT-=dt;
-  if(live.length){ let nd=1e9,nr=null; for(const e of live){const d=dist(sh.px,sh.py,e.x,e.y); if(d<nd){nd=d;nr=e;}} if(nr&&nd<340){ sh.aimAng=angTo(sh.px,sh.py,nr.x,nr.y); sh.aimT=Math.max(sh.aimT,0.2);} }
-  // marines fire muskets
+  if(live.length){ let nd=1e9,nr=null; for(const e of live){ if(e.fleeing)continue; const d=dist(sh.px,sh.py,e.x,e.y); if(d<nd){nd=d;nr=e;}} if(nr&&nd<340){ sh.aimAng=angTo(sh.px,sh.py,nr.x,nr.y); sh.aimT=Math.max(sh.aimT,0.2);} }
+  // marines fire muskets (skip routed/fleeing enemies)
   for(const c of sh.crew){
     if(c.dead) continue;
     c.reload-=dt; if(c.reload>0) continue;
-    if(!live.length){ c.reload=0.2; continue; }
-    let best=null,bd=1e9; for(const e of live){const d=dist(c.lx,c.ly,e.x,e.y); if(d<bd){bd=d;best=e;}}
+    let best=null,bd=1e9; for(const e of live){ if(e.fleeing)continue; const d=dist(c.lx,c.ly,e.x,e.y); if(d<bd){bd=d;best=e;}}
     if(best && bd<300){
       c.reload=rnd(0.55,1.15); const a=angTo(c.lx,c.ly,best.x,best.y)+rnd(-0.06,0.06);
       sh.aimAng=a; sh.aimT=0.4; c.fireFlash=0.12;
@@ -4324,8 +4387,7 @@ function updateBoarding(sh,dt){
       if(dist(sht.x,sht.y,e.x,e.y)<e.r+4){
         e.hp-=sht.dmg; e.hitflash=1; sht.life=0;
         for(let k=0;k<5;k++)G.particles.push({x:sht.x,y:sht.y,vx:rnd(-40,40),vy:rnd(-50,10),life:.4,max:.4,c:'#c44',r:2});
-        if(e.hp<=0){ e.dead=true; sh.killed++;
-          for(let k=0;k<10;k++)G.particles.push({x:e.x,y:e.y,vx:rnd(-50,50),vy:rnd(-60,10),life:.6,max:.6,c:'#ffd27a',r:3}); }
+        if(e.hp<=0) boardSlay(sh,e);
         break;
       }
     }
@@ -4339,6 +4401,16 @@ function updateBoarding(sh,dt){
   // boarder AI
   for(const e of live){
     if(e.hitflash>0)e.hitflash-=dt*4; e.t+=dt;
+    if(e.fleeing){
+      // crew has broken — bolt for the nearest rail and bail overboard
+      const L=worldToDeck(sh,e.x,e.y), dir=(L.across>=0?1:-1);
+      e.x += (-Math.sin(sh.ang)*dir - Math.cos(sh.ang)*0.4)*e.spd*1.25*dt;
+      e.y += ( Math.cos(sh.ang)*dir - Math.sin(sh.ang)*0.4)*e.spd*1.25*dt;
+      e.a=angTo(0,0,-Math.sin(sh.ang)*dir,Math.cos(sh.ang)*dir);
+      e.fleeT-=dt;
+      if(e.fleeT<=0){ e.dead=true; sh.killed++; for(let k=0;k<6;k++)G.particles.push({x:e.x,y:e.y,vx:rnd(-30,30),vy:rnd(-40,0),life:.4,max:.4,c:'#9bd',r:2}); }
+      continue;
+    }
     const dp=dist(e.x,e.y,sh.px,sh.py);
     if(e.ranged){
       const aw=angTo(e.x,e.y,sh.px,sh.py); e.a=aw;
@@ -4350,13 +4422,10 @@ function updateBoarding(sh,dt){
     } else {
       const a=angTo(e.x,e.y,sh.px,sh.py); e.a=a;
       e.x+=Math.cos(a)*e.spd*dt; e.y+=Math.sin(a)*e.spd*dt; e.attackT-=dt;
-      if(dp<e.r+18 && e.attackT<=0){ e.attackT=1.0; sh.partyHp-=e.dmg; sh.hurtFlash=0.3; if(typeof sfx!=='undefined'&&sfx.thud)sfx.thud();
+      if(dp<e.r+18 && e.attackT<=0){ e.attackT=e.captain?0.8:1.0; sh.partyHp-=e.dmg; sh.hurtFlash=0.3; if(typeof sfx!=='undefined'&&sfx.thud)sfx.thud();
         for(let k=0;k<6;k++)G.particles.push({x:sh.px+rnd(-8,8),y:sh.py+rnd(-8,8),vx:rnd(-40,40),vy:rnd(-50,10),life:.4,max:.4,c:'#c44',r:3}); }
     }
-    const L=worldToDeck(sh,e.x,e.y), pad=8;
-    if(Math.abs(L.along)>sh.halfL-pad||Math.abs(L.across)>sh.halfW-pad){
-      L.along=clamp(L.along,-sh.halfL+pad,sh.halfL-pad); L.across=clamp(L.across,-sh.halfW+pad,sh.halfW-pad);
-      const w=deckToWorld(sh,L.along,L.across); e.x=w.x; e.y=w.y; }
+    const w=clampToDeck(sh,e.x,e.y,8); e.x=w.x; e.y=w.y;
   }
   // crew fall as the party bleeds (visual, mirrors shore)
   if(sh.crew.length){
@@ -4370,7 +4439,7 @@ function updateBoarding(sh,dt){
   if(sh.partyHp<=0){ sh.partyHp=0; sh.phase='retreat'; sh.resolveT=0; toast('🩸 Boarders repelled — swing back to the ship!',2400); return; }
   // waves + victory
   if(sh.phase==='fight' && !live.length){
-    if(sh.spawnedTotal<sh.toKill){ sh.waveT-=dt; if(sh.waveT<=0){ spawnBoardWave(sh); sh.waveT=1.0; } }
+    if(sh.waveIdx<sh.waves){ sh.waveT-=dt; if(sh.waveT<=0){ spawnBoardWave(sh); sh.waveT=1.0; } }
     else { sh.phase='win'; sh.resolveT=0; toast('🏴‍☠️ The deck is yours!',2000); }
   }
 }
@@ -4380,11 +4449,12 @@ function resolveBoarding(sh, won){
   if(won && e && !e.dead){
     const lootMul=(G.ship&&G.ship.loot)||1;
     const bonus = e.type==='cargo' ? Math.floor((e.cargo||0)*lootMul) : Math.floor((e.bounty||100)*lootMul);
-    killEntity(e, G.ship);                       // normal sink + base reward + stats + removal
-    G.gold+=bonus; G.stats.goldEarned=(G.stats.goldEarned||0)+bonus;
+    const deck  = Math.round(sh.earnedGold||0);   // loot grabbed on deck + the captain's purse
+    killEntity(e, G.ship);                        // normal sink + base reward + stats + removal
+    G.gold+=bonus+deck; G.stats.goldEarned=(G.stats.goldEarned||0)+bonus+deck;
     G.stats.boardingsWon=(G.stats.boardingsWon||0)+1;
     updateHUD(); checkAchievements&&checkAchievements();
-    toast('🏴‍☠️ Plundered her hold — DOUBLE loot! +'+bonus+'g bonus',2800);
+    toast('🏴‍☠️ Plundered her — DOUBLE loot! +'+bonus+'g'+(deck?' +'+deck+'g from her deck':''),2900);
   } else {
     if(G.ship){ const dmg=Math.round(G.ship.maxhp*0.12); G.ship.hp=Math.max(1,G.ship.hp-dmg); G.ship.combatT=6; G._shakeBudget=(G._shakeBudget||0)+4; }
     if(e){ e._boardCd=G.t+12; }                  // brief cooldown so the prompt doesn't instantly re-fire
@@ -4417,25 +4487,35 @@ function drawMarineSprite(cx,cy,z,shirt,hat,o){
   ctx.fillStyle='rgba(255,230,160,0.5)';ctx.fillRect(cx-5*z,cy-10*z,10*z,1.4*z);
 }
 function drawBoarderSprite(e,z){
-  const cx=wx(e.x), cy=wy(e.y);
-  ctx.fillStyle='rgba(20,50,40,0.28)';ctx.beginPath();ctx.ellipse(cx,cy+7*z,6*z,3*z,0,0,TAU);ctx.fill();
-  const flash=e.hitflash>0;
-  ctx.strokeStyle='#2a1d12';ctx.lineWidth=2.2*z;ctx.lineCap='round';
-  const step=Math.sin(e.t*8)*1.4*z;
-  ctx.beginPath();ctx.moveTo(cx,cy+2*z);ctx.lineTo(cx-2*z,cy+8*z+step);ctx.stroke();
-  ctx.beginPath();ctx.moveTo(cx,cy+2*z);ctx.lineTo(cx+2*z,cy+8*z-step);ctx.stroke();
-  ctx.fillStyle=flash?'#fff':(e.ranged?'#5a4a6a':'#7a352e');roundRect(cx-4*z,cy-5*z,8*z,9*z,2*z);ctx.fill();
+  const cx=wx(e.x), cy=wy(e.y), sc=e.captain?1.5:1;
+  const flash=e.hitflash>0, dim=e.fleeing?0.6:1;
+  ctx.globalAlpha=dim;
+  ctx.fillStyle='rgba(20,50,40,0.28)';ctx.beginPath();ctx.ellipse(cx,cy+7*z*sc,6*z*sc,3*z*sc,0,0,TAU);ctx.fill();
+  ctx.strokeStyle='#2a1d12';ctx.lineWidth=2.2*z*sc;ctx.lineCap='round';
+  const step=Math.sin(e.t*8)*1.4*z*sc;
+  ctx.beginPath();ctx.moveTo(cx,cy+2*z*sc);ctx.lineTo(cx-2*z*sc,cy+8*z*sc+step);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(cx,cy+2*z*sc);ctx.lineTo(cx+2*z*sc,cy+8*z*sc-step);ctx.stroke();
+  ctx.fillStyle=flash?'#fff':(e.captain?'#8a1f1f':(e.ranged?'#5a4a6a':'#7a352e'));roundRect(cx-4*z*sc,cy-5*z*sc,8*z*sc,9*z*sc,2*z*sc);ctx.fill();
+  if(e.captain && !flash){ ctx.fillStyle='rgba(240,200,90,0.85)';ctx.fillRect(cx-4*z*sc,cy-1*z*sc,8*z*sc,1.4*z*sc); ctx.fillRect(cx-0.7*z*sc,cy-5*z*sc,1.4*z*sc,9*z*sc); }
   // weapon: cutlass (melee) raised, or musket (ranged) leveled at the party
-  ctx.save();ctx.translate(cx,cy-2*z);ctx.rotate(e.a||0);
+  ctx.save();ctx.translate(cx,cy-2*z*sc);ctx.rotate(e.a||0);
   if(e.ranged){ ctx.strokeStyle='#2a2018';ctx.lineWidth=2*z;ctx.lineCap='round';ctx.beginPath();ctx.moveTo(-4*z,0);ctx.lineTo(10*z,0);ctx.stroke();
     if(e.fireFlash>0){ ctx.fillStyle='rgba(255,224,140,0.9)';ctx.beginPath();ctx.arc(11*z,0,3*z,0,TAU);ctx.fill(); } }
-  else { ctx.strokeStyle='#d8d2c0';ctx.lineWidth=2.2*z;ctx.lineCap='round';
+  else { ctx.strokeStyle=e.captain?'#ffe49a':'#d8d2c0';ctx.lineWidth=2.2*z*sc;ctx.lineCap='round';
     const sw=Math.sin(e.t*9)*0.4;
-    ctx.beginPath();ctx.moveTo(2*z,0);ctx.lineTo(12*z,-3*z+sw*4*z);ctx.stroke(); }
+    ctx.beginPath();ctx.moveTo(2*z*sc,0);ctx.lineTo(12*z*sc,(-3*z+sw*4*z)*sc);ctx.stroke(); }
   ctx.restore();
-  ctx.fillStyle=flash?'#fff':'#cfa274';ctx.beginPath();ctx.arc(cx,cy-8*z,3.6*z,0,TAU);ctx.fill();
-  // bandana
-  ctx.fillStyle=e.ranged?'#3a2f55':'#5a201c';roundRect(cx-4*z,cy-11*z,8*z,3*z,1.5*z);ctx.fill();
+  ctx.fillStyle=flash?'#fff':(e.captain?'#e8b88a':'#cfa274');ctx.beginPath();ctx.arc(cx,cy-8*z*sc,3.6*z*sc,0,TAU);ctx.fill();
+  if(e.captain){
+    ctx.fillStyle='#1c1c22';ctx.beginPath();ctx.moveTo(cx-8*z,cy-11*z);ctx.lineTo(cx+8*z,cy-11*z);ctx.lineTo(cx,cy-20*z);ctx.closePath();ctx.fill();
+    ctx.fillStyle='#efe2b0';ctx.beginPath();ctx.arc(cx+6*z,cy-17*z,2.6*z,0,TAU);ctx.fill();   // plume
+    const f=clamp(e.hp/(e.maxhp||e.hp),0,1);
+    ctx.fillStyle='rgba(0,0,0,0.45)';ctx.fillRect(cx-13*z,cy-28*z,26*z,4.5*z);
+    ctx.fillStyle=f>0.4?'#e8b84a':'#d8584a';ctx.fillRect(cx-13*z+1*z,cy-28*z+1*z,(24*z)*f,2.5*z);
+  } else {
+    ctx.fillStyle=e.ranged?'#3a2f55':'#5a201c';roundRect(cx-4*z,cy-11*z,8*z,3*z,1.5*z);ctx.fill();  // bandana
+  }
+  ctx.globalAlpha=1;
 }
 function drawBoardFallen(cx,cy,z,c){
   const fall=Math.min(1,(c.deathT||0)*4);
@@ -4463,32 +4543,67 @@ function drawBoardHud(sh){
 function drawBoarding(sh){
   const z=G.cam.zoom;
   const P=p=>[wx(p.x),wy(p.y)];
-  const c0=deckToWorld(sh,-sh.halfL,-sh.halfW), c1=deckToWorld(sh,sh.halfL,-sh.halfW),
-        c2=deckToWorld(sh,sh.halfL,sh.halfW), c3=deckToWorld(sh,-sh.halfL,sh.halfW);
-  const s0=P(c0),s1=P(c1),s2=P(c2),s3=P(c3);
-  // hull shadow + deck base
-  ctx.fillStyle='rgba(8,28,42,0.4)';ctx.beginPath();ctx.moveTo(s0[0]+6,s0[1]+9);ctx.lineTo(s1[0]+6,s1[1]+9);ctx.lineTo(s2[0]+6,s2[1]+9);ctx.lineTo(s3[0]+6,s3[1]+9);ctx.closePath();ctx.fill();
-  ctx.fillStyle='#b08a52';ctx.beginPath();ctx.moveTo(s0[0],s0[1]);ctx.lineTo(s1[0],s1[1]);ctx.lineTo(s2[0],s2[1]);ctx.lineTo(s3[0],s3[1]);ctx.closePath();ctx.fill();
-  // planks
+  const Pw=(a,c)=>{ const w=deckToWorld(sh,a,c); return [wx(w.x),wy(w.y)]; };
+  const N=20;
+  const traceHull=(off)=>{
+    ctx.beginPath(); let first=true;
+    for(let i=0;i<=N;i++){ const a=lerp(-sh.halfL,sh.halfL,i/N); const p=Pw(a, deckHalfWidthAt(sh,a)); if(first){ctx.moveTo(p[0]+off,p[1]+off);first=false;} else ctx.lineTo(p[0]+off,p[1]+off); }
+    for(let i=N;i>=0;i--){ const a=lerp(-sh.halfL,sh.halfL,i/N); const p=Pw(a,-deckHalfWidthAt(sh,a)); ctx.lineTo(p[0]+off,p[1]+off); }
+    ctx.closePath();
+  };
+  // hull shadow on the water → dark bulwark → planked deck clipped inside
+  ctx.fillStyle='rgba(8,28,42,0.4)'; traceHull(7); ctx.fill();
+  ctx.fillStyle='#5a3d24'; traceHull(0); ctx.fill();
+  ctx.save(); traceHull(0); ctx.clip();
+  ctx.fillStyle='#b08a52'; ctx.fillRect(0,0,W,H);
   ctx.strokeStyle='rgba(90,60,34,0.5)';ctx.lineWidth=1.4*z;
-  for(let i=1;i<10;i++){ const cc=lerp(-sh.halfW,sh.halfW,i/10); const A=P(deckToWorld(sh,-sh.halfL,cc)),B=P(deckToWorld(sh,sh.halfL,cc)); ctx.beginPath();ctx.moveTo(A[0],A[1]);ctx.lineTo(B[0],B[1]);ctx.stroke(); }
-  // rails
-  ctx.strokeStyle='#6b4a2c';ctx.lineWidth=4*z;ctx.lineJoin='round';
-  ctx.beginPath();ctx.moveTo(s0[0],s0[1]);ctx.lineTo(s1[0],s1[1]);ctx.lineTo(s2[0],s2[1]);ctx.lineTo(s3[0],s3[1]);ctx.closePath();ctx.stroke();
+  for(let i=1;i<16;i++){ const c=lerp(-sh.halfW,sh.halfW,i/16); const A=Pw(-sh.halfL,c),B=Pw(sh.halfL,c); ctx.beginPath();ctx.moveTo(A[0],A[1]);ctx.lineTo(B[0],B[1]);ctx.stroke(); }
+  ctx.restore();
+  // curved rail following the hull
+  ctx.strokeStyle='#6b4a2c';ctx.lineWidth=4*z;ctx.lineJoin='round'; traceHull(0); ctx.stroke();
+  // bowsprit + figurehead at the bow tip
+  { const tip=Pw(sh.halfL,0), bsp=Pw(sh.halfL+34,0);
+    ctx.strokeStyle='#6b4a2c';ctx.lineWidth=3*z;ctx.lineCap='round';ctx.beginPath();ctx.moveTo(tip[0],tip[1]);ctx.lineTo(bsp[0],bsp[1]);ctx.stroke();
+    ctx.fillStyle='#caa23f';ctx.beginPath();ctx.arc(tip[0],tip[1],4*z,0,TAU);ctx.fill(); }
+  // stern quarterdeck shading + ship's wheel
+  { const q0=Pw(-sh.halfL*0.98,-deckHalfWidthAt(sh,-sh.halfL*0.98)),q1=Pw(-sh.halfL*0.58,-deckHalfWidthAt(sh,-sh.halfL*0.58)),
+        q2=Pw(-sh.halfL*0.58,deckHalfWidthAt(sh,-sh.halfL*0.58)),q3=Pw(-sh.halfL*0.98,deckHalfWidthAt(sh,-sh.halfL*0.98));
+    ctx.fillStyle='rgba(0,0,0,0.16)';ctx.beginPath();ctx.moveTo(q0[0],q0[1]);ctx.lineTo(q1[0],q1[1]);ctx.lineTo(q2[0],q2[1]);ctx.lineTo(q3[0],q3[1]);ctx.closePath();ctx.fill();
+    const helm=Pw(-sh.halfL*0.82,0);
+    ctx.strokeStyle='#4a3018';ctx.lineWidth=2*z;ctx.beginPath();ctx.arc(helm[0],helm[1],6*z,0,TAU);ctx.stroke();
+    for(let k=0;k<6;k++){ const a=k/6*TAU+G.t*0.4; ctx.beginPath();ctx.moveTo(helm[0],helm[1]);ctx.lineTo(helm[0]+Math.cos(a)*8*z,helm[1]+Math.sin(a)*8*z);ctx.stroke(); } }
+  // cabin doors at the stern (enemy spawn points)
+  for(const d of sh.doors){ const w=Pw(d.a,d.c);
+    ctx.fillStyle='#3a2616';roundRect(w[0]-6*z,w[1]-8*z,12*z,16*z,2*z);ctx.fill();
+    ctx.strokeStyle='#6b4a2c';ctx.lineWidth=1.2*z;ctx.strokeRect(w[0]-6*z,w[1]-8*z,12*z,16*z);
+    ctx.fillStyle='#caa23f';ctx.beginPath();ctx.arc(w[0]+3*z,w[1],1.2*z,0,TAU);ctx.fill(); }
   // hatches
-  for(const h of sh.hatches){ const w=P(deckToWorld(sh,h.a,h.c)); const hx=w[0],hy=w[1];
+  for(const h of sh.hatches){ const w=Pw(h.a,h.c); const hx=w[0],hy=w[1];
     ctx.fillStyle='#2a1d12';roundRect(hx-9*z,hy-7*z,18*z,14*z,2*z);ctx.fill();
     ctx.strokeStyle='#5a3c22';ctx.lineWidth=1.2*z; for(let i=1;i<3;i++){ctx.beginPath();ctx.moveTo(hx-9*z+i*6*z,hy-7*z);ctx.lineTo(hx-9*z+i*6*z,hy+7*z);ctx.stroke();} }
-  // masts
-  for(const ma of [-sh.halfL*0.5, sh.halfL*0.15]){ const w=P(deckToWorld(sh,ma,0)); const mx=w[0],my=w[1];
+  // grapple ropes on the near rail
+  ctx.strokeStyle='rgba(60,42,24,0.85)';ctx.lineWidth=2*z;
+  for(const r of sh.ropes){ const A=Pw(r.a,r.c0),B=Pw(r.a,r.c1); ctx.beginPath();ctx.moveTo(A[0],A[1]);ctx.lineTo(B[0],B[1]);ctx.stroke(); }
+  // masts (more on bigger ships)
+  const mastAlongs = sh.sizeF>1.3 ? [-sh.halfL*0.5,0,sh.halfL*0.42] : [-sh.halfL*0.45,sh.halfL*0.2];
+  for(const ma of mastAlongs){ const w=Pw(ma,0); const mx=w[0],my=w[1];
     ctx.fillStyle='rgba(8,28,42,0.25)';ctx.beginPath();ctx.arc(mx+3*z,my+3*z,7*z,0,TAU);ctx.fill();
     ctx.fillStyle='#7a5836';ctx.beginPath();ctx.arc(mx,my,6*z,0,TAU);ctx.fill();
     ctx.fillStyle='#8f6a40';ctx.beginPath();ctx.arc(mx,my,3.5*z,0,TAU);ctx.fill(); }
-  // grapple ropes on the near rail
-  ctx.strokeStyle='rgba(60,42,24,0.85)';ctx.lineWidth=2*z;
-  for(const r of sh.ropes){ const A=P(deckToWorld(sh,r.a,r.c0)),B=P(deckToWorld(sh,r.a,r.c1)); ctx.beginPath();ctx.moveTo(A[0],A[1]);ctx.lineTo(B[0],B[1]);ctx.stroke(); }
-  // enemy boarders
-  for(const e of sh.enemies){ if(!e.dead) drawBoarderSprite(e,z); }
+  // powder kegs
+  for(const kg of sh.kegs){ if(kg.dead)continue; const w=Pw(kg.a,kg.c); const kx=w[0],ky=w[1];
+    ctx.fillStyle='rgba(8,28,42,0.22)';ctx.beginPath();ctx.ellipse(kx+2*z,ky+8*z,7*z,3*z,0,0,TAU);ctx.fill();
+    ctx.fillStyle='#5a3a1e';roundRect(kx-6*z,ky-7*z,12*z,14*z,3*z);ctx.fill();
+    ctx.strokeStyle='#2a1a0e';ctx.lineWidth=1.4*z;ctx.beginPath();ctx.moveTo(kx-6*z,ky-2*z);ctx.lineTo(kx+6*z,ky-2*z);ctx.moveTo(kx-6*z,ky+3*z);ctx.lineTo(kx+6*z,ky+3*z);ctx.stroke();
+    ctx.strokeStyle='#3a2a18';ctx.lineWidth=1.4*z;ctx.beginPath();ctx.moveTo(kx,ky-7*z);ctx.quadraticCurveTo(kx+5*z,ky-12*z,kx+2*z,ky-13*z);ctx.stroke();
+    if(kg.lit){ const fl=0.6+Math.random()*0.4; ctx.fillStyle='rgba(255,150,40,'+fl+')';ctx.beginPath();ctx.arc(kx+2*z,ky-13*z,2.6*z*fl,0,TAU);ctx.fill();
+      ctx.strokeStyle='rgba(255,80,40,0.45)';ctx.lineWidth=2*z;ctx.beginPath();ctx.arc(kx,ky,82*z*clamp(1-kg.fuse/1.1,0,1),0,TAU);ctx.stroke(); } }
+  // deck loot
+  for(const L of sh.loot){ if(L.got)continue; const w=Pw(L.a,L.c); const lx=w[0],ly=w[1]+Math.sin(G.t*3+L.bob)*2*z;
+    if(L.kind==='chest'){ ctx.fillStyle='#8a5a2c';roundRect(lx-6*z,ly-4*z,12*z,8*z,1.5*z);ctx.fill(); ctx.fillStyle='#caa23f';ctx.fillRect(lx-6*z,ly-1*z,12*z,1.6*z); }
+    else { ctx.fillStyle='#ffd84a';ctx.beginPath();ctx.arc(lx,ly,3.2*z,0,TAU);ctx.fill(); ctx.fillStyle='#e8b84a';ctx.beginPath();ctx.arc(lx+2*z,ly+1*z,2.4*z,0,TAU);ctx.fill(); } }
+  // enemy boarders (depth-sorted)
+  for(const e of sh.enemies.filter(e=>!e.dead).sort((a,b)=>a.y-b.y)) drawBoarderSprite(e,z);
   // marines
   const SHIRTS=['#3a5a8a','#c4493f','#4f9e57','#caa23f','#5a7a9a','#a85a3a'], HATS=['#2a2a30','#6a2f2a','#3a2f22'];
   if(sh.phase==='swingin'){
@@ -4512,6 +4627,14 @@ function drawBoarding(sh){
   // marine musket shots
   for(const s of sh.shots){ const w=P({x:s.x,y:s.y}); ctx.fillStyle='#ffe08a';ctx.beginPath();ctx.arc(w[0],w[1],2.2*z,0,TAU);ctx.fill(); }
   for(const t of sh.ethrows){ const w=P({x:t.x,y:t.y}); ctx.fillStyle='#caa';ctx.beginPath();ctx.arc(w[0],w[1],2.2*z,0,TAU);ctx.fill(); }
+  // off-screen enemy arrows (deck can be bigger than the viewport now)
+  for(const e of sh.enemies){ if(e.dead||e.fleeing)continue; const sx=wx(e.x), sy=wy(e.y);
+    if(sx>14&&sx<W-14&&sy>80&&sy<H-14) continue;
+    const ax=clamp(sx,26,W-26), ay=clamp(sy,86,H-26), ang=Math.atan2(sy-H/2,sx-W/2);
+    ctx.save();ctx.translate(ax,ay);ctx.rotate(ang);
+    ctx.fillStyle=e.captain?'#ffd24a':'rgba(216,72,58,0.92)';
+    ctx.beginPath();ctx.moveTo(11,0);ctx.lineTo(-6,-6);ctx.lineTo(-6,6);ctx.closePath();ctx.fill();
+    ctx.restore(); }
   // damage flash vignette
   if(sh.hurtFlash>0){ ctx.fillStyle='rgba(190,40,30,'+(0.25*sh.hurtFlash)+')';ctx.fillRect(0,0,W,H); }
   drawBoardHud(sh);
@@ -6960,7 +7083,7 @@ function loop(now){
     const sh=G.shore;
     if(sh){
       G.cam.x=lerp(G.cam.x,sh.px,G.dt*3); G.cam.y=lerp(G.cam.y,sh.py,G.dt*3);
-      const shoreZoom = sh.boarding ? ((H>W)?1.85:1.7) : ((H>W)?1.55:1.4);  // boarding zooms in tighter on the deck
+      const shoreZoom = sh.boarding ? (sh.camZoom||1.6) : ((H>W)?1.55:1.4);  // boarding zoom adapts to deck size
       G.cam.zoom=lerp(G.cam.zoom, shoreZoom, G.dt*3);
     }
     updateHUD();
