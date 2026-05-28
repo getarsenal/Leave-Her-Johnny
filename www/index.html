@@ -2557,7 +2557,8 @@ function updateSpawns(dt){
       const p=spawnAtEdge();
       // don't pop in right on top of the player
       if(dist(p.x,p.y,s.x,s.y)>500){
-        const n=makeNavy(p.x,p.y,{x:rnd(0,S),y:rnd(0,S)});
+        const cls=G.endless?endlessNavyClass(G.threat||0):null;   // bigger ships as Open Seas threat climbs
+        const n=makeNavy(p.x,p.y,{x:rnd(0,S),y:rnd(0,S)},cls);
         G.entities.push(n);
       }
     }
@@ -6226,13 +6227,7 @@ function loop(now){
   }
   if(G.state==='play'){
     applyKeyboardInput();   // WASD/arrows drive steering on PC (no-op if touch active)
-    if(G.endless){
-      G.endlessT+=G.dt;
-      // difficulty ramps with time: more simultaneous navy, capped so it stays playable
-      G.navyTarget=Math.min(14, 4+Math.floor(G.endlessT/30));
-      // score = time survived + plunder; shown live in the HUD
-      G.endlessScore=Math.floor(G.endlessT*10 + (G.stats? 0:0) + (G.runGold||0));
-    }
+    if(G.endless){ updateEndless(G.dt); }
     updateEntities(G.dt);
     updateHazards(G.dt);
     updateWeather(G.dt);
@@ -6300,7 +6295,7 @@ function updateHUD(){
   document.body.classList.toggle('shore-mode', G.state==='shore');
   el('s-gold').textContent=Math.floor(G.gold);
   el('s-wood').textContent=Math.floor(G.wood);
-  if(G.endless){ const o=el('objective'); if(o) o.textContent='🌊 Open Seas — Score '+(G.endlessScore|0); }
+  if(G.endless){ const o=el('objective'); if(o) o.textContent='🌊 Open Seas · Threat '+(1+Math.floor(G.threat||0))+' · '+(G.endlessScore|0); }
   const s=G.ship; if(s)el('hpfill').style.width=clamp(s.hp/s.maxhp*100,0,100)+'%';
   // combo meter
   const cm=el('combometer');
@@ -6664,11 +6659,67 @@ function continueGame(){
 }
 el('startbtn').onclick=newVoyage;
 el('continuebtn').onclick=continueGame;
+/* ================================================================
+   OPEN SEAS — escalating survival. Two pressures drive it: TIME and
+   NOTORIETY (how much mayhem you've caused this run). Together they form a
+   THREAT level that ramps deliberate waves — more & bigger navy, Crown
+   hunting fleets, frequent storms, a lively sea of critters, and periodic
+   named-boss hunts. No respawn spam: every threat is an intentional event.
+   ================================================================ */
+const ENDLESS_BOSSES=['shark','squid','ghost','eel','manowar','wraith','kraken','drowned'];
+// navy class biased upward as threat rises (you face bigger ships later)
+function endlessNavyClass(T){
+  const top=Math.min(NAVY_CLASSES.length-1, 1+Math.floor(T*0.5));
+  return NAVY_CLASSES[rndi(Math.max(0,top-2), top)];
+}
+// a coordinated Crown hunting pack — count & class scale with threat
+function endlessHunterFleet(T){
+  const s=G.ship; if(!s)return;
+  const liveNavy=G.entities.filter(e=>e.type==='navy'&&!e.dead).length;
+  if(liveNavy>24) return;                                  // don't dogpile beyond reason
+  const p=spawnAtEdge(); if(dist(p.x,p.y,s.x,s.y)<600) return;
+  const n=Math.min(6, 2+Math.floor(T*0.4));
+  for(let i=0;i<n;i++) G.entities.push(makeNavy(p.x+rnd(-130,130), p.y+rnd(-130,130), {x:s.x,y:s.y}, endlessNavyClass(T)));
+  toast('⚓ A Crown hunting fleet closes in!',2200);
+}
+// a named boss hunts you; cadence tightens and scale grows with threat
+function endlessBossHunt(T){
+  const s=G.ship; if(!s)return;
+  if(G.entities.filter(e=>e.type==='boss'&&!e.dead).length>=2) return;   // cap concurrent bosses
+  G._bossIdx=(G._bossIdx||0)+1;
+  const mk=ENDLESS_BOSSES[G._bossIdx%ENDLESS_BOSSES.length];
+  const p=spawnAtEdge();
+  if(dist(p.x,p.y,s.x,s.y)<700){ const a=Math.random()*TAU; p.x=s.x+Math.cos(a)*760; p.y=s.y+Math.sin(a)*760; }
+  const scale=0.5+Math.min(2.4, T*0.12);
+  const b=spawnBossOf(mk,p.x,p.y,{scale});
+  if(b){ toast('⚠ '+b.bossName+' hunts the Open Seas!',2600); G.shake=Math.max(G.shake,14); if(typeof sfx!=='undefined'&&sfx.bossAppear)sfx.bossAppear(); }
+}
+function updateEndless(dt){
+  G.endlessT+=dt;
+  const noto=(G.runKills||0)*0.6 + (G.runGold||0)/500;     // notoriety from this run's mayhem
+  G.heat=noto;
+  G.threat=G.endlessT/40 + noto*0.5;                        // overall escalation
+  const T=G.threat;
+  G.navyTarget=Math.min(18, 4+Math.floor(T*0.9));           // more simultaneous navy
+  G.endlessScore=Math.floor(G.endlessT*10 + (G.runGold||0));
+  // a living sea: critters surface often
+  G._critT=(G._critT||4)-dt; if(G._critT<=0){ G._critT=rnd(4,9); spawnCritter(); }
+  // escalating storms (kick the weather machine into 'building' on a tightening cadence)
+  G._stormT=(G._stormT===undefined?28:G._stormT)-dt;
+  if(G._stormT<=0){ G._stormT=Math.max(24, 70-T*2); if(G.weather && G.weather.state==='clear'){ G.weather.state='building'; G.weather.t=0; } }
+  // hunting fleets
+  G._fleetT=(G._fleetT===undefined?35:G._fleetT)-dt;
+  if(G._fleetT<=0){ G._fleetT=Math.max(18, 55-T*2); endlessHunterFleet(T); }
+  // boss hunts
+  G._bossT=(G._bossT===undefined?52:G._bossT)-dt;
+  if(G._bossT<=0){ G._bossT=Math.max(38, 110-T*3.5); endlessBossHunt(T); }
+}
 /* ---- OPEN SEAS (endless mode) ---- */
 function startEndless(){
   initAudio();
   G.endless=true; G.cursed=false;
   G.endlessT=0; G.endlessScore=0;
+  G.threat=0; G.heat=0; G._critT=4; G._stormT=30; G._fleetT=35; G._bossT=55; G._bossIdx=0;
   G.gold=0; G.wood=0; G.maxMapCleared=999; G.bossDead=true; G.bossSpawned=true;
   resetRun(); G.comboBest=0;
   // a generous fixed loadout so endless is about survival, not grinding upgrades
