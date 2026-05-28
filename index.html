@@ -856,9 +856,9 @@ const MAPS = [
   {name:'The Maw',      size:19500, islands:40, cargo:26, navy:21, monsters:15, treasures:10, boss:'kraken',
    tint:'#247fae', desc:'The end of the map. Here sleeps the Kraken.'},
   // ---- EXPANSION SEAS (6-8): each adds one signature hazard + a themed boss ----
-  {name:'Coral Graveyard', size:23000, islands:46, cargo:28, navy:23, monsters:16, treasures:11, boss:'eel',
+  {name:'Coral Graveyard', size:23000, islands:46, cargo:28, navy:23, monsters:16, treasures:11, boss:'wraith',
    hazard:'reef', tint:'#1f9e92', desc:'Teal shallows over a boneyard of wrecks. A great eel weaves the reefs.'},
-  {name:'The Frostbound', size:27000, islands:52, cargo:30, navy:26, monsters:17, treasures:12, boss:'wraith',
+  {name:'The Frostbound', size:27000, islands:52, cargo:30, navy:26, monsters:17, treasures:12, boss:'narwhal',
    hazard:'ice', tint:'#5b8fb0', desc:'Pale frozen straits. Drift ice grinds the hull and a frost wraith phases through the cold.'},
   {name:'The Maelstrom', size:31000, islands:58, cargo:32, navy:30, monsters:18, treasures:14, boss:'drowned',
    hazard:'whirlpool', tint:'#1b3a4a', desc:'A churning black sea swallowing ships whole. Here reigns the Drowned King.'},
@@ -2644,7 +2644,8 @@ const BOSS_STATS={
   ghost: {hp:16000,r:46, dmg:38,speed:110,name:"The Dutchman's Wake", fireRate:0.72, range:380, shipL:1.7, phases:3},
   kraken:{hp:34000,r:120,dmg:52,speed:76, name:'THE KRAKEN',          fireRate:0.42, range:420, shipL:0, phases:4},
   eel:    {hp:42000,r:60, dmg:56,speed:150,name:'The Leviathan Eel',  fireRate:0,    range:110, shipL:0, phases:3},
-  wraith: {hp:52000,r:50, dmg:58,speed:124,name:'The Frost Wraith',   fireRate:0.6,  range:400, shipL:1.7, phases:3},
+  wraith: {hp:54000,r:54, dmg:58,speed:112,name:'The Coral Colossus', fireRate:0.6,  range:400, shipL:1.7, phases:3},
+  narwhal:{hp:50000,r:64, dmg:58,speed:142,name:'The Hoarfrost Leviathan', fireRate:0.5, range:380, shipL:0, phases:3},
   drowned:{hp:78000,r:130,dmg:70,speed:88, name:'THE DROWNED KING',   fireRate:0.4,  range:440, shipL:2.0, phases:4},
   // Heavy Man-o-War — the corner guardians. Base stats; scaled per corner/map at spawn.
   manowar:{hp:5200,r:54, dmg:30,speed:84, name:'Heavy Man-o-War',     fireRate:0.5,  range:360, shipL:1.9, phases:2},
@@ -2661,8 +2662,8 @@ function spawnBossOf(mk, x, y, opts){
   stats.dmg=Math.round(stats.dmg*(0.6+sc*0.4)*cd);   // damage scales gentler than HP
   const isShipBoss = (mk==='ghost'||mk==='wraith'||mk==='drowned'||mk==='manowar');
   const tint = mk==='manowar' ? '#3a2f4a'
-    : isShipBoss ? (mk==='wraith'?'#8fb8d8':mk==='drowned'?'#1c2e38':'#2e3a44')
-    : (mk==='shark'?'#7a8aa0':mk==='eel'?'#3f7a5a':'#7a5a90');
+    : isShipBoss ? (mk==='wraith'?'#7a8a5a':mk==='drowned'?'#16241e':'#2e3a44')
+    : (mk==='shark'?'#7a8aa0':mk==='eel'?'#3f7a5a':mk==='narwhal'?'#cfe6f0':'#7a5a90');
   const b=makeShip({x,y,type:'boss',mk,faction:'enemy',
     hp:stats.hp,maxhp:stats.hp,r:stats.r,maxspeed:stats.speed,turn:isShipBoss?1.5:1.7,
     fireRate:stats.fireRate, dmg:stats.dmg, range:stats.range,
@@ -4312,12 +4313,13 @@ function updateBoss(e,dt,s,dp){
   const lowHP = e.hp < e.maxhp*0.4;
   if(lowHP && !e.enrage){ e.enrage=1; toast('⚠ '+e.bossName+' is enraged!',1800); G.shake=Math.max(G.shake,10); }
   if(!e.phase){
-    e.phase = (e.mk==='shark'||e.mk==='eel')?'stalk'
+    e.phase = (e.mk==='shark'||e.mk==='eel'||e.mk==='narwhal')?'stalk'
             : (e.mk==='ghost'||e.mk==='wraith'||e.mk==='drowned'||e.mk==='manowar')?'broadside':'circle';
     e.phaseT=2;
   }
 
   if(e.mk==='shark')      updateShark(e,dt,s,dp,lowHP);
+  else if(e.mk==='narwhal')updateNarwhal(e,dt,s,dp,lowHP);
   else if(e.mk==='squid') updateSquid(e,dt,s,dp,lowHP);
   else if(e.mk==='ghost') updateGhost(e,dt,s,dp,lowHP);
   else if(e.mk==='kraken')updateKraken(e,dt,s,dp,lowHP);
@@ -4437,10 +4439,79 @@ function updateEel(e,dt,s,dp,low){
   } else { e.phase='stalk'; e.phaseT=2; }
 }
 
+/* ❄️ THE HOARFROST LEVIATHAN (Sea 7) — a huge icy orca-narwhal. It circles spraying
+   ICE SHARDS, then winds up and TUSK-CHARGES in a straight impale, trailing drift ice. */
+function updateNarwhal(e,dt,s,dp,low){
+  const spd=(low?1.3:1.05)*(e._spdBoost||1);
+  if(e.phase==='stalk'){
+    steer(e,angTo(e.x,e.y,s.x,s.y)+Math.sin(e.tentacle*1.6)*0.3,dt);
+    e.speed=lerp(e.speed,e.maxspeed*0.8*spd,dt);
+    if(dp<e.r+s.r){ dealDamage(s,e.dmg*dt,e); }
+    e._iceCd=(e._iceCd||rnd(0.8,2.0))-dt;
+    if(e._iceCd<=0 && dp<e.range){ e._iceCd=low?1.3:2.1;
+      const a0=angTo(e.x,e.y,s.x,s.y);
+      for(let k=-1;k<=1;k++){ const a=a0+k*0.17;
+        G.cannonballs.push({x:e.x+Math.cos(a0)*e.r,y:e.y+Math.sin(a0)*e.r,vx:Math.cos(a)*380,vy:Math.sin(a)*380,life:1.7,dmg:Math.round(e.dmg*0.5),friendly:false,owner:e,h:0,vh:0,r:4.2,ice:true}); }
+      if(typeof sfx!=='undefined'&&sfx.enemyCannon)sfx.enemyCannon();
+    }
+    if(e.phaseT<=0){ e.phase='dive'; e.phaseT=low?0.7:1.0; }
+  } else if(e.phase==='dive'){
+    e.lungeA=angTo(e.x,e.y,s.x,s.y);
+    steer(e,e.lungeA,dt*0.6); e.speed=lerp(e.speed,e.maxspeed*0.2,dt*3);
+    e.teleX=s.x; e.teleY=s.y; e.teleR=(e.teleR||0)+dt;
+    if(e.phaseT<=0){ e.phase='charge'; e.phaseT=low?0.7:0.9; e.teleR=0; }
+  } else if(e.phase==='charge'){
+    e.speed=lerp(e.speed,e.maxspeed*2.7*spd,dt*6); steer(e,e.lungeA,dt*0.25);
+    e._iceWake=(e._iceWake||0)-dt;
+    if(e._iceWake<=0){ e._iceWake=0.18; if(!G.world.hazards)G.world.hazards=[];
+      G.world.hazards.push({type:'floe',x:e.x,y:e.y,r:lerp(34,58,Math.random()),rot:Math.random()*TAU,seed:Math.random()*1000,tempLife:8}); }
+    if(dp<e.r+s.r+8){ dealDamage(s,e.dmg*1.3,e); G.shake=Math.max(G.shake,13); sfx.hitShip&&sfx.hitShip(); e.phase='recover'; e.phaseT=low?0.8:1.2; }
+    if(e.phaseT<=0){ e.phase='recover'; e.phaseT=low?0.9:1.4; }
+  } else if(e.phase==='recover'){
+    e.stunT=Math.max(e.stunT,0.1);
+    e.speed=lerp(e.speed,e.maxspeed*0.3,dt*2); steer(e,e.a,dt*0.2);
+    if(e.phaseT<=0){ e.phase='stalk'; e.phaseT=low?1.2:1.9; }
+  } else { e.phase='stalk'; e.phaseT=2; }
+}
+
 /* ❄ FROST WRAITH (Sea 7) — a ghost-ship variant. Same broadside/phase/summon
    loop, but phases through ice and its fade is a frost shimmer. Reuses ghost AI. */
+/* 🪸 THE CORAL COLOSSUS (Sea 6) — a coral-encrusted wreck-warship. Heavy broadsides,
+   then it HEAVES and erupts a field of reefs around you (the Coral Graveyard's signature),
+   and on the off-beat it rams. A ship, but like nothing else afloat. */
 function updateWraith(e,dt,s,dp,low){
-  updateGhost(e,dt,s,dp,low);   // identical combat loop; visual differs in draw
+  const spd=(low?1.18:1)*(e._spdBoost||1);
+  e.fade=0; e.invuln=false;
+  if(e.phase==='broadside'){
+    const toP=angTo(e.x,e.y,s.x,s.y);
+    let want;
+    if(dp>e.range*0.85) want=toP;
+    else if(dp<e.range*0.5) want=toP+Math.PI;
+    else { const side=e._orbitSide||(e._orbitSide=Math.random()<0.5?1:-1); want=toP+Math.PI/2*side; }
+    steer(e,want,dt); e.speed=lerp(e.speed,e.maxspeed*0.7*spd,dt);
+    tryFire(e,dt,s);
+    if(dp<e.r+s.r){ dealDamage(s,e.dmg*dt*1.2,e); }
+    if(e.phaseT<=0){ e.phase=(Math.random()<0.5||low)?'bloom':'ram'; e.phaseT=(e.phase==='bloom'?2.6:1.6); e._bloomed=false; e._ramSet=false; }
+  } else if(e.phase==='bloom'){
+    // REEF BLOOM — reefs erupt around the player; lingering, damaging, then they fade
+    e.speed=lerp(e.speed,e.maxspeed*0.22,dt*2);
+    if(!e._bloomed){ e._bloomed=true;
+      if(!G.world.hazards)G.world.hazards=[];
+      const n=low?5:3;
+      for(let i=0;i<n;i++){ const a=rnd(TAU), d=rnd(60,180), rx=s.x+Math.cos(a)*d, ry=s.y+Math.sin(a)*d;
+        G.world.hazards.push({type:'reef',x:rx,y:ry,r:lerp(70,120,Math.random()),seed:Math.random()*1000,ph:Math.random()*TAU,tempLife:14});
+        for(let k=0;k<10;k++)G.particles.push({x:rx,y:ry,vx:rnd(-40,40),vy:rnd(-60,-10),life:.8,max:.8,c:'#7fd0b0',r:rnd(3,7)});
+      }
+      G.shake=Math.max(G.shake,7); if(typeof sfx!=='undefined'&&sfx.bossAppear)sfx.bossAppear(); toast('🪸 The Coral Colossus blooms — reefs erupt!',1800);
+    }
+    if(e.phaseT<=0){ e.phase='broadside'; e.phaseT=3.0; }
+  } else if(e.phase==='ram'){
+    const winding = e.phaseT>1.1;                       // ~0.5s wind-up, then charge
+    if(winding){ e.speed=lerp(e.speed,0,dt*3); e.ramA=angTo(e.x,e.y,s.x,s.y); steer(e,e.ramA,dt*2); }
+    else { e.speed=lerp(e.speed,e.maxspeed*2.0*spd,dt*3); steer(e,e.ramA,dt*0.4);
+      if(dp<e.r+s.r+8){ dealDamage(s,e.dmg*1.4,e); G.shake=Math.max(G.shake,12); e.phase='broadside'; e.phaseT=2.6; } }
+    if(e.phaseT<=0){ e.phase='broadside'; e.phaseT=2.6; }
+  } else { e.phase='broadside'; e.phaseT=2.6; }
 }
 
 /* ☠ THE DROWNED KING (Sea 8, FINAL) — multi-phase capital ship:
@@ -4933,7 +5004,9 @@ function updateHazards(dt){
   const hs=G.world.hazards; if(!hs||!hs.length)return;
   const s=G.ship; if(!s)return;
   const S=G.world.size;
+  let _hadTemp=false;
   for(const h of hs){
+    if(h.tempLife!==undefined){ h.tempLife-=dt; if(h.tempLife<=0){ _hadTemp=true; continue; } }  // boss-conjured hazards fade
     if(h.type==='floe'){ continue; }   // decorative ice, no collision
     if(h.type==='reef'){
       // scrape if the ship overlaps the shallow patch: light damage + speed drag
@@ -4980,6 +5053,7 @@ function updateHazards(dt){
       } else if(s._wpEye){ s._wpEye=Math.max(0,s._wpEye-dt*2); }
     }
   }
+  if(_hadTemp) G.world.hazards=hs.filter(h=>h.tempLife===undefined||h.tempLife>0);
 }
 function drawHazards(){
   const hs=G.world.hazards; if(!hs||!hs.length)return;
@@ -5611,6 +5685,25 @@ function drawEntity(e){
     // cursed/heavy capital ships: dark hull, translucent while faded
     ctx.globalAlpha *= (1 - (e.fade||0)*0.85);
     drawHull(e,z);
+    // ---- CORAL ENCRUSTATION (Coral Colossus): spires, barnacles & glowing anemones
+    // turn the wreck-ship into a living reef — unlike any other vessel afloat ----
+    if(e.mk==='wraith'){
+      const r=e.r*z, L=e.shipL||1, B=e.beam||1;
+      let cs=(e.seed||1)%1; const cr2=()=>{cs=(cs*9301+49297)%233280/233280;return cs;};
+      const spireCols=['#ff7e5a','#e85a8a','#f2b04a','#7fd0b0'];
+      for(let i=0;i<12;i++){
+        const yy=lerp(-r*1.1*L,r*1.0*L,i/11), side=(i%2?1:-1);
+        const hw=r*0.5*B*Math.max(0.3,Math.cos(yy/(r*1.5*L)));
+        const bx=side*hw, h=r*(0.22+cr2()*0.34), w=r*0.13;
+        ctx.fillStyle=spireCols[i%spireCols.length];
+        ctx.beginPath();ctx.moveTo(bx-w,yy);ctx.lineTo(bx+side*h,yy-w*0.5);ctx.lineTo(bx,yy+w);ctx.closePath();ctx.fill();
+      }
+      ctx.fillStyle='#ccbfa6';
+      for(let i=0;i<10;i++){ const a=cr2()*TAU, d=cr2()*r*0.65; ctx.beginPath();ctx.arc(Math.cos(a)*d, lerp(-r*L,r*L,cr2()), r*0.05+cr2()*r*0.04,0,TAU);ctx.fill(); }
+      const pul=0.6+Math.sin(G.t*3+(e.seed||0))*0.4;
+      ctx.fillStyle='rgba(255,150,90,'+(0.5*pul)+')';
+      for(let i=0;i<5;i++){ ctx.beginPath();ctx.arc(lerp(-r*0.5*B,r*0.5*B,cr2()), lerp(-r*0.8*L,r*0.9*L,cr2()), r*0.06,0,TAU);ctx.fill(); }
+    }
     // ---- MAN-O-WAR menace pass: protruding cannon barrels + gilded deck + dark sails ----
     if(e.mk==='manowar' || e.mk==='drowned'){
       const r=e.r*z, L=e.shipL||1, B=e.beam||1;
@@ -5644,7 +5737,7 @@ function drawEntity(e){
       ctx.beginPath();ctx.arc(0,noseY+r*0.04,2.6*z,0,TAU);ctx.fill();
     }
     ctx.globalAlpha *= 0.5;
-    ctx.fillStyle = e.mk==='wraith' ? 'rgba(150,210,240,0.5)'
+    ctx.fillStyle = e.mk==='wraith' ? 'rgba(90,200,150,0.5)'
                   : e.mk==='drowned'? 'rgba(70,200,150,0.45)'
                   : e.mk==='manowar'? 'rgba(200,60,50,0.4)'
                   : 'rgba(90,200,150,0.5)';
@@ -5685,7 +5778,7 @@ function drawHull(e,z){
     if(e.spectral){ body='#3e4e58'; bodyDk='#2a363e'; sailC='#46555e'; accent='#5ac896'; } }
   else if(e.type==='boss' && e.mk==='ghost'){ body='#2e3a44'; bodyDk='#1c252b'; sailC='#3a4a55'; accent='#5ac896'; }
   else if(e.type==='boss' && e.mk==='manowar'){ body='#23202b'; bodyDk='#131119'; sailC='#2a2630'; accent='#e8c34a'; }
-  else if(e.type==='boss' && e.mk==='wraith'){ body='#3a4a5a'; bodyDk='#26323d'; sailC='#aaccdd'; accent='#bfe6ff'; }
+  else if(e.type==='boss' && e.mk==='wraith'){ body='#9a8a72'; bodyDk='#5e5040'; sailC='#6f8a52'; accent='#ff7e5a'; }  // Coral Colossus: bleached wreck + kelp sails
   else if(e.type==='boss' && e.mk==='drowned'){ body='#14201c'; bodyDk='#0a120f'; sailC='#243832'; accent='#5fc8a0'; }
 
   // shape factors: player uses upgrades; navy uses its class profile
@@ -5963,6 +6056,38 @@ function drawMonster(e,z){
     }
   }
 
+  if(e.mk==='narwhal'){
+    // a huge icy orca-narwhal: dark body, pale belly, orca eye-patches, frost sheen,
+    // and a long spiral tusk that leads its charge (forward = -y in this frame)
+    const body='#23303e', belly='#dfeef6';
+    ctx.fillStyle='rgba(10,30,45,0.25)';ctx.beginPath();ctx.ellipse(0,r*0.2,r*1.05,r*1.7,0,0,TAU);ctx.fill();
+    // tail flukes (back)
+    ctx.fillStyle=body;
+    ctx.beginPath();ctx.moveTo(0,r*1.2);ctx.quadraticCurveTo(r*0.9,r*1.5,r*1.1,r*2.0);ctx.quadraticCurveTo(r*0.3,r*1.7,0,r*1.6);
+    ctx.quadraticCurveTo(-r*0.3,r*1.7,-r*1.1,r*2.0);ctx.quadraticCurveTo(-r*0.9,r*1.5,0,r*1.2);ctx.fill();
+    // pectoral flippers
+    ctx.save();ctx.translate(-r*0.66,r*0.1);ctx.rotate(-0.5+Math.sin(t*2)*0.1);ctx.beginPath();ctx.ellipse(0,0,r*0.22,r*0.7,0,0,TAU);ctx.fill();ctx.restore();
+    ctx.save();ctx.translate( r*0.66,r*0.1);ctx.rotate( 0.5-Math.sin(t*2)*0.1);ctx.beginPath();ctx.ellipse(0,0,r*0.22,r*0.7,0,0,TAU);ctx.fill();ctx.restore();
+    // body
+    ctx.fillStyle=body;ctx.beginPath();ctx.ellipse(0,-r*0.1,r*0.78,r*1.35,0,0,TAU);ctx.fill();
+    ctx.fillStyle=belly;ctx.beginPath();ctx.ellipse(0,r*0.15,r*0.4,r*0.95,0,0,TAU);ctx.fill();   // pale belly
+    // orca eye-patches
+    ctx.fillStyle=belly;ctx.beginPath();ctx.ellipse(-r*0.32,-r*0.7,r*0.16,r*0.26,0.3,0,TAU);ctx.ellipse(r*0.32,-r*0.7,r*0.16,r*0.26,-0.3,0,TAU);ctx.fill();
+    // dorsal hump + frost sheen
+    ctx.fillStyle=shade(body,-0.12);ctx.beginPath();ctx.moveTo(0,-r*0.1);ctx.quadraticCurveTo(r*0.1,-r*0.5,0,-r*0.6);ctx.quadraticCurveTo(-r*0.1,-r*0.5,0,-r*0.1);ctx.fill();
+    ctx.fillStyle='rgba(191,230,255,0.18)';ctx.beginPath();ctx.ellipse(-r*0.2,-r*0.5,r*0.5,r*0.9,0,0,TAU);ctx.fill();
+    // SPIRAL TUSK leading the charge
+    const tuskLen=r*1.6, tuskBaseY=-r*1.25;
+    ctx.strokeStyle='#f0e9d6';ctx.lineWidth=r*0.16;ctx.lineCap='round';
+    ctx.beginPath();ctx.moveTo(0,tuskBaseY);ctx.lineTo(0,tuskBaseY-tuskLen);ctx.stroke();
+    ctx.strokeStyle='rgba(150,140,120,0.7)';ctx.lineWidth=r*0.04;
+    ctx.beginPath();for(let i=0;i<=10;i++){const ty=tuskBaseY-(i/10)*tuskLen;if(i===0)ctx.moveTo(Math.sin(i*1.4)*r*0.06,ty);else ctx.lineTo(Math.sin(i*1.4)*r*0.06,ty);}ctx.stroke();
+    ctx.fillStyle='#fbf6e8';ctx.beginPath();ctx.arc(0,tuskBaseY-tuskLen,r*0.07,0,TAU);ctx.fill();
+    // eyes
+    drawEye(-r*0.3,-r*0.62,r*0.13); drawEye(r*0.3,-r*0.62,r*0.13);
+    if(enr){ ctx.fillStyle='rgba(120,200,255,0.18)';ctx.beginPath();ctx.ellipse(0,0,r*1.1,r*1.8,0,0,TAU);ctx.fill(); }
+    return;
+  }
   if(e.mk==='shark'){
     const sub=e.submerged||0;                 // 0 surfaced .. 1 deep
     if(sub>0.05){
