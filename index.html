@@ -307,11 +307,13 @@
   .upbuy.max{background:#cdbfa6;box-shadow:0 3px 0 #a89a80;color:#fff;}
 
   /* toast */
-  #toast{position:absolute;top:30%;left:50%;transform:translateX(-50%) translateY(-20px);
-    background:linear-gradient(180deg,var(--panel),var(--panel2));border:3px solid var(--gold);
-    color:var(--cream);padding:10px 20px;border-radius:999px;font-family:'Baloo 2';font-weight:700;
-    font-size:15px;line-height:1.35;box-shadow:var(--shadow-soft);z-index:40;opacity:0;transition:all .35s;
-    pointer-events:none;white-space:normal;max-width:min(440px,86vw);text-align:center;
+  /* sit just UNDER the top HUD panel (gold/wood + objective rows) so notifications
+     never block the centre of the play area — works in portrait AND landscape. */
+  #toast{position:absolute;top:max(94px,calc(env(safe-area-inset-top) + 84px));left:50%;transform:translateX(-50%) translateY(-12px);
+    background:linear-gradient(180deg,var(--panel),var(--panel2));border:2px solid var(--gold);
+    color:var(--cream);padding:7px 16px;border-radius:999px;font-family:'Baloo 2';font-weight:700;
+    font-size:13.5px;line-height:1.3;box-shadow:var(--shadow-soft);z-index:40;opacity:0;transition:all .3s;
+    pointer-events:none;white-space:normal;max-width:min(380px,82vw);text-align:center;
     overflow-wrap:break-word;word-break:normal;}
   #toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
 
@@ -582,11 +584,19 @@ function saveGame(){
   try{
     // record which caches are looted and which floating treasures are collected,
     // keyed by the current map, so cleared islands stay cleared on Continue.
-    const looted=[];
-    if(G.world){ for(const is of G.world.islands){ if(is.cache && is.cache.state==='looted') looted.push(is.id); } }
+    const looted=[], explored=[], revealedCaches=[];
+    if(G.world){ for(const is of G.world.islands){
+      if(is.cache && is.cache.state==='looted') looted.push(is.id);
+      else if(is.cache && is.cache.state==='revealed') revealedCaches.push(is.id);
+      if(is.exploredOnce) explored.push(is.id);     // islands you've already landed on
+    } }
     const data={
       v:1,
       mapIndex:G.mapIndex,
+      worldSeed:G.worldSeed>>>0,                     // the sea's layout seed (persistent)
+      discovered:G.discovered?[...G.discovered]:[],  // islands revealed on the minimap
+      explored,                                       // islands sent a shore party
+      revealedCaches,                                 // buried-treasure X marks already uncovered
       gold:Math.floor(G.gold),
       wood:Math.floor(G.wood),
       upgrades:{...G.upgrades},
@@ -728,6 +738,9 @@ const G = {
   cam:{x:0,y:0,zoom:1,tx:0,ty:0},
   world:null,
   mapIndex:0,
+  worldSeed:0,           // per-voyage layout seed: a NEW game rolls a fresh one (new
+                         // islands/ports/treasure); continue & respawn reuse it so the
+                         // sea you're exploring stays the SAME map across deaths.
   gold:0, wood:0,
   ship:null,
   entities:[], cannonballs:[], particles:[], floaters:[], wakes:[],
@@ -967,7 +980,9 @@ window.addEventListener('keyup',e=>{
    ================================================================ */
 function genWorld(idx){
   const def=MAPS[idx];
-  const rng=mulberry32(1000+idx*777);
+  // fold in the per-voyage worldSeed so each NEW voyage is a different arrangement,
+  // while a given voyage (continue/respawn) always regenerates the identical sea.
+  const rng=mulberry32((1000+idx*777+(G.worldSeed>>>0))>>>0);
   const S=def.size;
   const world={def,size:S,islands:[],clouds:[]};
 
@@ -3491,6 +3506,7 @@ function startShoreParty(is){
     if(kind==='crab'){ base.hp=12; base.r=11; base.spd=34; base.dmg=4; base.range=120; base.gold=rndi(8,18); }
     else if(kind==='boar'){ base.hp=60; base.r=20; base.spd=96; base.dmg=16; base.range=300; base.gold=rndi(30,60); }
     else { base.hp=34; base.r=15; base.spd=120; base.dmg=11; base.range=260; base.gold=rndi(20,40); } // snake
+    base.maxhp=base.hp;
     return base;
   };
   for(let i=0;i<nCrab;i++) G.shore.creatures.push(mkCreature('crab'));
@@ -3511,7 +3527,7 @@ function startShoreParty(is){
         homeX:is.x+v.cx, homeY:is.y+v.cy,                 // they defend the village
         a:rr()*TAU, t:rr()*TAU, dead:false, hitflash:0, state:'dormant',
         wanderT:rr()*2, attackT:0, reload:rr()*1.2,
-        hp:46, r:14, spd:74, dmg:9, range:300, gold:rndi(25,55) });
+        hp:46, maxhp:46, r:14, spd:74, dmg:9, range:300, gold:rndi(25,55) });
     }
   }
   // GUARDIAN — a hulking Tidal Brute (giant crab) squats over the central hoard on
@@ -3520,9 +3536,10 @@ function startShoreParty(is){
   if(is.explorable && is.r>=300){
     const ba=rr()*TAU, bd=is.r*lerp(0.06,0.18,rr());
     let bx=is.x+Math.cos(ba)*bd, by=is.y+Math.sin(ba)*bd; [bx,by]=clearMtn(bx,by);
+    const bossHp=300+G.mapIndex*55;
     G.shore.creatures.push({ x:bx, y:by, kind:'crab', boss:true,
       a:rr()*TAU, t:rr()*TAU, dead:false, hitflash:0, state:'wander', wanderT:rr()*2, attackT:0,
-      hp:300+G.mapIndex*55, r:36, spd:48, dmg:22, range:210, gold:rndi(180,340) });
+      hp:bossHp, maxhp:bossHp, r:36, spd:62, dmg:24, range:210, gold:rndi(180,340) });
   }
   // ---- TIME OF DAY: each landing rolls a mood (day-weighted) for variety & atmosphere
   G.shore.tod = ['dawn','day','day','day','dusk','night'][Math.floor(rr()*6)];
@@ -3541,7 +3558,7 @@ function startShoreParty(is){
       G.shore.creatures.push({ x:rx, y:ry, kind:'native', raider:true,
         homeX:camX, homeY:camY, a:rr()*TAU, t:rr()*TAU, dead:false, hitflash:0, state:'dormant',
         wanderT:rr()*2, attackT:0, reload:rr()*1.2,
-        hp:40+G.mapIndex*6, r:14, spd:80, dmg:10, range:300, gold:rndi(30,60) });
+        hp:40+G.mapIndex*6, maxhp:40+G.mapIndex*6, r:14, spd:80, dmg:10, range:300, gold:rndi(30,60) });
     }
     // the stash they guard
     for(let i=0;i<2;i++){ const sa=rr()*TAU, sdd=8+rr()*20;
@@ -3699,6 +3716,24 @@ function updateShore(dt){
       }
       sh.arrows=sh.arrows.filter(a=>a.life>0);
     }
+    // boss thrown rocks: an arcing lob that splashes for AREA damage where it lands,
+    // so the Tidal Brute threatens the party even while they kite it at musket range.
+    if(sh.hazards && sh.hazards.length){
+      for(const hz of sh.hazards){
+        if(!hz.landed){
+          hz.t+=dt;
+          if(hz.t>=hz.dur){
+            hz.landed=true; hz.life=0.3;
+            if(dist(hz.tx,hz.ty,sh.px,sh.py)<hz.r){
+              sh.partyHp-=hz.dmg; sh.hurtFlash=0.35; G.shake=Math.max(G.shake,8);
+              if(typeof sfx!=='undefined'&&sfx.thud)sfx.thud();
+            }
+            for(let k=0;k<14;k++)G.particles.push({x:hz.tx+rnd(-10,10),y:hz.ty+rnd(-6,6),vx:rnd(-70,70),vy:rnd(-90,-10),life:.5,max:.5,c:k%2?'#a98c66':'#7a6448',r:rnd(2,4)});
+          }
+        } else { hz.life-=dt; }
+      }
+      sh.hazards=sh.hazards.filter(h=>!h.landed || h.life>0);
+    }
     // 3) creature AI: wander; if party within range, charge and bite
     for(const c of liveCreatures){
       if(c.hitflash>0)c.hitflash-=dt*4;
@@ -3739,6 +3774,37 @@ function updateShore(dt){
           sh.arrows=sh.arrows||[];
           sh.arrows.push({x:c.x,y:c.y,vx:Math.cos(aa)*300,vy:Math.sin(aa)*300,life:1.4,dmg:c.dmg,a:aa});
           if(typeof sfx!=='undefined'&&sfx.bowShot)sfx.bowShot();
+        }
+        continue;
+      }
+      // ---- BOSS: the Tidal Brute (giant crab guardian) — an active threat. It charges
+      // the party in surging bursts and CLAW-SMASHES up close; because the marines pick
+      // it apart from range, it also HURLS rocks that splash for area damage, so it can
+      // hurt the crew even while it lumbers in. ----
+      if(c.boss){
+        c.state='charge';
+        const ba=angTo(c.x,c.y,sh.px,sh.py); c.a=ba;
+        // surge forward in bursts so the slow brute can still close on a kiting party
+        const surge=(Math.sin(c.t*0.9)>0.4)?1.9:0.9;
+        const bnx=c.x+Math.cos(ba)*c.spd*surge*dt, bny=c.y+Math.sin(ba)*c.spd*surge*dt;
+        const bed=islandEdge(sh.is,bnx,bny,0.98);                 // stay on the painted shore
+        if(dist(bnx,bny,sh.is.x,sh.is.y)<bed){ c.x=bnx; c.y=bny; }
+        // melee claw smash up close — heavy hit + screen shake
+        c.attackT-=dt;
+        if(dp<c.r+26 && c.attackT<=0){
+          c.attackT=1.1;
+          sh.partyHp-=c.dmg; sh.hurtFlash=0.4; G.shake=Math.max(G.shake,10);
+          if(typeof sfx!=='undefined'&&sfx.thud)sfx.thud();
+          for(let k=0;k<10;k++)G.particles.push({x:sh.px+rnd(-10,10),y:sh.py+rnd(-10,10),vx:rnd(-60,60),vy:rnd(-70,10),life:.5,max:.5,c:'#c44',r:3});
+        }
+        // hurl a rock on a cadence when the party is at range (its long reach)
+        c.reload=(c.reload===undefined)?rnd(1.6,2.6):c.reload-dt;
+        if(c.reload<=0 && dp>70 && dp<520){
+          c.reload=rnd(2.2,3.4); c.fireFlash=0.25;
+          sh.hazards=sh.hazards||[];
+          const flight=clamp(dp/360,0.7,1.4);                     // arc time scales with distance
+          sh.hazards.push({sx:c.x,sy:c.y,tx:sh.px,ty:sh.py,t:0,dur:flight,dmg:Math.round(c.dmg*0.8),r:46,landed:false,life:0});
+          if(typeof sfx!=='undefined'&&sfx.bossThrow)sfx.bossThrow();
         }
         continue;
       }
@@ -4123,12 +4189,13 @@ function drawShore(){
       ctx.fillStyle=flash?'#fff':'#5a8a44';ctx.beginPath();ctx.arc(Math.sin(c.t*6+4)*cr*0.6,-cr,cr*0.5,0,TAU);ctx.fill();
       ctx.restore();
     }
-    // creature hp bar when hurt
+    // creature hp bar when hurt (use the creature's real max so the boss reads right)
     const maxHpFor=(k)=>k==='crab'?12:k==='boar'?60:k==='native'?46:34;
-    if(c.hp < maxHpFor(c.kind)){
-      const bw=cr*2.2, frac=clamp(c.hp/maxHpFor(c.kind),0,1);
+    const mh=c.maxhp||maxHpFor(c.kind);
+    if(c.hp < mh){
+      const bw=cr*2.2, frac=clamp(c.hp/mh,0,1);
       ctx.fillStyle='rgba(0,0,0,0.4)';ctx.fillRect(cx-bw/2,cy-cr*1.6,bw,3*z);
-      ctx.fillStyle='#d65a4a';ctx.fillRect(cx-bw/2,cy-cr*1.6,bw*frac,3*z);
+      ctx.fillStyle=c.boss?'#b24ac0':'#d65a4a';ctx.fillRect(cx-bw/2,cy-cr*1.6,bw*frac,3*z);
     }
   }
   // ---- native arrows in flight ----
@@ -4140,6 +4207,26 @@ function drawShore(){
     ctx.fillStyle='#cfcabb';ctx.beginPath();ctx.moveTo(5*z,0);ctx.lineTo(1*z,-2.2*z);ctx.lineTo(1*z,2.2*z);ctx.closePath();ctx.fill(); // head
     ctx.strokeStyle='#e8e2d0';ctx.lineWidth=1*z;ctx.beginPath();ctx.moveTo(-7*z,0);ctx.lineTo(-9*z,-2*z);ctx.moveTo(-7*z,0);ctx.lineTo(-9*z,2*z);ctx.stroke(); // fletching
     ctx.restore();
+  }
+  // ---- boss thrown rocks (arcing) + impact craters ----
+  for(const hz of (sh.hazards||[])){
+    if(hz.landed){
+      const ix=wx(hz.tx), iy=wy(hz.ty);
+      ctx.strokeStyle='rgba(120,100,72,'+Math.max(0,hz.life*2)+')';ctx.lineWidth=2*z;
+      ctx.beginPath();ctx.arc(ix,iy,hz.r*z*(1.0-hz.life),0,TAU);ctx.stroke();
+      continue;
+    }
+    const pr=clamp(hz.t/hz.dur,0,1);
+    const rx=lerp(hz.sx,hz.tx,pr), ry=lerp(hz.sy,hz.ty,pr);
+    const lift=Math.sin(pr*Math.PI)*60;                  // parabolic arc height
+    const sxp=wx(rx), syp=wy(ry)-lift*z;
+    // landing reticle so the player can read & dodge the throw
+    ctx.strokeStyle='rgba(220,120,80,0.45)';ctx.lineWidth=1.5*z;
+    ctx.beginPath();ctx.arc(wx(hz.tx),wy(hz.ty),hz.r*z*0.5,0,TAU);ctx.stroke();
+    // ground shadow tracking the rock, then the rock itself aloft
+    ctx.fillStyle='rgba(20,40,30,0.25)';ctx.beginPath();ctx.ellipse(wx(rx),wy(ry),7*z,3.2*z,0,0,TAU);ctx.fill();
+    ctx.fillStyle='#6e5b44';ctx.beginPath();ctx.arc(sxp,syp,7*z,0,TAU);ctx.fill();
+    ctx.fillStyle='#8a755a';ctx.beginPath();ctx.arc(sxp-2*z,syp-2*z,3*z,0,TAU);ctx.fill();
   }
   // ---- musket shots (little tracer + ball) ----
   for(const sht of (sh.shots||[])){
@@ -7348,7 +7435,7 @@ function endMap(victory){
     el('endtitle').textContent='🏴‍☠️ Legend of the Tides!';
     el('endbody').innerHTML=`You conquered every sea and slew the Kraken. Your name is sung in every port.<br><br>Gold amassed: <b>${Math.floor(G.gold)}</b>`;
     el('endbtn').textContent='Sail Again';
-    el('endbtn').onclick=()=>{G.mapIndex=0;G.gold=0;G.wood=0;G.maxMapCleared=-1;G.collectedGems={};G.upgrades={hull:0,sails:0,cannons:0,crew:0,hold:0,hotshot:0,spread:0,ballast:0,chain:0,plating:0,boarding:0};clearSave();startMap(0);};
+    el('endbtn').onclick=()=>{G.mapIndex=0;G.gold=0;G.wood=0;G.maxMapCleared=-1;G.collectedGems={};G.worldSeed=(Math.random()*0xffffffff)>>>0;G.upgrades={hull:0,sails:0,cannons:0,crew:0,hold:0,hotshot:0,spread:0,ballast:0,chain:0,plating:0,boarding:0};clearSave();startMap(0);};
     // on the final map you can still choose to linger and mop up treasure
     b2.style.display='';
     b2.textContent='Stay & Explore';
@@ -7400,7 +7487,9 @@ function gameOver(){
     : `This run: <b>${runScore}g</b> &nbsp;·&nbsp; Best: <b>${G.bestRun}g</b><br>`;
   el('endbody').innerHTML=`Your ship slipped beneath the waves. The sea keeps your gold… but not your spirit.<br><br>${bestLine}${streakLine}<br>Try this sea again?`;
   el('endbtn').textContent='Respawn';
-  el('endbtn').onclick=()=>{ G.gold=Math.floor(G.gold*0.7); resetRun(); startMap(G.mapIndex); };
+  // Respawn on the SAME sea, keeping everything you'd discovered (gameOver just saved it):
+  // looted/revealed caches, cleared corners, explored islands & the minimap all persist.
+  el('endbtn').onclick=()=>{ G.gold=Math.floor(G.gold*0.7); resetRun(); startMap(G.mapIndex, loadSavedData()); };
   el('ov-end').classList.add('show');
 }
 
@@ -7415,14 +7504,20 @@ function runSnap(){ const s=G.stats||{}; const f={};
   return f; }
 function resetRun(){ G.runGold=0; G.runKills=0; G.combo=0; G.comboBest=0; G.runStatsBase=runSnap(); }
 function startMap(idx, restore){
-  G.mapIndex=idx; G.world=genWorld(idx); G.discovered=new Set();
+  // restore the minimap reveal for this sea (persists across deaths; empty on a new voyage)
+  G.mapIndex=idx; G.world=genWorld(idx);
+  G.discovered=new Set((restore && restore.discovered) || []);
   G.stats.deepestSea=Math.max(G.stats.deepestSea||0, idx+1);   // deepest sea reached
   if(!G.runStatsBase) G.runStatsBase=runSnap();                 // baseline for a continued run
   populate();
-  // when continuing a save, mark already-looted caches so cleared islands stay cleared
-  if(restore && restore.lootedCaches){
+  // when continuing a save, restore the map's DISCOVERED state so dying doesn't wipe your
+  // progress: looted/revealed treasure caches and islands you've already explored on foot.
+  if(restore){
+    const looted=restore.lootedCaches||[], revealed=restore.revealedCaches||[], explored=restore.explored||[];
     for(const is of G.world.islands){
-      if(is.cache && restore.lootedCaches.indexOf(is.id)!==-1){ is.cache.state='looted'; }
+      if(is.cache && looted.indexOf(is.id)!==-1) is.cache.state='looted';
+      else if(is.cache && is.cache.state!=='looted' && revealed.indexOf(is.id)!==-1) is.cache.state='revealed';
+      if(explored.indexOf(is.id)!==-1) is.exploredOnce=true;
     }
   }
   // a boss-map we've already conquered stays conquered: don't respawn the boss,
@@ -7461,6 +7556,7 @@ function newVoyage(){
   // persist (cozy: you never lose your collection). Load them from the existing save first.
   const prev=loadSavedData(); if(prev) loadLifetime(prev);
   G.collectedGems={};
+  G.worldSeed=(Math.random()*0xffffffff)>>>0;   // roll a fresh world — a NEW experience
   initAudio();
   G.gold=0; G.wood=0; G.mapIndex=0; G.maxMapCleared=-1; G.bossDead=false;
   G.cursed=false; G.endless=false;
@@ -7476,6 +7572,7 @@ function continueGame(){
   initAudio();
   G.gold=d.gold||0; G.wood=d.wood||0;
   G.maxMapCleared=(typeof d.maxMapCleared==='number')?d.maxMapCleared:-1;
+  G.worldSeed=(typeof d.worldSeed==='number')?d.worldSeed>>>0:0;   // same sea as last time
   G.shanties=Array.isArray(d.shanties)?d.shanties.slice():[];
   G.collectedGems=(d.collectedGems&&typeof d.collectedGems==='object')?d.collectedGems:{};
   G.bestRun=d.bestRun|0; G.comboBest=d.comboBest|0;
@@ -7547,6 +7644,7 @@ function updateEndless(dt){
 function startEndless(){
   initAudio();
   G.endless=true; G.cursed=false;
+  G.worldSeed=(Math.random()*0xffffffff)>>>0;   // fresh open sea each time
   G.endlessT=0; G.endlessScore=0;
   G.threat=0; G.heat=0; G._critT=4; G._stormT=30; G._fleetT=35; G._bossT=55; G._bossIdx=0;
   G.gold=0; G.wood=0; G.maxMapCleared=999; G.bossDead=true; G.bossSpawned=true;
@@ -7609,6 +7707,7 @@ function openVoyage(){
         `<div class="cb-sub">Replay the whole campaign under a blood moon — tougher foes (+60% HP), richer plunder (+50% gold), and glory for those who finish.</div>`;
       const btn=document.createElement('button'); btn.className='cb-btn'; btn.textContent='Begin Cursed Voyage';
       btn.onclick=()=>{ G.cursed=true; G.gold=0; G.mapIndex=0; G.maxMapCleared=-1; G.bossDead=false;
+        G.worldSeed=(Math.random()*0xffffffff)>>>0;   // a fresh cursed campaign
         resetRun();
         G.upgrades={hull:0,sails:0,cannons:0,crew:0,hold:0,hotshot:0,spread:0,ballast:0,chain:0,plating:0,boarding:0};
         closeVoyage(); startMap(0); };
@@ -7688,7 +7787,9 @@ function openSongbook(){
   el('ov-songbook').classList.add('show');
 }
 function closeSongbook(){
-  stopShanty(); _nowPlaying=null; clearTimeout(_nowPlayingTimer);
+  // Keep any shanty the player deliberately picked PLAYING after they leave the menu —
+  // it loops in-game just like a shanty found in a bottle. (Tapping the song again in the
+  // menu stops it; we only avoid the blanket stop-on-close that used to kill the music.)
   el('ov-songbook').classList.remove('show'); if(G.state==='shop')G.state='play';
 }
 el('btn-songbook').onclick=openSongbook;
@@ -8258,11 +8359,17 @@ function loadSamples(){
 /* play a decoded sample, allowing overlap; vol 0..1, optional playbackRate variance */
 function playSample(key,vol=1,rateVar=0){
   if(!SND.ready||SND.muted||!SND.buffers[key])return;
+  // returning from background can leave the context merely suspended — nudge it back so
+  // the FIRST sample after a tap isn't swallowed (esp. the rapid shore-party muskets).
+  if(SND.ctx.state!=='running'){ try{ SND.ctx.resume(); }catch(e){} }
   try{
     const src=SND.ctx.createBufferSource(); src.buffer=SND.buffers[key];
     if(rateVar)src.playbackRate.value=1+(Math.random()*2-1)*rateVar;
     const g=SND.ctx.createGain(); g.gain.value=vol;
     src.connect(g); g.connect(SND.master); src.start();
+    // free the graph when the shot finishes — without this, a long combat-heavy shore
+    // party piles up hundreds of stranded nodes and iOS WebAudio starts dropping new ones.
+    src.onended=()=>{ try{ src.disconnect(); g.disconnect(); }catch(e){} };
   }catch(e){}
 }
 /* Background music is PROCEDURAL — see THEMES / playTheme / updateMusic, defined
@@ -8312,7 +8419,7 @@ document.addEventListener('visibilitychange',()=>{ if(document.hidden) _audioWas
 window.addEventListener('focus',resumeAudio);
 window.addEventListener('pageshow',resumeAudio);
 // the first tap/key after returning does the gesture-safe heavy recovery
-['pointerdown','touchend','keydown'].forEach(ev=>window.addEventListener(ev,recoverAudio,{passive:true}));
+['pointerdown','touchstart','touchend','keydown'].forEach(ev=>window.addEventListener(ev,recoverAudio,{passive:true}));
 // short noise buffer for impacts/splashes
 let _noiseBuf=null;
 function noiseBuffer(){
@@ -8331,6 +8438,7 @@ function tone(freq,dur,type='sine',vol=0.3,glideTo=null,delay=0){
   g.gain.exponentialRampToValueAtTime(vol,t0+0.012);
   g.gain.exponentialRampToValueAtTime(0.0001,t0+dur);
   o.connect(g);g.connect(SND.master);o.start(t0);o.stop(t0+dur+0.05);
+  o.onended=()=>{ try{ o.disconnect(); g.disconnect(); }catch(e){} };
 }
 /* Accordion/concertina-style reed voice for shanties: a few sawtooth reeds tuned
    a hair apart give the warm "musette" shimmer, with a soft bellows swell instead
@@ -8592,6 +8700,7 @@ function noise(dur,vol=0.4,filterFreq=1200,filterType='lowpass',delay=0,Q=0.5){
   g.gain.setValueAtTime(vol,t0);
   g.gain.exponentialRampToValueAtTime(0.0001,t0+dur);
   s.connect(f);f.connect(g);g.connect(SND.master);s.start(t0);s.stop(t0+dur+0.05);
+  s.onended=()=>{ try{ s.disconnect(); f.disconnect(); g.disconnect(); }catch(e){} };
 }
 /* IMPACT: noise whose lowpass filter sweeps downward — the natural "body"
    of something solid being struck. No musical pitch. fStart->fEnd in Hz. */
@@ -8608,6 +8717,7 @@ function impact(dur,vol,fStart,fEnd,Q=1,delay=0){
   g.gain.linearRampToValueAtTime(vol,t0+0.004);       // fast attack
   g.gain.exponentialRampToValueAtTime(0.0001,t0+dur);
   s.connect(f);f.connect(g);g.connect(SND.master);s.start(t0);s.stop(t0+dur+0.05);
+  s.onended=()=>{ try{ s.disconnect(); f.disconnect(); g.disconnect(); }catch(e){} };
 }
 /* low THUMP via a very short pitch-dropping sine click — reads as percussive
    chest/impact energy, not a held note (kept under ~80ms). */
@@ -8620,6 +8730,7 @@ function thump(freqStart,freqEnd,dur,vol,delay=0){
   g.gain.setValueAtTime(vol,t0);
   g.gain.exponentialRampToValueAtTime(0.0001,t0+dur);
   o.connect(g);g.connect(SND.master);o.start(t0);o.stop(t0+dur+0.03);
+  o.onended=()=>{ try{ o.disconnect(); g.disconnect(); }catch(e){} };
 }
 // ambient: layered sea — low rumble + gentle mid "lapping" swell, no hiss
 function startAmbient(){
@@ -8685,6 +8796,10 @@ const sfx={
   },
   thunder(){ playSample('storm',0.9,0.03); },    // custom storm/thunder recording
   musket(){ playSample('musket',0.45,0.12); },   // shore-party musket (pitch-varied for volleys)
+  bossThrow(){ // the Tidal Brute heaves a boulder: low grunt + a heavy air whoosh
+    thump(120,58,0.18,0.22);
+    noise(0.24,0.13,900,'lowpass',0,0.5);
+  },
   whaleSpout(){ // a real spout: a sharp pressurized BLOW rushing up, then spray pattering back down
     if(!SND.ready)return;
     const t0=aNow();
