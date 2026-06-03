@@ -10,6 +10,24 @@
 <link rel="icon" type="image/png" href="assets/icon.png">
 <meta name="apple-mobile-web-app-title" content="Leave Her Johnny">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<!-- Link-preview cards (iMessage / social): show the game LOGO, not a random screenshot.
+     NOTE: this controls the WEBSITE link (getarsenal.app). An App Store link's preview is
+     built by Apple from App Store Connect (it uses your FIRST screenshot) — reorder the
+     screenshots there to change that card. Update the absolute URLs if the domain differs. -->
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Leave Her Johnny">
+<meta property="og:title" content="Leave Her Johnny">
+<meta property="og:description" content="A cozy top-down pirate adventure — sail the seas, raid cargo, explore islands on foot, and battle sea monsters across eight seas.">
+<meta property="og:url" content="https://getarsenal.app/">
+<meta property="og:image" content="https://getarsenal.app/leave-her-johnny-icon-1024.png">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:width" content="1024">
+<meta property="og:image:height" content="1024">
+<meta property="og:image:alt" content="Leave Her Johnny — pirate ship logo">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Leave Her Johnny">
+<meta name="twitter:description" content="A cozy top-down pirate adventure — sail, raid, explore islands, and battle sea monsters across eight seas.">
+<meta name="twitter:image" content="https://getarsenal.app/leave-her-johnny-icon-1024.png">
 <style>
   /* ============ FONTS ============ */
   @import url('https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&family=Fredoka:wght@400;500;600;700&display=swap');
@@ -136,9 +154,20 @@
      so we anchor a WRAPPER DIV (reliable) and let the canvas fill it statically. */
   #botleft{position:fixed;left:10px;bottom:0;--mini:96px;pointer-events:none;z-index:12;}
   #minimapwrap{position:fixed;left:10px;bottom:calc(16px + env(safe-area-inset-bottom));
-    width:var(--mini);height:var(--mini);border-radius:16px;pointer-events:auto;
-    border:3px solid var(--gold);box-shadow:var(--shadow-soft);background:#1c2a47;overflow:hidden;}
+    width:var(--mini);height:var(--mini);border-radius:16px;pointer-events:auto;z-index:12;
+    border:3px solid var(--gold);box-shadow:var(--shadow-soft);background:#1c2a47;overflow:hidden;
+    transition:width .22s ease, height .22s ease, border-radius .22s ease;}
   #minimap{position:static;display:block;width:100%;height:100%;border-radius:13px;}
+  /* tap affordance — a tiny expand glyph, swapped for a close hint when popped out */
+  #minimapwrap::after{content:'⤢';position:absolute;top:1px;right:4px;font:700 11px system-ui;
+    color:rgba(255,255,255,.65);pointer-events:none;text-shadow:0 1px 2px rgba(0,0,0,.6);}
+  /* "pop out": grow to a large centred chart and dim the world behind it (huge spread
+     shadow), so the player can read the whole sea, then tap again to retract. */
+  #minimapwrap.expanded{left:50%;top:50%;bottom:auto;transform:translate(-50%,-50%);
+    width:min(88vw,72vh);height:min(88vw,72vh);border-width:4px;border-radius:20px;z-index:60;
+    box-shadow:0 0 0 100vmax rgba(8,16,30,.5), 0 14px 40px rgba(0,0,0,.5);}
+  #minimapwrap.expanded::after{content:'✕  tap to close';top:7px;right:12px;font-size:13px;
+    font-weight:700;color:rgba(255,255,255,.9);}
   .hpwrap{position:fixed;left:10px;
     bottom:calc(16px + env(safe-area-inset-bottom) + var(--mini) + 6px);
     width:var(--mini);pointer-events:auto;z-index:12;}
@@ -3578,6 +3607,7 @@ function startShoreParty(is){
   checkAchievements();
   is.exploredOnce=true;
   G.state='shore';
+  if(typeof collapseMinimap==='function') collapseMinimap();   // tuck the chart away ashore
   toast('🚣 Rowing ashore…',1600);
   hidePortPrompt();
 }
@@ -4360,6 +4390,7 @@ function startBoarding(enemy){
   sh.waves  = clamp(Math.ceil((sh.toKill)/3), 2, 5);
   enemy._boarding=true; if(G.ship) G.ship._boarding=true;          // hide the tiny ship sprites under the deck art
   G.shore=sh; G.state='shore';
+  if(typeof collapseMinimap==='function') collapseMinimap();
   G.stats.boardingsStarted=(G.stats.boardingsStarted||0)+1;
   hidePortPrompt(); G.portPromptShown=false;
   toast('🪝 Grapples away — board her!',1800);
@@ -7338,10 +7369,33 @@ function buildShop(){
   }
 }
 /* ---- Minimap ---- */
+// the world minimap can "pop out" to a big centred chart (tap to toggle). When popped
+// out we bump the canvas resolution and show richer, game-themed emoji markers; the
+// little corner map keeps the compact pips so it stays readable at 96px.
+let _miniExpanded=false;
+function toggleMinimap(){
+  if(G.state!=='play' && G.state!=='shop') return;     // only while sailing
+  _miniExpanded=!_miniExpanded;
+  const wrap=el('minimapwrap'), c=el('minimap');
+  if(wrap) wrap.classList.toggle('expanded',_miniExpanded);
+  if(c){ const res=_miniExpanded?512:168; if(c.width!==res){ c.width=res; c.height=res; } }
+  if(typeof sfx!=='undefined' && sfx.click) sfx.click();
+}
+function collapseMinimap(){
+  _miniExpanded=false;
+  const wrap=el('minimapwrap'), c=el('minimap');
+  if(wrap) wrap.classList.remove('expanded');
+  if(c && c.width!==168){ c.width=168; c.height=168; }
+}
+{ const _mw=el('minimapwrap'); if(_mw) _mw.addEventListener('click',toggleMinimap); }
 function drawMinimap(){
   const c=el('minimap'); if(!c)return;
   const x=c.getContext('2d'), N=c.width, S=G.world.size, sc=N/S;
   const s=G.ship; if(!s)return;
+  const k=N/168;                 // size scale so pips/glyphs track the chart size
+  const exp=_miniExpanded;       // popped out → room for rich, game-themed icons
+  x.textAlign='center'; x.textBaseline='middle';
+  const glyph=(t,gx,gy,px)=>{ x.font='700 '+px+'px sans-serif'; x.fillText(t,gx,gy); };
   // water bg with soft rounded clip
   x.clearRect(0,0,N,N);
   x.fillStyle='#2f6f93'; x.fillRect(0,0,N,N);
@@ -7349,59 +7403,80 @@ function drawMinimap(){
   for(const is of G.world.islands){
     const known=G.discovered.has(is.id);
     x.fillStyle = known ? (is.hasCove?'#ffce5c':'#7ec96b') : 'rgba(150,180,190,0.35)';
-    x.beginPath();x.arc(is.x*sc,is.y*sc,Math.max(2.5,is.r*sc*0.9),0,TAU);x.fill();
-    if(is.hasCove&&known){ x.fillStyle='#5e3620'; x.font='bold 9px sans-serif';
-      x.textAlign='center';x.textBaseline='middle';x.fillText('⚓',is.x*sc,is.y*sc); }
+    x.beginPath();x.arc(is.x*sc,is.y*sc,Math.max(2.5*k,is.r*sc*0.9),0,TAU);x.fill();
+    if(known && is.hasCove){ x.fillStyle='#5e3620'; glyph('⚓',is.x*sc,is.y*sc,9*k); }      // port
+    else if(known && exp && is.explorable){ glyph('🌴',is.x*sc,is.y*sc,12*k); }            // explorable isle
   }
-  // treasures (gold pips)
-  for(const f of G.floaters){ if(f.type==='treasure'&&!f.collected){
-    x.fillStyle='#ffd34d';x.beginPath();x.arc(f.x*sc,f.y*sc,2.6,0,TAU);x.fill();
-    x.strokeStyle='#a8780f';x.lineWidth=0.8;x.stroke(); } }
-  // revealed treasure caches as little X marks (big hoard = red, others = brown)
+  // shore forts
+  for(const e of G.entities){ if(e.dead||e.type!=='fort')continue;
+    if(exp) glyph('🏰',e.x*sc,e.y*sc,14*k);
+    else { x.fillStyle='#c0703a';x.fillRect(e.x*sc-2,e.y*sc-2,4,4); } }
+  // floating pickups: treasure gems, bounty crates, shanty bottles
+  for(const f of G.floaters){ if(f.collected)continue;
+    if(f.type==='treasure'){
+      if(exp) glyph('💎',f.x*sc,f.y*sc,12*k);
+      else { x.fillStyle='#ffd34d';x.beginPath();x.arc(f.x*sc,f.y*sc,2.6,0,TAU);x.fill();
+        x.strokeStyle='#a8780f';x.lineWidth=0.8;x.stroke(); }
+    } else if(f.type==='bounty'){
+      if(exp) glyph('📦',f.x*sc,f.y*sc,12*k);
+      else { x.fillStyle='#ffae42';x.beginPath();x.arc(f.x*sc,f.y*sc,2.4,0,TAU);x.fill(); }
+    } else if(f.type==='bottle' && exp){ glyph('🍾',f.x*sc,f.y*sc,11*k); }
+  }
+  // revealed treasure caches — X marks (compact) / treasure glyphs (popped out)
   for(const is of G.world.islands){
     const ca=is.cache; if(!ca||ca.state==='hidden'||ca.state==='looted')continue;
-    const cx=ca.digX*sc, cy=ca.digY*sc, r=ca.big?3.4:2.6;
-    x.strokeStyle=ca.big?'#ff5b4d':'#7a3a1a'; x.lineWidth=ca.big?2:1.5; x.lineCap='round';
-    x.beginPath();x.moveTo(cx-r,cy-r);x.lineTo(cx+r,cy+r);x.moveTo(cx+r,cy-r);x.lineTo(cx-r,cy+r);x.stroke();
+    const cx=ca.digX*sc, cy=ca.digY*sc;
+    if(exp){ glyph(ca.big?'💰':'🗺️',cx,cy,(ca.big?15:12)*k); }
+    else { const r=ca.big?3.4:2.6;
+      x.strokeStyle=ca.big?'#ff5b4d':'#7a3a1a'; x.lineWidth=ca.big?2:1.5; x.lineCap='round';
+      x.beginPath();x.moveTo(cx-r,cy-r);x.lineTo(cx+r,cy+r);x.moveTo(cx+r,cy-r);x.lineTo(cx-r,cy+r);x.stroke(); }
   }
-  // enemies as small red dots, cargo as tan
+  // moving threats & merchants — coloured dots (read better than emoji for live ships),
+  // upsized with a thin outline when the chart is popped out
   for(const e of G.entities){ if(e.dead)continue;
-    if(e.type==='navy'){x.fillStyle='#ff6b6b';}
-    else if(e.type==='cargo'){x.fillStyle='#e9d3a0';}
-    else if(e.type==='monster'){x.fillStyle='#c98ae0';}
+    let col=null, ring=null;
+    if(e.type==='navy'){ col=e.guardian?'#ff3b3b':'#ff6b6b'; }
+    else if(e.type==='cargo'){ col='#e9d3a0'; }
+    else if(e.type==='monster'){ col='#c98ae0'; }
     else continue;
-    x.beginPath();x.arc(e.x*sc,e.y*sc,2,0,TAU);x.fill(); }
+    x.fillStyle=col; x.beginPath();x.arc(e.x*sc,e.y*sc,2*k,0,TAU);x.fill();
+    if(exp){ x.strokeStyle='rgba(0,0,0,.35)';x.lineWidth=k;x.stroke(); }
+  }
   // corner boss arenas — show each with its state so they're findable
   if(G.world.corners){
     for(const cn of G.world.corners){
       const cx=cn.x*sc, cy=cn.y*sc;
       if(cn.cleared){
         x.fillStyle='rgba(120,200,120,0.55)';
-        x.beginPath();x.arc(cx,cy,4,0,TAU);x.fill();
-        x.strokeStyle='#2a6b2a';x.lineWidth=1.2;x.beginPath();x.moveTo(cx-2,cy);x.lineTo(cx-0.5,cy+2);x.lineTo(cx+2.5,cy-2.2);x.stroke();
+        x.beginPath();x.arc(cx,cy,4*k,0,TAU);x.fill();
+        x.strokeStyle='#2a6b2a';x.lineWidth=1.2*k;x.beginPath();x.moveTo(cx-2*k,cy);x.lineTo(cx-0.5*k,cy+2*k);x.lineTo(cx+2.5*k,cy-2.2*k);x.stroke();
       } else if(cn.locked){
         x.fillStyle='rgba(120,120,140,0.7)';
-        x.beginPath();x.arc(cx,cy,4.5,0,TAU);x.fill();
-        x.fillStyle='#e8e8f0';x.font='bold 6px sans-serif';x.textAlign='center';x.textBaseline='middle';x.fillText('🔒',cx,cy);
+        x.beginPath();x.arc(cx,cy,4.5*k,0,TAU);x.fill();
+        x.fillStyle='#e8e8f0';glyph('🔒',cx,cy,6*k);
       } else {
-        // available: pulsing crossed-swords / skull marker
+        // available: pulsing skull (themed boss) / anchor (corner guardian) marker
         const pulse=0.6+Math.sin(G.t*3+cn.x)*0.4;
         x.fillStyle=cn.themed?`rgba(180,40,60,${pulse})`:`rgba(150,90,190,${pulse})`;
-        x.beginPath();x.arc(cx,cy,5.5,0,TAU);x.fill();
-        x.strokeStyle='#fff';x.lineWidth=1.2;x.stroke();
-        x.fillStyle='#fff';x.font='bold 6px sans-serif';x.textAlign='center';x.textBaseline='middle';
-        x.fillText(cn.themed?'☠':'⚓',cx,cy);
+        x.beginPath();x.arc(cx,cy,5.5*k,0,TAU);x.fill();
+        x.strokeStyle='#fff';x.lineWidth=1.2*k;x.stroke();
+        x.fillStyle='#fff';glyph(cn.themed?'☠':'⚓',cx,cy,(exp?9:6)*k);
       }
     }
   }
   // boss
   const boss=G.entities.find(e=>e.type==='boss'&&!e.dead);
-  if(boss){ x.fillStyle='#ff3b3b'; x.beginPath();x.arc(boss.x*sc,boss.y*sc,4,0,TAU);x.fill();
-    x.strokeStyle='#fff';x.lineWidth=1;x.stroke(); }
+  if(boss){
+    if(exp){ const pulse=5+Math.sin(G.t*4)*1.5;
+      x.fillStyle='rgba(255,40,40,.25)';x.beginPath();x.arc(boss.x*sc,boss.y*sc,(pulse+6)*k,0,TAU);x.fill();
+      glyph('💀',boss.x*sc,boss.y*sc,16*k);
+    } else { x.fillStyle='#ff3b3b'; x.beginPath();x.arc(boss.x*sc,boss.y*sc,4,0,TAU);x.fill();
+      x.strokeStyle='#fff';x.lineWidth=1;x.stroke(); }
+  }
   // player arrow (points the way the ship faces)
   x.save();x.translate(s.x*sc,s.y*sc);x.rotate(s.a+Math.PI/2);
-  x.fillStyle='#fff';x.strokeStyle='#23344f';x.lineWidth=1.5;
-  x.beginPath();x.moveTo(0,-6);x.lineTo(4.5,5);x.lineTo(0,2.5);x.lineTo(-4.5,5);x.closePath();
+  x.fillStyle=exp?'#ffd34d':'#fff';x.strokeStyle='#23344f';x.lineWidth=1.5*k;
+  x.beginPath();x.moveTo(0,-6*k);x.lineTo(4.5*k,5*k);x.lineTo(0,2.5*k);x.lineTo(-4.5*k,5*k);x.closePath();
   x.fill();x.stroke();x.restore();
 }
 
@@ -7539,6 +7614,7 @@ function startMap(idx, restore){
   G.portPromptShown=false; G.portPromptDismissed=null; G.promptKey=null; G.nearTargetIsland=null;
   G.combo=0; G.comboT=0; G.dmgPops=[]; G.hitStop=0; G._nearCorner=null; initWeather();
   G.shore=null; G.landingParty=null;   // never carry a shore session into a new map
+  if(typeof collapseMinimap==='function') collapseMinimap();   // start each sea with the compact chart
   if(G._shorePromptUp){ el('portprompt').classList.remove('show'); G._shorePromptUp=false; }
   hidePortPrompt();
   updateHUD(); setObjective();

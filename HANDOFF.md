@@ -46,7 +46,7 @@ Leave-Her-Johnny/
 ## 3. Architecture & runtime
 
 - **One script.** Everything lives between `<script>` … `</script>` in `index.html` (≈ line 524 to the end). To syntax-check just the JS, extract that block and run `node --check` (see §9).
-- **Global state object `G`** (declared `const G = { … }`, ≈line 725) holds *everything*: `state`, `t`/`dt`, `cam`, `world`, `mapIndex`, `gold`/`wood`, `ship`, `entities[]`, `cannonballs[]`, `particles[]`, `upgrades{}`, `stats{}`, run/combo counters, `shore` (also reused for boarding), `endless`, etc. Read the `G = {…}` block first — it's the data dictionary for the whole game.
+- **Global state object `G`** (declared `const G = { … }`, ≈line 725) holds *everything*: `state`, `t`/`dt`, `cam`, `world`, `mapIndex`, `worldSeed`, `gold`/`wood`, `ship`, `entities[]`, `cannonballs[]`, `particles[]`, `upgrades{}`, `stats{}`, run/combo counters, `shore` (also reused for boarding), `endless`, etc. Read the `G = {…}` block first — it's the data dictionary for the whole game.
 - **State machine** — `G.state` is one of:
   - `'menu'` — title/menu, idle ship circling.
   - `'play'` — normal sailing/combat (the main game).
@@ -87,7 +87,7 @@ The file is divided by `/* ===== … ===== */` banners. Major regions (search th
 | WEATHER | cosmetic storms/rain | `updateWeather`, `drawWeather` |
 | SHIP & MONSTER SPRITES | all entity drawing | `drawEntity`, `drawHull`, `drawMonster` |
 | CAMERA / MAIN RENDER / LOOP | frame orchestration | `render`, `loop`, `wx`, `wy` |
-| HUD / UI | on-screen UI, shop | `updateHUD`, `el(id)`, shop rendering, `UP` |
+| HUD / UI | on-screen UI, shop, minimap | `updateHUD`, `el(id)`, shop rendering, `UP`, `drawMinimap`, `toggleMinimap` |
 | FLOW | map transitions, game over | `startMap`, `gameOver`, `resetRun`, `nextMap` |
 | OPEN SEAS | endless mode | `updateEndless`, `G.endless`, `ENDLESS_BOSSES` |
 | LOGBOOK / records | stats/achievements panel | records tab, `runSnap` |
@@ -112,7 +112,7 @@ The file is divided by `/* ===== … ===== */` banners. Major regions (search th
 ## 6. Key systems (with the non-obvious bits)
 
 ### World generation & the island-silhouette gotcha (recurring bug source)
-`genWorld(idx)` builds a sea from `MAPS[idx]`. Islands are drawn as a soft blob: `islandPath` traces a **quadratic Bézier** between perimeter points whose control radius bows **INWARD** (`min(neighbourOffs)*0.99`). **Any code that measures the shore must use that same quadratic blend**, or it bows outside the painted coast and things spawn in the water. Three helpers must stay in sync: `islandEdge` (draw-time/collision), `shoreAt` (per-island closure in genWorld), `edgeAt` (cove/dock loop). **Place things at `shoreAt(angle)*fraction`, never `is.r*fraction`** (nominal radius ignores per-angle shape/stretch). This bug ("party/loot/natives spawn on water") has recurred several times — treat it as the #1 thing to check when adding anything placed on or near land.
+`genWorld(idx)` builds a sea from `MAPS[idx]`. The seed is `mulberry32(1000 + idx*777 + G.worldSeed)` — folding in **`G.worldSeed`** (a per-voyage random number; see §6 Save/load) so a NEW game is a different sea while continue/respawn regenerate the identical one. Islands are drawn as a soft blob: `islandPath` traces a **quadratic Bézier** between perimeter points whose control radius bows **INWARD** (`min(neighbourOffs)*0.99`). **Any code that measures the shore must use that same quadratic blend**, or it bows outside the painted coast and things spawn in the water. Three helpers must stay in sync: `islandEdge` (draw-time/collision), `shoreAt` (per-island closure in genWorld), `edgeAt` (cove/dock loop). **Place things at `shoreAt(angle)*fraction`, never `is.r*fraction`** (nominal radius ignores per-angle shape/stretch). This bug ("party/loot/natives spawn on water") has recurred several times — treat it as the #1 thing to check when adding anything placed on or near land.
 
 ### Entities & combat
 - Entities live in `G.entities` (the player ship is in there too, `type:'player'`). `updateEntities`/`updateEntity` dispatches by `type` (`player/navy/cargo/monster/boss/fort`).
@@ -129,7 +129,8 @@ The file is divided by `/* ===== … ===== */` banners. Major regions (search th
 `G.world.hazards` = `{type:'reef'|'ice'|'floe'|'whirlpool', …}`. `updateHazards` handles drag/damage; icebergs damage on contact and **break/sink when shot**; whirlpools pull you in and kill if you linger in the eye. Some hazards are *temporary* (`tempLife` countdown) — bosses spawn them.
 
 ### Shore party (`G.shore`, state `'shore'`)
-`startShoreParty(island)` rows a landing party ashore; you drag to walk (`input.ang/mag`), marines auto-fire muskets at creatures (crabs/boar/snake/natives/raiders/a Tidal Brute guardian), grab loot, free captives. `partyHp` depletes; marines visibly die off as it drops; wipe = forced retreat (loot lost), safe return = loot banked. Phases: `rowin → explore → rowout`. Crew count scales off the `crew` upgrade. Rendering in `drawShore`.
+`startShoreParty(island)` rows a landing party ashore; you drag to walk (`input.ang/mag`), marines auto-fire muskets at creatures (crabs/boar/snake/natives/raiders/a **Tidal Brute** guardian), grab loot, free captives. `partyHp` depletes; marines visibly die off as it drops; wipe = forced retreat (loot lost), safe return = loot banked. Phases: `rowin → explore → rowout`. Crew count scales off the `crew` upgrade. Rendering in `drawShore`.
+- **Tidal Brute boss crab** (`c.boss`, on explorable islands `r≥300`): has a dedicated aggressive AI branch in `updateShore` — charges in surging bursts, claw-smashes up close, and **hurls arcing rocks** (`sh.hazards[]`, with a landing reticle) that splash for AREA damage so it threatens a kiting party. Drawn purple in `drawShore`; rocks drawn there too. Creatures carry `maxhp` so the HP bar reads correctly.
 
 ### Boarding party (reuses `G.shore` with `boarding:true`, state `'shore'`)
 This is the newest, most complex feature. **It is NOT a separate `G.state`** — it runs as a `G.shore` session so it reuses HUD-hide, the zoomed camera, the `input` controls, and the music path. `updateShore`/`drawShore` each have a one-line `if(sh.boarding){ updateBoarding/drawBoarding; return; }` at the very top; everything else is self-contained.
@@ -142,14 +143,22 @@ This is the newest, most complex feature. **It is NOT a separate `G.state`** —
 
 ### Music engine (fully procedural — no audio files)
 - `N` = note→frequency dict (naturals + `Fs`/`Cs` + `As4`, range ~G2–B5). Notes are `[freq, beats]` where `beats` are in quarter-note units and a tune's `beat` field = seconds per quarter.
-- `SHANTIES` (songbook) play via `playShanty`/`stopShanty` on `SND.shantyBus` (self-looping).
+- `SHANTIES` (songbook) play via `playShanty`/`stopShanty` on `SND.shantyBus` (self-looping). A shanty picked in the Songbook **keeps playing after the menu closes** (`closeSongbook` does NOT stop it) — it loops in-game like a bottle-found one; tap it again in the menu to stop.
 - `THEMES` (background) = `{boss, shore}`, play via `playTheme`/`stopTheme`/`musicTone` on a **separate** `SND.musicBus` so they never collide with the songbook. `updateMusic()` (each frame) picks the theme by state: boss alive → Caribbean Adventure; shore/boarding → Roguish Captain; else silent.
+- **One-shot voices clean up after themselves:** `playSample`, `tone`, `noise`, `impact`, `thump` set `onended` → `disconnect()`. This matters during rapid shore-party musket volleys — without it iOS WebAudio piles up stranded nodes and starts silently dropping new sample sources.
 - **Adding tunes (the user supplies ABC notation):** convert with — duration `beats = ABC_eighths / 2`; `beat = 60/Q` (for `Q:1/4=Q`) or `40/Q` (for 6/8 `Q:3/8=Q`); ABC uppercase letters = octave 4, lowercase = octave 5, `,` down / `'` up an octave; apply the key signature to every letter (e.g. K:Dm → `B`=B♭=`As`). If a needed pitch isn't in `N`, add it or transpose to a key that fits (the dict has no general flats). Verify each measure sums to the meter and every `N.x` resolves (a typo'd note is silent at runtime, not a syntax error).
 
-### Save / load, endless, dev menu
+### Save / load, world seed, endless, dev menu
 - `saveGame`/`loadGame` use `localStorage` (works on Pages and in Capacitor). `saveLifetime` persists `G.stats`. Adding a new persisted field? Add it to the save object AND the load defaults.
+- **Per-voyage world seed (`G.worldSeed`):** a NEW voyage rolls a fresh random seed (genuinely different islands/ports/treasure); **continue and respawn reuse it** so the sea you're on stays the same map. Set it on every fresh-game entry point (`newVoyage`, cursed-voyage start, `startEndless`, the "Sail Again" finale button). Old saves with no `worldSeed` default to `0` → reproduce the original deterministic layout.
+- **Map persistence across death:** the save records `worldSeed`, `discovered` (minimap-revealed island ids), `explored` (islands sent a shore party), `revealedCaches`, `lootedCaches`, `cornersCleared`, `collectedGems` (per-map). **Respawn restores from `loadSavedData()`** (passed to `startMap(idx, restore)`), so dying no longer wipes discoveries/looted caches/cleared corners. The auto-save runs ~every 4s during play (and on key events / on backgrounding). `gameOver` sets `G.state='end'` then calls `saveGame()` — which **no-ops at `'end'`** — so the persisted state is the last in-play auto-save (intentional).
 - **Open Seas (endless):** `updateEndless` ramps a `threat` from time survived + notoriety; spawns escalating fleets/storms and cycles `ENDLESS_BOSSES`.
 - **Dev menu:** open by **triple-tapping the map-name pill** (top of screen). Spawns enemies/cargo/bosses/forts/hazards/seas, grants upgrades, toggles god-mode (`G.dev.invincible/oneShot`). Great for testing a feature without grinding to it.
+
+### HUD & the pop-out minimap
+- The world minimap is a `<canvas id="minimap">` inside `#minimapwrap` (fixed, bottom-left, `--mini:96px`). `drawMinimap()` runs each frame; `G.discovered` (island ids within 700px of the ship) controls which islands are revealed.
+- **Tap to pop out:** `#minimapwrap` has a click handler (`toggleMinimap`) that adds `.expanded` (grows to a large centred chart and dims the world via a huge spread `box-shadow`) and bumps the canvas resolution 168→512 for crispness; tap again (or it auto-collapses on entering shore/boarding/a new map via `collapseMinimap`) to retract. The steering input is bound to the `cv` canvas only, so tapping the minimap never issues a sail order.
+- `drawMinimap` scales every pip/glyph by `k=N/168` and, when popped out, swaps in richer game-themed emoji markers (💎 gems, 📦 bounty, 🗺️/💰 caches, ⚓ ports, 🌴 explorable isles, 🏰 forts, 💀 boss, ☠/⚓ corner guardians). Live ships stay coloured dots (read better than emoji when moving).
 
 ---
 
@@ -159,10 +168,12 @@ This is the newest, most complex feature. **It is NOT a separate `G.state`** —
 2. **`node --check` catches SYNTAX only, never runtime.** A real bug (e.g. a too-broad `replace_all` once rewrote a function's body into infinite recursion) passes the syntax check and crashes at runtime. For logic changes, also *reason about / simulate* runtime: stub the function in `node -e` and call it, or open in a browser. Watch for self-reference, recursion, undefined globals.
 3. **Never `replace_all` a code pattern that also appears inside the function it routes to.** Scope replacements or edit call sites individually.
 4. **Island silhouette consistency** — see §6 World gen. Anything placed on/near land must use `shoreAt(angle)*fraction` and the quadratic blend, or it lands in the water.
-5. **iOS AudioContext** backgrounds to state `'interrupted'` (not `'suspended'`). Resume on *any* non-`'running'` state; on return, **rebuild** the context (`rebuildAudio` — close + new context + ambient, reuse decoded buffers; it also drops `SND.musicBus`/`_themeLoopId` so the theme restarts). A resumed zombie context is silent.
+5. **iOS AudioContext** backgrounds to state `'interrupted'` (not `'suspended'`). Resume on *any* non-`'running'` state; on return, **rebuild** the context (`rebuildAudio` — close + new context + ambient, reuse decoded buffers; it also drops `SND.musicBus`/`_themeLoopId` so the theme restarts). A resumed zombie context is silent. `playSample` also nudges a suspended context back to `running` and one-shot voices self-disconnect (see §6 Music).
 6. **No `backdrop-filter`** over the animating canvas — it broke tap hit-testing on iOS. Overlays use solid/translucent fills.
 7. **`git push` under the sandbox fails** with "Could not resolve host: github.com" (the Bash sandbox blocks git's network). Push with the sandbox disabled, or from a normal shell / PowerShell. (PowerShell wraps git's stderr as a red "error" even on success — check for the `old..new  main -> main` line to confirm.)
 8. **Performance:** it's a single canvas redrawn every frame. Keep per-frame allocations modest; reuse particle/array patterns already in the code.
+9. **Link-preview / Open Graph:** the `<head>` has `og:*` + `twitter:*` tags (absolute `https://getarsenal.app/...` URLs to the 1024 icon) so the **website** link shows the logo in iMessage/social. An **App Store** link's preview card is built by Apple from App Store Connect — it uses your **first screenshot**; reorder screenshots there to change that image (not a code change).
+10. **Toast notifications** (`#toast`) sit just under the top HUD (`top:max(94px, safe-area-inset-top + 84px)`), not centre-screen, so convoy/boss alerts don't block play in portrait or landscape.
 
 ---
 
@@ -208,7 +219,22 @@ git push origin main      # → Codemagic builds → TestFlight
 
 ## 10. Quick identifier glossary (grep these)
 
-`G` (global state) · `loop` (rAF frame) · `render` · `wx`/`wy` (world→screen) · `genWorld`/`startMap`/`MAPS` · `islandEdge`/`shoreAt` (silhouette — keep in sync) · `makeShip`/`makeNavy`/`makeCargo`/`NAVY_CLASSES`/`CARGO_TYPES` · `fireCannons`/`updateCannonballs`/`dealDamage`/`killEntity` · `BOSS_STATS`/`spawnBossOf`/`updateBoss` · `G.world.hazards`/`updateHazards` · `startShoreParty`/`updateShore`/`drawShore` · `startBoarding`/`updateBoarding`/`drawBoarding`/`isBoardable`/`deckHalfWidthAt`/`clampToDeck` · `UP`/`G.upgrades` (add `boarding` key everywhere) · `SND`/`tone`/`sfx`/`initAudio`/`rebuildAudio` · `N`/`SHANTIES`/`playShanty` · `THEMES`/`playTheme`/`updateMusic` · `checkPortPrompt` (proximity prompts) · `updateEndless` · `saveGame`/`loadGame` · dev menu = triple-tap the map-name pill.
+`G` (global state) · `loop` (rAF frame) · `render` · `wx`/`wy` (world→screen) · `genWorld`/`startMap`/`MAPS`/`G.worldSeed` · `islandEdge`/`shoreAt` (silhouette — keep in sync) · `makeShip`/`makeNavy`/`makeCargo`/`NAVY_CLASSES`/`CARGO_TYPES` · `fireCannons`/`updateCannonballs`/`dealDamage`/`killEntity` · `BOSS_STATS`/`spawnBossOf`/`updateBoss` · `G.world.hazards`/`updateHazards` · `startShoreParty`/`updateShore`/`drawShore` (Tidal Brute boss + `sh.hazards` rocks) · `startBoarding`/`updateBoarding`/`drawBoarding`/`isBoardable`/`deckHalfWidthAt`/`clampToDeck` · `UP`/`G.upgrades` (add `boarding` key everywhere) · `SND`/`tone`/`sfx`/`initAudio`/`rebuildAudio`/`playSample` · `N`/`SHANTIES`/`playShanty`/`closeSongbook` · `THEMES`/`playTheme`/`updateMusic` · `drawMinimap`/`toggleMinimap`/`collapseMinimap`/`G.discovered` · `checkPortPrompt` (proximity prompts) · `updateEndless` · `saveGame`/`loadGame`/`loadSavedData` · dev menu = triple-tap the map-name pill.
+
+---
+
+## 11. Changelog of notable changes since the `53c5663` baseline
+
+*(Newest first. The code is always the source of truth — update this list when you change behavior.)*
+
+- **2026-06 — UI / audio / persistence / minimap pass:**
+  - **Notifications:** `#toast` moved from centre-screen to just under the top HUD and shrunk, so convoy/boss alerts don't block play (portrait **and** landscape).
+  - **Songbook music:** picking a shanty in the Songbook now keeps it playing after the menu closes (`closeSongbook` no longer stops it) — matches bottle-found shanties.
+  - **World seed + map persistence:** added `G.worldSeed` (new game = fresh layout; continue/respawn reuse it). Save/restore now covers `discovered`, `explored`, `revealedCaches` on top of looted caches / cleared corners; **respawn restores from the save** instead of regenerating a blank map.
+  - **Shore-party audio robustness:** one-shot WebAudio voices (`playSample`/`tone`/`noise`/`impact`/`thump`) self-disconnect on `onended`; `playSample` resumes a suspended context; recovery also listens on `touchstart`. Fixes muskets/custom SFX silently dropping out after backgrounding.
+  - **Tidal Brute boss crab:** real threat now — surging charge, claw-smash, and arcing rock throws (`sh.hazards[]`) that splash for AoE; added `bossThrow` SFX, proper `maxhp`/HP bar.
+  - **Pop-out minimap:** tap `#minimapwrap` to expand to a large centred chart (`toggleMinimap`/`collapseMinimap`), with richer game-themed emoji markers when expanded; auto-collapses ashore / on new map.
+  - **Link preview:** added Open Graph + Twitter Card meta tags (logo image) for the website link.
 
 ---
 
