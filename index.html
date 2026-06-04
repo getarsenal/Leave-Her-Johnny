@@ -474,7 +474,7 @@
   <div id="toast"></div>
   <!-- ambient "waves & seagulls" loop: plays during normal sailing, pauses for shore
        parties / boss fights. Drop the file at assets/ambient-waves.mp3 (graceful if absent). -->
-  <audio id="ambient" loop preload="auto" src="assets/ambient-waves.mp3"></audio>
+  <audio id="ambient" loop preload="auto" src="assets/waves_and_seagulls_background.mp3"></audio>
   <div id="achpop"><div class="ach-ic">🏆</div><div class="ach-txt"><div class="ach-lbl">Achievement Unlocked</div><div class="ach-name" id="ach-name"></div></div></div>
   <div id="portprompt">
     <div class="pp-title" id="pp-title">⚓ Port ahead</div>
@@ -2460,8 +2460,8 @@ function drawGulls(){
 const GULL_IMG={open:null,folded:null};
 (function loadGullImgs(){
   try{
-    const o=new Image(); o.onload=()=>GULL_IMG.open=o; o.onerror=()=>{}; o.src='assets/seagull-open.png';
-    const f=new Image(); f.onload=()=>GULL_IMG.folded=f; f.onerror=()=>{}; f.src='assets/seagull-folded.png';
+    const o=new Image(); o.onload=()=>GULL_IMG.open=o; o.onerror=()=>{}; o.src='assets/Seagull_Wings_Extended.PNG';
+    const f=new Image(); f.onload=()=>GULL_IMG.folded=f; f.onerror=()=>{}; f.src='assets/Seagull_Wings_Folded.PNG';
   }catch(e){}
 })();
 function makeSeagull(){
@@ -4513,7 +4513,7 @@ function drawShore(){
    assets/whale.png for the body if present (vector fallback otherwise).
    ================================================================ */
 const WHALE_IMG={img:null};
-(function loadWhaleImg(){ try{ const w=new Image(); w.onload=()=>WHALE_IMG.img=w; w.onerror=()=>{}; w.src='assets/whale.png'; }catch(e){} })();
+(function loadWhaleImg(){ try{ const w=new Image(); w.onload=()=>WHALE_IMG.img=w; w.onerror=()=>{}; w.src='assets/Whale.PNG'; }catch(e){} })();
 function startWhaling(whale){
   const s=G.ship; if(!s) return;
   const wx0 = whale?whale.x : s.x+Math.cos(s.a)*160;
