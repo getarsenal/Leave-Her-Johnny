@@ -109,7 +109,7 @@
   /* travel-speed toggle lit up when engaged */
   #btn-cruise.on{background:linear-gradient(180deg,#ffd76a,#e6a52e);border-color:#fff3c4;
     box-shadow:0 0 12px rgba(255,206,92,.7),var(--shadow-soft);}
-  .trbtns{display:flex;gap:6px;}
+  .trbtns{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;max-width:132px;}
   /* Songbook shuffle toggle */
   #btn-shuffle{font-family:'Baloo 2';font-weight:700;font-size:13px;color:#cde7f2;cursor:pointer;
     background:rgba(255,255,255,.06);border:2px solid rgba(255,255,255,.22);border-radius:999px;
@@ -9503,7 +9503,12 @@ const sfx={
     noise(0.05,0.06,700,'lowpass',0,0.4);
   },
   thunder(){ playSample('storm',0.9,0.03); },    // custom storm/thunder recording
-  musket(){ playSample('musket',0.45,0.12); },   // shore-party musket (pitch-varied for volleys)
+  musket(){ // flintlock crack — fully PROCEDURAL so it never depends on a sample decoding
+    const v=0.85+Math.random()*0.3;
+    noise(0.07,0.46*v,2400+Math.random()*700,'highpass',0,0.7);  // sharp powder crack
+    noise(0.13,0.30*v,1000,'bandpass',0,0.6);                    // body of the report
+    thump(380+Math.random()*120,90,0.08,0.32*v);                 // boom punch
+  },
   bossThrow(){ // the Tidal Brute heaves a boulder: low grunt + a heavy air whoosh
     thump(120,58,0.18,0.22);
     noise(0.24,0.13,900,'lowpass',0,0.5);
