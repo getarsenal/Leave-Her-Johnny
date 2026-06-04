@@ -93,11 +93,19 @@
     background:linear-gradient(180deg,var(--panel),var(--panel2));
     border:3px solid var(--gold-dk);border-radius:999px;box-shadow:var(--shadow-soft);
     pointer-events:auto;color:var(--gold);}
-  #btn-mute,#btn-voyage,#btn-songbook,#btn-logbook,#btn-cruise{pointer-events:auto;width:40px;height:40px;border-radius:50%;font-size:18px;
+  #btn-mute,#btn-voyage,#btn-songbook,#btn-logbook,#btn-cruise,#btn-trim{pointer-events:auto;width:40px;height:40px;border-radius:50%;font-size:18px;
     background:linear-gradient(180deg,var(--panel),var(--panel2));border:3px solid var(--gold-dk);
     box-shadow:var(--shadow-soft);cursor:pointer;display:grid;place-items:center;
     transition:transform .08s;}
-  #btn-mute:active,#btn-voyage:active,#btn-songbook:active,#btn-logbook:active,#btn-cruise:active{transform:scale(.92);}
+  #btn-mute:active,#btn-voyage:active,#btn-songbook:active,#btn-logbook:active,#btn-cruise:active,#btn-trim:active{transform:scale(.92);}
+  /* Ship's Trim (cosmetics) menu */
+  #ov-trim .trimsec{margin:9px 0;text-align:left;}
+  #ov-trim .trimlabel{font:700 12px/1 'Baloo 2',sans-serif;color:#8fc4dd;text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px;}
+  #ov-trim .trimrow{display:flex;flex-wrap:wrap;gap:6px;}
+  #ov-trim .trimchip{font-family:'Baloo 2';font-weight:700;font-size:13px;padding:6px 12px;border-radius:999px;cursor:pointer;
+    background:rgba(255,255,255,.07);border:2px solid rgba(255,255,255,.2);color:#e9eef2;transition:all .12s;}
+  #ov-trim .trimchip.sel{background:linear-gradient(180deg,#ffd76a,#e6a52e);color:#3a2c12;border-color:#fff3c4;}
+  #ov-trim .trimchip.locked{opacity:.5;cursor:default;}
   /* travel-speed toggle lit up when engaged */
   #btn-cruise.on{background:linear-gradient(180deg,#ffd76a,#e6a52e);border-color:#fff3c4;
     box-shadow:0 0 12px rgba(255,206,92,.7),var(--shadow-soft);}
@@ -441,6 +449,7 @@
       <div class="trbtns">
         <button id="btn-voyage" title="Change sea">🗺️</button>
         <button id="btn-cruise" title="Travel speed (auto-sail)">🧭</button>
+        <button id="btn-trim" title="Ship's Trim">🎀</button>
         <button id="btn-songbook" title="Songbook">🎵</button>
         <button id="btn-logbook" title="Captain's Logbook">📖</button>
         <button id="btn-mute">🔊</button>
@@ -463,6 +472,9 @@
 
   <!-- TOAST + OVERLAYS injected/толed via JS -->
   <div id="toast"></div>
+  <!-- ambient "waves & seagulls" loop: plays during normal sailing, pauses for shore
+       parties / boss fights. Drop the file at assets/ambient-waves.mp3 (graceful if absent). -->
+  <audio id="ambient" loop preload="auto" src="assets/ambient-waves.mp3"></audio>
   <div id="achpop"><div class="ach-ic">🏆</div><div class="ach-txt"><div class="ach-lbl">Achievement Unlocked</div><div class="ach-name" id="ach-name"></div></div></div>
   <div id="portprompt">
     <div class="pp-title" id="pp-title">⚓ Port ahead</div>
@@ -521,6 +533,14 @@
       <button id="btn-shuffle">🔀 Shuffle playlist</button>
       <div id="songlist"></div>
       <button class="bigbtn" id="songclose">Back to Sea</button>
+    </div>
+  </div>
+  <div class="overlay" id="ov-trim">
+    <div class="card">
+      <h2>🎀 Ship's Trim</h2>
+      <p class="hint">Dress up your vessel — unlock more by chasing down seagulls. <span id="trim-count"></span></p>
+      <div id="trimbody"></div>
+      <button class="bigbtn" id="trimclose">Back to Sea</button>
     </div>
   </div>
 
@@ -792,7 +812,7 @@ const G = {
   cruiseAng:null,        //   (no finger needed), a touch faster, camera pulled back a bit.
   gold:0, wood:0,
   ship:null,
-  entities:[], cannonballs:[], particles:[], floaters:[], wakes:[],
+  entities:[], cannonballs:[], particles:[], floaters:[], wakes:[], seagulls:[],
   upgrades:{hull:0,sails:0,cannons:0,crew:0,hold:0,hotshot:0,spread:0,ballast:0,chain:0,plating:0,boarding:0},
   // ---- ship cosmetics (unlocked by catching seagulls; persist forever) ----
   cosmetics:{ hull:'classic', sail:'plain', flag:'black', figure:'none', unlocked:{} },
@@ -2430,6 +2450,96 @@ function drawGulls(){
     ctx.restore();
   }
 }
+/* ================================================================
+   CATCHABLE SEAGULLS — gulls resting on the water that flush and flee
+   when you approach. Catch one (sail into it before it climbs away) to
+   UNLOCK a ship cosmetic. Uses /assets/seagull-folded.png (resting) and
+   /assets/seagull-open.png (flying); falls back to a vector gull if the
+   images aren't present yet.
+   ================================================================ */
+const GULL_IMG={open:null,folded:null};
+(function loadGullImgs(){
+  try{
+    const o=new Image(); o.onload=()=>GULL_IMG.open=o; o.onerror=()=>{}; o.src='assets/seagull-open.png';
+    const f=new Image(); f.onload=()=>GULL_IMG.folded=f; f.onerror=()=>{}; f.src='assets/seagull-folded.png';
+  }catch(e){}
+})();
+function makeSeagull(){
+  const S=G.world.size; let x,y,tr=0;
+  do{ x=Math.random()*S; y=Math.random()*S; tr++; }
+  while(G.ship && dist(x,y,G.ship.x,G.ship.y)<700 && tr<24);
+  return {x,y,state:'rest',vx:0,vy:0,flap:Math.random()*TAU,bobP:Math.random()*TAU,fleeT:0,lift:0,gone:false,s:lerp(0.9,1.25,Math.random())};
+}
+function updateSeagulls(dt){
+  if(!G.seagulls) return; const s=G.ship; if(!s) return;
+  for(const g of G.seagulls){
+    if(g.gone) continue;
+    g.flap += dt*(g.state==='flee'?13:4);
+    g.bobP += dt*1.6;
+    const d=dist(g.x,g.y,s.x,s.y);
+    if(g.state==='rest'){
+      if(d<170){ g.state='flee'; g.fleeT=0; }                 // flush when the ship nears
+    } else {
+      g.fleeT+=dt;
+      const spd=lerp(40,172,clamp(g.fleeT/0.9,0,1));          // slow takeoff, then climbs away fast
+      const a=angTo(s.x,s.y,g.x,g.y)+Math.sin(g.fleeT*2.2)*0.3;
+      g.vx=Math.cos(a); g.vy=Math.sin(a);
+      g.x+=g.vx*spd*dt; g.y+=g.vy*spd*dt;
+      g.lift=clamp(g.fleeT/0.9,0,1);
+      if(g.fleeT>5) g.gone=true;                              // escaped
+    }
+    // catchable while resting or during the slow takeoff window
+    const catchable = g.state==='rest' || (g.state==='flee' && g.fleeT<0.9);
+    if(catchable && d < s.r+24) catchSeagull(g);
+  }
+  const live=G.seagulls.filter(g=>!g.gone).length;
+  if(live<4 && Math.random()<0.5) G.seagulls.push(makeSeagull());
+  if(G.seagulls.length>14) G.seagulls=G.seagulls.filter(g=>!g.gone);
+}
+function catchSeagull(g){
+  g.gone=true;
+  G.gullsCaught=(G.gullsCaught||0)+1;
+  if(G.stats) G.stats.gullsCaught=(G.stats.gullsCaught||0)+1;
+  for(let k=0;k<16;k++)G.particles.push({x:g.x,y:g.y,vx:rnd(-55,55),vy:rnd(-75,10),life:.7,max:.7,c:k%2?'#ffffff':'#dfe7ee',r:rnd(2,4)});
+  const un=(typeof unlockNextCosmetic==='function')?unlockNextCosmetic():null;
+  if(un) toast('🪶 Caught a gull! Unlocked “'+un.name+'” — equip it in Trim 🎀',2800);
+  else { G.gold+=40; if(typeof updateHUD==='function') updateHUD(); toast('🪶 Caught a gull! +40g (every trim unlocked)',2200); }
+  if(typeof sfx!=='undefined' && sfx.coin) sfx.coin();
+  if(typeof checkAchievements==='function') checkAchievements();
+  if(typeof saveLifetime==='function') saveLifetime();
+}
+function drawSeagulls(){
+  if(!G.seagulls) return; const z=G.cam.zoom;
+  for(const g of G.seagulls){
+    if(g.gone) continue;
+    const lift=(g.lift||0)*30;
+    const sx=wx(g.x), sy=wy(g.y) - lift*z - (g.state==='rest'?Math.sin(g.bobP)*1.5*z:0);
+    if(sx<-40||sx>W+40||sy<-40||sy>H+40) continue;
+    const sc=g.s*z;
+    // shadow on the water (shrinks as it climbs)
+    ctx.fillStyle='rgba(10,40,60,0.18)';
+    ctx.beginPath();ctx.ellipse(wx(g.x),wy(g.y),7*sc*(1-(g.lift||0)*0.5),3*sc*(1-(g.lift||0)*0.5),0,0,TAU);ctx.fill();
+    const flying=g.state==='flee';
+    let img = flying ? GULL_IMG.open : GULL_IMG.folded;
+    // animate flapping by swapping open/folded frames while in flight (if both exist)
+    if(flying && GULL_IMG.open && GULL_IMG.folded && Math.sin(g.flap)<-0.2) img=GULL_IMG.folded;
+    if(img){
+      const ang = flying ? Math.atan2(g.vy,g.vx)+Math.PI/2 : 0;
+      const sz=22*sc;
+      ctx.save();ctx.translate(sx,sy);ctx.rotate(ang);ctx.drawImage(img,-sz/2,-sz/2,sz,sz);ctx.restore();
+    } else {
+      // vector fallback: a little white seabird
+      ctx.save();ctx.translate(sx,sy);
+      if(flying) ctx.rotate(Math.atan2(g.vy,g.vx)+Math.PI/2);
+      const flap=flying?(Math.sin(g.flap)*0.5+0.5):0.12, liftw=flap*5*sc;
+      ctx.strokeStyle='#eef3f7';ctx.lineWidth=2.4*sc;ctx.lineCap='round';ctx.lineJoin='round';
+      ctx.beginPath();ctx.moveTo(-8*sc,0);ctx.quadraticCurveTo(-3*sc,-liftw,0,0);ctx.quadraticCurveTo(3*sc,-liftw,8*sc,0);ctx.stroke();
+      ctx.fillStyle='#f6f9fb';ctx.beginPath();ctx.ellipse(0,1*sc,2*sc,3*sc,0,0,TAU);ctx.fill();
+      ctx.fillStyle='#f2a83a';ctx.beginPath();ctx.moveTo(0,-2.4*sc);ctx.lineTo(1.6*sc,-3.6*sc);ctx.lineTo(0,-1*sc);ctx.fill();
+      ctx.restore();
+    }
+  }
+}
 function drawPuffBlob(cx,cy,R,puffs,seed){
   const rng=mulberry32(Math.floor(seed*1000));
   ctx.beginPath();
@@ -2587,7 +2697,7 @@ function makeCargo(x,y,rng,opts){
 
 function populate(){
   const def=G.world.def, S=G.world.size, rng=mulberry32(50+G.mapIndex*999);
-  G.entities=[]; G.cannonballs=[]; G.particles=[]; G.floaters=[]; G.wakes=[]; G.octopi=[];
+  G.entities=[]; G.cannonballs=[]; G.particles=[]; G.floaters=[]; G.wakes=[]; G.octopi=[]; G.seagulls=[];
   // player
   G.ship=makeShip({x:G.world.spawn.x,y:G.world.spawn.y,a:-Math.PI/2});
   recalcPlayer(); G.ship.hp=G.ship.maxhp;
@@ -2670,6 +2780,8 @@ function populate(){
   G.navyRespawnTimer=rnd(8,14);
   // random convoys cross the map periodically
   G.convoyTimer=rnd(25,45);
+  // catchable seagulls resting on the water (chase to catch → unlock a cosmetic)
+  G.seagulls=[]; for(let i=0;i<4;i++) G.seagulls.push(makeSeagull());
   setObjective();
 }
 
@@ -7240,6 +7352,7 @@ function render(){
     }
   }
   drawOctopi();         // octopuses clinging to the player's hull (above the ship)
+  drawSeagulls();       // catchable gulls resting on / fleeing across the water
   drawParticles();
   drawDmgPops();        // floating damage numbers + combo pops
   drawGulls();          // seagulls gliding in the sky
@@ -7378,6 +7491,7 @@ function loop(now){
     updateParticles(G.dt);
     updateCritters(G.dt);
     updateOctopi(G.dt);   // Davy Jones' latched octopuses drain the hull
+    updateSeagulls(G.dt); // resting gulls flush & flee; catch one to unlock a cosmetic
     updateSpawns(G.dt);
     updateLandingParty(G.dt);
     updateCamera(G.dt);
@@ -8103,6 +8217,34 @@ el('btn-songbook').onclick=openSongbook;
 el('songclose').onclick=closeSongbook;
 { const _sb=el('btn-shuffle'); if(_sb) _sb.onclick=toggleShuffle; }
 
+/* ---- Ship's Trim: equip cosmetics unlocked by catching seagulls ---- */
+function buildTrim(){
+  const body=el('trimbody'); if(!body) return; body.innerHTML='';
+  const cats=[['hull','Hull'],['sail','Sail Emblem'],['flag','Flag'],['figure','Figurehead']];
+  for(const cp of cats){
+    const cat=cp[0];
+    const sec=document.createElement('div'); sec.className='trimsec';
+    const h=document.createElement('div'); h.className='trimlabel'; h.textContent=cp[1]; sec.appendChild(h);
+    const row=document.createElement('div'); row.className='trimrow';
+    for(const o of COSMETICS[cat]){
+      const owned=cosmeticOwned(cat,o.id), sel=G.cosmetics[cat]===o.id;
+      const b=document.createElement('button');
+      b.className='trimchip'+(sel?' sel':'')+(owned?'':' locked');
+      b.textContent = owned ? o.name : '🔒 Locked';
+      if(owned) b.onclick=()=>{ G.cosmetics[cat]=o.id; if(typeof saveLifetime==='function')saveLifetime(); buildTrim(); if(typeof sfx!=='undefined'&&sfx.click)sfx.click(); };
+      row.appendChild(b);
+    }
+    sec.appendChild(row); body.appendChild(sec);
+  }
+  const cnt=el('trim-count');
+  if(cnt){ const tot=COSMETIC_UNLOCKS.length, have=COSMETIC_UNLOCKS.filter(u=>cosmeticOwned(u.cat,u.id)).length;
+    cnt.textContent='Unlocked '+have+'/'+tot+'  ·  🪶 '+(G.gullsCaught||0)+' caught'; }
+}
+function openTrim(){ if(G.state!=='play'&&G.state!=='shop'&&G.state!=='end')return; buildTrim(); G.state='shop'; el('ov-trim').classList.add('show'); }
+function closeTrim(){ el('ov-trim').classList.remove('show'); if(G.state==='shop')G.state='play'; }
+el('btn-trim').onclick=openTrim;
+el('trimclose').onclick=closeTrim;
+
 /* ================================================================
    ACHIEVEMENT TOAST + CAPTAIN'S LOGBOOK
    ================================================================ */
@@ -8515,6 +8657,7 @@ function bindTouchBtn(id,fn){
 bindTouchBtn('btn-fire',playerBroadside);
 bindTouchBtn('btn-mute',toggleMute);
 bindTouchBtn('btn-cruise',toggleCruise);
+bindTouchBtn('btn-trim',openTrim);
 bindTouchBtn('btn-voyage',openVoyage);
 bindTouchBtn('btn-songbook',openSongbook);
 bindTouchBtn('btn-logbook',openLogbook);
@@ -8954,6 +9097,21 @@ function updateMusic(){
   if(G.state==='shore') want='shore';
   else if(G.state==='play' && G.entities && G.entities.some(e=>e.type==='boss'&&!e.dead)) want='boss';
   if(want!==_themeLoopId){ if(want) playTheme(want); else stopTheme(); }
+  updateAmbientBed(want);
+}
+// Ambient "waves & seagulls" loop (HTML5 <audio>): plays under normal sailing/menus,
+// ducks out for shore parties and boss fights (which have their own themes), and
+// respects mute. Lazily started after the first audio gesture; missing file = silent.
+let _ambientStarted=false;
+function updateAmbientBed(theme){
+  const a=el('ambient'); if(!a) return;
+  const playWhen = !SND.muted && theme===null &&
+    (G.state==='play' || G.state==='menu' || G.state==='shop' || G.state==='end');
+  if(playWhen){
+    a.volume=0.32;
+    if(a.paused){ const p=a.play(); if(p&&p.catch) p.catch(()=>{}); }   // ignore autoplay rejections
+    _ambientStarted=true;
+  } else if(!a.paused){ try{ a.pause(); }catch(e){} }
 }
 // a tone that plays onto the shanty bus (so stopShanty can cut it instantly)
 function shantyTone(freq,dur,type,vol,delay){
