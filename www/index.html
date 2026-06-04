@@ -3810,6 +3810,7 @@ function startShoreParty(is){
 function updateShore(dt){
   const sh=G.shore; if(!sh)return;
   if(sh.boarding){ updateBoarding(sh,dt); return; }   // boarding is a self-contained module
+  if(sh.whaling){ updateWhaling(sh,dt); return; }     // whaling hunt is a self-contained module
   const sp=90;
   if(sh.phase==='rowin'){
     const d=dist(sh.px,sh.py,sh.landX,sh.landY);
@@ -4155,6 +4156,7 @@ function shoreKeepExploring(){ hideShorePrompt(); if(G.shore){ G.shore.promptUp=
 function drawShore(){
   const sh=G.shore; if(!sh)return;
   if(sh.boarding){ drawBoarding(sh); return; }   // boarding is a self-contained module
+  if(sh.whaling){ drawWhaling(sh); return; }     // whaling hunt is a self-contained module
   const z=G.cam.zoom;
   // rival raider camp: crates, a campfire and a tattered flag
   if(sh.camp){
@@ -4502,6 +4504,213 @@ function drawShore(){
       ctx.fillRect(0,0,W,H);
     }
   }
+}
+/* ================================================================
+   🐋 WHALING — an AC4-style hunt. A longboat (auto-rowed) chases a whale;
+   you DRAG BACK & RELEASE (slingshot) to hurl harpoons. Keep spearing the
+   surfaced whale until it's taken, then the crew collect the oil and row
+   the haul back to the ship. Reuses the 'shore' session machinery; uses
+   assets/whale.png for the body if present (vector fallback otherwise).
+   ================================================================ */
+const WHALE_IMG={img:null};
+(function loadWhaleImg(){ try{ const w=new Image(); w.onload=()=>WHALE_IMG.img=w; w.onerror=()=>{}; w.src='assets/whale.png'; }catch(e){} })();
+function startWhaling(whale){
+  const s=G.ship; if(!s) return;
+  const wx0 = whale?whale.x : s.x+Math.cos(s.a)*160;
+  const wy0 = whale?whale.y : s.y+Math.sin(s.a)*160;
+  const big = whale ? !!whale.big : Math.random()<0.5;
+  const hp = (big?170:115) + G.mapIndex*12;
+  const sh={
+    whaling:true, phase:'hunt', collectT:0,
+    shipX:s.x, shipY:s.y,
+    boat:{x:s.x+Math.cos(s.a+0.5)*44, y:s.y+Math.sin(s.a+0.5)*44, a:angTo(s.x,s.y,wx0,wy0), vx:0, vy:0, row:0},
+    whale:{x:wx0,y:wy0,a:Math.random()*TAU,hp,maxhp:hp,r:big?34:26,state:'surface',stateT:rnd(4,6),spoutT:1.0,hurt:0,hitFlash:0,big,sub:0},
+    harpoons:[], aim:null, _wasAiming:false,
+    reward:(big?rndi(420,640):rndi(260,400))+G.mapIndex*45, woodReward:rndi(2,7),
+  };
+  if(G.critters) G.critters=G.critters.filter(c=>c.type!=='whale');   // engaged the pod
+  G.shore=sh; G.state='shore';
+  if(typeof collapseMinimap==='function') collapseMinimap();
+  hidePortPrompt();
+  toast('🐋 The hunt is on! Drag BACK and release to hurl your harpoon.',3400);
+}
+function _whaleSpoutFx(wh){
+  for(let k=0;k<10;k++)G.particles.push({x:wh.x+rnd(-4,4),y:wh.y-wh.r*0.5,vx:rnd(-12,12),vy:rnd(-70,-40),life:.7,max:.7,c:'rgba(220,235,245,0.8)',r:rnd(2,4)});
+  if(typeof sfx!=='undefined' && sfx.whaleSpout) sfx.whaleSpout();
+}
+function updateWhaling(sh,dt){
+  const wh=sh.whale, bt=sh.boat;
+  bt.row += dt*6;
+  if(sh.phase==='hunt'){
+    // --- boat auto-pursues, holding a throwing standoff ---
+    const d=dist(bt.x,bt.y,wh.x,wh.y), toW=angTo(bt.x,bt.y,wh.x,wh.y);
+    let want=toW; let thrust=120;
+    if(d<95){ want=toW+Math.PI; thrust=70; }        // too close — back off
+    else if(d<150) thrust=40;                        // good range — ease
+    bt.a += angDiff(bt.a, want)*Math.min(1,dt*3.2);
+    bt.vx=lerp(bt.vx, Math.cos(bt.a)*thrust, dt*2.2); bt.vy=lerp(bt.vy, Math.sin(bt.a)*thrust, dt*2.2);
+    bt.x+=bt.vx*dt; bt.y+=bt.vy*dt;
+    // --- whale AI: surface (vulnerable, spouts, flees) <-> dive (submerged) ---
+    wh.stateT-=dt; if(wh.hurt>0) wh.hurt-=dt; if(wh.hitFlash>0) wh.hitFlash-=dt*3;
+    if(wh.state==='surface'){
+      wh.sub=lerp(wh.sub,0,dt*4);
+      wh.spoutT-=dt; if(wh.spoutT<=0){ wh.spoutT=rnd(2.4,3.8); _whaleSpoutFx(wh); }
+      const flee=angTo(bt.x,bt.y,wh.x,wh.y)+Math.sin(G.t*0.6)*0.5;
+      wh.a += angDiff(wh.a, flee)*Math.min(1,dt*1.4);
+      const wspd=(wh.hurt>0?78:48);
+      wh.x+=Math.cos(wh.a)*wspd*dt; wh.y+=Math.sin(wh.a)*wspd*dt;
+      if(wh.stateT<=0){ wh.state='dive'; wh.stateT=rnd(2.0,3.0); }
+    } else {
+      wh.sub=lerp(wh.sub,1,dt*3);
+      wh.x+=Math.cos(wh.a)*34*dt; wh.y+=Math.sin(wh.a)*34*dt;
+      if(wh.stateT<=0){ wh.state='surface'; wh.stateT=rnd(4,6); wh.spoutT=0.4; }
+    }
+    // --- aim (drag back) → release to throw a harpoon (slingshot: flies OPPOSITE the pull) ---
+    if(input.active && input.mag>0){
+      sh.aim={dx:input.dx, dy:input.dy, len:Math.hypot(input.dx,input.dy)};
+      sh._wasAiming=true;
+    } else if(sh._wasAiming){
+      sh._wasAiming=false;
+      const a=sh.aim;
+      if(a && a.len>10){
+        const pull=Math.min(a.len,64), ang=Math.atan2(-a.dy,-a.dx), power=lerp(300,640,pull/64);
+        sh.harpoons.push({x:bt.x+Math.cos(ang)*14, y:bt.y+Math.sin(ang)*14, vx:Math.cos(ang)*power, vy:Math.sin(ang)*power, life:1.5, a:ang, stuck:false});
+        if(typeof sfx!=='undefined' && sfx.harpoon) sfx.harpoon();
+      }
+      sh.aim=null;
+    }
+    // --- harpoons in flight: only the SURFACED whale can be struck ---
+    for(const h of sh.harpoons){
+      if(h.stuck){ h.x=wh.x+h.ox; h.y=wh.y+h.oy; continue; }
+      h.x+=h.vx*dt; h.y+=h.vy*dt; h.vx*=0.992; h.vy*=0.992; h.life-=dt;
+      if(wh.sub<0.4 && dist(h.x,h.y,wh.x,wh.y)<wh.r){
+        h.stuck=true; h.ox=h.x-wh.x; h.oy=h.y-wh.y;
+        wh.hp-=rndi(9,15); wh.hurt=2.6; wh.hitFlash=1; G.shake=Math.max(G.shake,7);
+        for(let k=0;k<9;k++)G.particles.push({x:h.x,y:h.y,vx:rnd(-45,45),vy:rnd(-45,45),life:.6,max:.6,c:'#9c2f2a',r:3});
+        if(typeof sfx!=='undefined'&&sfx.hitWood) sfx.hitWood();
+        if(wh.hp<=0){ wh.hp=0; sh.phase='collect'; sh.collectT=3.2; wh.state='surface'; wh.sub=0;
+          toast('🐋 The whale is taken! The crew collect the oil…',2800); }
+        else toast('🎯 Strike!  '+Math.ceil(wh.hp)+'/'+wh.maxhp,900);
+      }
+    }
+    sh.harpoons=sh.harpoons.filter(h=>h.stuck || h.life>0);
+    G.cam.x=lerp(G.cam.x,bt.x,dt*4); G.cam.y=lerp(G.cam.y,bt.y,dt*4);
+  } else if(sh.phase==='collect'){
+    for(const h of sh.harpoons){ if(h.stuck){ h.x=wh.x+h.ox; h.y=wh.y+h.oy; } }
+    const d=dist(bt.x,bt.y,wh.x,wh.y);
+    if(d>42){ const a=angTo(bt.x,bt.y,wh.x,wh.y); bt.a+=angDiff(bt.a,a)*Math.min(1,dt*4); bt.x+=Math.cos(a)*90*dt; bt.y+=Math.sin(a)*90*dt; }
+    if(Math.random()<0.3) G.particles.push({x:wh.x+rnd(-22,22),y:wh.y+rnd(-12,12),vx:0,vy:-28,life:.9,max:.9,c:'#ffe08a',r:3});
+    G.cam.x=lerp(G.cam.x,(bt.x+wh.x)/2,dt*3); G.cam.y=lerp(G.cam.y,(bt.y+wh.y)/2,dt*3);
+    sh.collectT-=dt;
+    if(sh.collectT<=0){ sh.phase='return'; toast('⛵ Rowing the haul back to the ship…',2200); }
+  } else if(sh.phase==='return'){
+    const d=dist(bt.x,bt.y,sh.shipX,sh.shipY), a=angTo(bt.x,bt.y,sh.shipX,sh.shipY);
+    bt.a+=angDiff(bt.a,a)*Math.min(1,dt*4);
+    bt.x+=Math.cos(a)*135*dt; bt.y+=Math.sin(a)*135*dt;
+    G.cam.x=lerp(G.cam.x,bt.x,dt*4); G.cam.y=lerp(G.cam.y,bt.y,dt*4);
+    if(d<32) finishWhaling(sh);
+  }
+}
+function finishWhaling(sh){
+  const oil=sh.reward||300, wood=sh.woodReward||0;
+  G.gold+=oil; G.wood+=wood;
+  G.stats.goldEarned=(G.stats.goldEarned||0)+oil;
+  if(wood) G.stats.woodEarned=(G.stats.woodEarned||0)+wood;
+  G.stats.whalesCaught=(G.stats.whalesCaught||0)+1;
+  G.shore=null; G.state='play'; G.cruiseAng=null;
+  toast('🐋 Whale landed! +'+oil+'g'+(wood?' +'+wood+'🪵':'')+' in oil & blubber.',3200);
+  if(typeof checkAchievements==='function') checkAchievements();
+  if(typeof updateHUD==='function') updateHUD();
+  if(typeof saveGame==='function') saveGame();
+}
+function drawWhaling(sh){
+  const z=G.cam.zoom, wh=sh.whale, bt=sh.boat;
+  // mother ship marker (return point) — a simple silhouette so you can row home
+  { const mx=wx(sh.shipX), my=wy(sh.shipY);
+    if(mx>-60&&mx<W+60&&my>-60&&my<H+60){
+      ctx.fillStyle='rgba(8,28,42,0.3)';ctx.beginPath();ctx.ellipse(mx,my+6*z,20*z,9*z,0,0,TAU);ctx.fill();
+      ctx.fillStyle='#5e3620';ctx.beginPath();ctx.ellipse(mx,my,12*z,22*z,0,0,TAU);ctx.fill();
+      ctx.fillStyle='#7c4a2d';ctx.beginPath();ctx.ellipse(mx,my,8*z,17*z,0,0,TAU);ctx.fill();
+      ctx.fillStyle='#fff7e8';ctx.beginPath();ctx.ellipse(mx,my-3*z,7*z,12*z,0,0,TAU);ctx.fill();
+      if(sh.phase==='return'){ ctx.fillStyle='#ffce5c';ctx.font='bold '+(12*z)+"px 'Baloo 2'";ctx.textAlign='center';ctx.fillText('⚓ Home',mx,my-30*z); }
+    } }
+  // ---- the whale ----
+  const subA = 1-(wh.sub||0)*0.75;     // fades as it dives
+  const wsx=wx(wh.x), wsy=wy(wh.y), wr=wh.r*z;
+  // shadow / sub-surface ripple
+  ctx.fillStyle='rgba(8,30,48,'+(0.25+0.25*(wh.sub||0))+')';
+  ctx.beginPath();ctx.ellipse(wsx,wsy+4*z,wr*1.5,wr*0.9,wh.a,0,TAU);ctx.fill();
+  ctx.save();ctx.translate(wsx,wsy);ctx.rotate(wh.a+Math.PI/2);ctx.globalAlpha=subA;
+  if(WHALE_IMG.img){
+    const ww=wr*4.2, hh=wr*5.2;
+    if(wh.hitFlash>0){ ctx.globalAlpha=subA; }
+    ctx.drawImage(WHALE_IMG.img,-ww/2,-hh/2,ww,hh);
+  } else {
+    // vector whale: dark body, lighter belly, flukes, blowhole
+    const bc = wh.hitFlash>0 ? '#d46a5a' : '#3b4a63';
+    ctx.fillStyle=bc;
+    ctx.beginPath();ctx.ellipse(0,0,wr*0.95,wr*2.0,0,0,TAU);ctx.fill();      // body
+    ctx.fillStyle=shade(bc,0.18);
+    ctx.beginPath();ctx.ellipse(0,wr*0.4,wr*0.6,wr*1.3,0,0,TAU);ctx.fill();  // belly
+    ctx.fillStyle=bc;                                                         // tail flukes
+    ctx.beginPath();ctx.moveTo(0,-wr*1.7);ctx.quadraticCurveTo(wr*1.3,-wr*2.4,wr*0.2,-wr*2.7);
+    ctx.quadraticCurveTo(0,-wr*2.2,-wr*0.2,-wr*2.7);ctx.quadraticCurveTo(-wr*1.3,-wr*2.4,0,-wr*1.7);ctx.fill();
+    ctx.fillStyle='#1a2330';ctx.beginPath();ctx.arc(0,wr*1.5,wr*0.14,0,TAU);ctx.fill();   // blowhole
+    ctx.fillStyle='#0d121b';                                                  // eyes
+    ctx.beginPath();ctx.arc(-wr*0.55,wr*1.0,wr*0.1,0,TAU);ctx.arc(wr*0.55,wr*1.0,wr*0.1,0,TAU);ctx.fill();
+  }
+  ctx.restore();
+  // stuck harpoons riding the whale
+  for(const h of sh.harpoons){ if(!h.stuck)continue; const hx=wx(h.x),hy=wy(h.y);
+    ctx.save();ctx.translate(hx,hy);ctx.rotate(h.a);
+    ctx.strokeStyle='#6b4a2c';ctx.lineWidth=2.4*z;ctx.lineCap='round';ctx.beginPath();ctx.moveTo(-14*z,0);ctx.lineTo(2*z,0);ctx.stroke();
+    ctx.fillStyle='#cfd6dd';ctx.beginPath();ctx.moveTo(2*z,0);ctx.lineTo(-3*z,-3*z);ctx.lineTo(-3*z,3*z);ctx.fill();
+    ctx.restore(); }
+  // ---- flying harpoons ----
+  for(const h of sh.harpoons){ if(h.stuck)continue; const hx=wx(h.x),hy=wy(h.y);
+    ctx.save();ctx.translate(hx,hy);ctx.rotate(Math.atan2(h.vy,h.vx));
+    ctx.strokeStyle='#7a5836';ctx.lineWidth=2.2*z;ctx.lineCap='round';ctx.beginPath();ctx.moveTo(-12*z,0);ctx.lineTo(6*z,0);ctx.stroke();
+    ctx.fillStyle='#e6ebf0';ctx.beginPath();ctx.moveTo(6*z,0);ctx.lineTo(0,-3*z);ctx.lineTo(0,3*z);ctx.fill();
+    ctx.restore(); }
+  // ---- the longboat (auto-rowed) ----
+  { const bx=wx(bt.x), by=wy(bt.y);
+    ctx.save();ctx.translate(bx,by);ctx.rotate(bt.a+Math.PI/2);
+    ctx.fillStyle='rgba(8,28,42,0.28)';ctx.beginPath();ctx.ellipse(2*z,4*z,9*z,16*z,0,0,TAU);ctx.fill();
+    ctx.fillStyle='#5e3620';ctx.beginPath();ctx.ellipse(0,0,9*z,17*z,0,0,TAU);ctx.fill();
+    ctx.fillStyle='#8a5a2e';ctx.beginPath();ctx.ellipse(0,0,6.5*z,14*z,0,0,TAU);ctx.fill();
+    // oars sweeping
+    ctx.strokeStyle='#6b4a2c';ctx.lineWidth=1.6*z;ctx.lineCap='round';
+    const sw=Math.sin(bt.row)*4*z;
+    for(const sgn of [-1,1]){ ctx.beginPath();ctx.moveTo(sgn*5*z,-2*z);ctx.lineTo(sgn*13*z,-2*z+sw);ctx.stroke(); }
+    // rowers + a harpooner at the bow
+    ctx.fillStyle='#caa23f';for(let i=0;i<2;i++){ctx.beginPath();ctx.arc(0,4*z-i*6*z,2.4*z,0,TAU);ctx.fill();}
+    ctx.fillStyle='#c4493f';ctx.beginPath();ctx.arc(0,-11*z,2.6*z,0,TAU);ctx.fill();   // harpooner (red)
+    ctx.fillStyle='#e8b88a';ctx.beginPath();ctx.arc(0,-13.5*z,1.6*z,0,TAU);ctx.fill();  // head
+    ctx.restore();
+  }
+  // ---- aim indicator while dragging back (slingshot trajectory) ----
+  if(sh.phase==='hunt' && sh.aim && sh.aim.len>10){
+    const bx=wx(bt.x), by=wy(bt.y);
+    const pull=Math.min(sh.aim.len,64), ang=Math.atan2(-sh.aim.dy,-sh.aim.dx);
+    const reach=lerp(50,150,pull/64)*z;
+    ctx.strokeStyle='rgba(255,230,150,0.85)';ctx.lineWidth=2.5*z;ctx.setLineDash([6*z,6*z]);
+    ctx.beginPath();ctx.moveTo(bx,by);ctx.lineTo(bx+Math.cos(ang)*reach,by+Math.sin(ang)*reach);ctx.stroke();
+    ctx.setLineDash([]);
+    // arrowhead
+    ctx.fillStyle='#ffe08a';ctx.save();ctx.translate(bx+Math.cos(ang)*reach,by+Math.sin(ang)*reach);ctx.rotate(ang);
+    ctx.beginPath();ctx.moveTo(8*z,0);ctx.lineTo(-4*z,-5*z);ctx.lineTo(-4*z,5*z);ctx.fill();ctx.restore();
+    // pull-back marker behind the boat
+    ctx.fillStyle='rgba(255,255,255,0.5)';ctx.beginPath();ctx.arc(bx-Math.cos(ang)*pull*z*0.6,by-Math.sin(ang)*pull*z*0.6,4*z,0,TAU);ctx.fill();
+  }
+  // ---- HUD: whale health bar + phase hint (screen space, under the top HUD) ----
+  const safeTop=(window.__safeTop||0), by=Math.max(150,safeTop+118);
+  const bw=Math.min(W*0.6,260), bx=(W-bw)/2;
+  ctx.fillStyle='rgba(0,0,0,0.45)';roundRect(bx-3,by-3,bw+6,16,5);ctx.fill();
+  ctx.fillStyle='#1a2740';roundRect(bx,by,bw,10,4);ctx.fill();
+  ctx.fillStyle=wh.sub>0.4?'#5a6b86':'#d65a4a';roundRect(bx,by,bw*clamp(wh.hp/wh.maxhp,0,1),10,4);ctx.fill();
+  ctx.fillStyle='#ffe9c4';ctx.font="800 13px 'Baloo 2'";ctx.textAlign='center';ctx.textBaseline='middle';
+  const hint = sh.phase!=='hunt' ? '🐋 Hauling in the catch…' : (wh.sub>0.4?'🌊 Diving — wait for it to surface!':'🐋 Drag back & release to harpoon!');
+  ctx.fillText(hint, W/2, by+26);
 }
 /* ================================================================
    ⚔️ BOARDING PARTIES — storm a crippled enemy ship's deck.
@@ -6460,6 +6669,8 @@ function updateCritters(dt){
       if(!c._splashedIn && frac>0.06){ c._splashedIn=true; critterSplash(c.x,c.y); }
       if(!c._spouted && c.t>=c.spoutT){ c._spouted=true; whaleSpout(c); }
       if(!c._splashedOut && frac>0.9){ c._splashedOut=true; critterSplash(c.x,c.y); }
+      // linger at the surface while the player is close so the pod stays huntable
+      if(G.ship && dist(c.x,c.y,G.ship.x,G.ship.y)<650){ c.t=Math.min(c.t, c.dur*0.5); }
     } else {
       if(!c._splashedIn && frac>0.02){ c._splashedIn=true; critterSplash(c.x,c.y); }
       if(!c._splashedOut && frac>0.92){ c._splashedOut=true; critterSplash(c.x,c.y); }
@@ -7324,7 +7535,8 @@ function render(){
   drawEelBodies();      // serpentine eel-boss trail (world space, under the head)
   // entities sorted by y for depth
   const sorted=[...G.entities].sort((a,b)=>a.y-b.y);
-  for(const e of sorted){ if(e._boarding) continue; drawEntity(e); }   // boarded/own ship hidden under the deck arena
+  const whaling = G.shore && G.shore.whaling;
+  for(const e of sorted){ if(e._boarding) continue; if(whaling) continue; drawEntity(e); }   // boarded/own ship hidden under the deck arena; all ships hidden during a whale hunt
   // cannonballs (with little shadow + arc height)
   for(const b of G.cannonballs){
     const sx=wx(b.x), sy=wy(b.y), z=G.cam.zoom;
@@ -7391,8 +7603,8 @@ function render(){
     ctx.restore();
   }
 
-  // floating joystick (screen-space)
-  if(input.active){
+  // floating joystick (screen-space) — hidden during a whale hunt (it has its own aim UI)
+  if(input.active && !(G.shore && G.shore.whaling)){
     const ax=input.ax, ay=input.ay;
     // outer ring
     ctx.beginPath();ctx.arc(ax,ay,STICK_MAX,0,TAU);
@@ -7511,9 +7723,14 @@ function loop(now){
     // independent of how big the ship has grown.
     const sh=G.shore;
     if(sh){
-      G.cam.x=lerp(G.cam.x,sh.px,G.dt*3); G.cam.y=lerp(G.cam.y,sh.py,G.dt*3);
-      const shoreZoom = sh.boarding ? (sh.camZoom||1.6) : ((H>W)?1.55:1.4);  // boarding zoom adapts to deck size
-      G.cam.zoom=lerp(G.cam.zoom, shoreZoom, G.dt*3);
+      if(sh.whaling){
+        // the hunt drives cam.x/y to the longboat in updateWhaling — just frame the zoom
+        G.cam.zoom=lerp(G.cam.zoom, (H>W?1.1:1.25), G.dt*3);
+      } else {
+        G.cam.x=lerp(G.cam.x,sh.px,G.dt*3); G.cam.y=lerp(G.cam.y,sh.py,G.dt*3);
+        const shoreZoom = sh.boarding ? (sh.camZoom||1.6) : ((H>W)?1.55:1.4);  // boarding zoom adapts to deck size
+        G.cam.zoom=lerp(G.cam.zoom, shoreZoom, G.dt*3);
+      }
     }
     updateHUD();
   }
@@ -8459,6 +8676,7 @@ const DEV_ACTIONS=[
   ['⚡ Lightning Now', ()=>{ if(!G.weather)initWeather(); const w=G.weather; w.intensity=Math.max(w.intensity,0.9); w.flash=1; w.boltX=W*(0.2+Math.random()*0.6); w.boltSeed=Math.random()*999; if(typeof sfx!=='undefined'&&sfx.thunder)sfx.thunder(); }],
   // --- excursions & treasure ---
   ['🏝️ Shore Party (nearest)', ()=>{ const is=devNearestIsland(i=>i.explorable); if(is){ is.exploredOnce=false; is.shoreCooldownUntil=0; closeDev(); startShoreParty(is); } else devToast('No explorable island near'); }],
+  ['🐋 Whale Hunt', ()=>{ closeDev(); startWhaling(null); }],
   ['🗺️ Reveal Cache (nearest)', ()=>{ const is=devNearestIsland(i=>i.cache); if(is){ revealCache(is.id, !!is.cache.big); devToast('Cache revealed on '+(is.id)); } else devToast('No cache island near'); }],
   ['📜 Drop Treasure Map', ()=>{ dropTreasureMap(); }],
   // --- fleets & wildlife ---
@@ -8666,6 +8884,7 @@ bindTouchBtn('btn-logbook',openLogbook);
 function enterPortFromPrompt(){
   if(G._shorePromptUp){ shoreReturn(); return; }   // ashore: "Return to Ship"
   if(G.promptMode==='board' && G.nearTargetEnemy){ hidePortPrompt(); startBoarding(G.nearTargetEnemy); G.nearTargetEnemy=null; return; }
+  if(G.promptMode==='whale' && G.nearWhale){ hidePortPrompt(); startWhaling(G.nearWhale); G.nearWhale=null; return; }
   const mode=G.promptMode, target=G.nearTargetIsland;
   hidePortPrompt();
   if(mode==='explore' && target){ startShoreParty(target); }
@@ -8706,6 +8925,25 @@ function checkPortPrompt(){
         el('portprompt').classList.add('show');
       }
       return;   // while alongside a crippled prize, the boarding prompt owns the UI
+    }
+  }
+
+  // 0.5) a surfaced whale pod nearby? offer the hunt (open water; not mid-combat)
+  if(!G.shore && !inCombat && G.critters){
+    let wc=null;
+    for(const c of G.critters){ if(c.type==='whale' && dist(s.x,s.y,c.x,c.y)<210){ wc=c; break; } }
+    if(wc){
+      if(!wc._wid){ G._widSeq=(G._widSeq||0)+1; wc._wid=G._widSeq; }
+      const key='whale:'+wc._wid;
+      if(G.portPromptDismissed!==key && (!G.portPromptShown||G.promptKey!==key)){
+        G.portPromptShown=true; G.promptMode='whale'; G.promptKey=key; G.nearWhale=wc;
+        el('pp-title').textContent='🐋 Whales sighted!';
+        el('pp-name').textContent='Launch the boats and give chase?';
+        el('pp-enter').textContent='Hunt Whale';
+        el('pp-leave').textContent='Sail On';
+        el('portprompt').classList.add('show');
+      }
+      return;   // near a pod, the hunt prompt owns the UI
     }
   }
 
@@ -9269,6 +9507,10 @@ const sfx={
   bossThrow(){ // the Tidal Brute heaves a boulder: low grunt + a heavy air whoosh
     thump(120,58,0.18,0.22);
     noise(0.24,0.13,900,'lowpass',0,0.5);
+  },
+  harpoon(){ // a hurled harpoon: a quick air whoosh + a rope-twang
+    noise(0.13,0.13,1500,'highpass',0,0.6);
+    tone(360,0.07,'triangle',0.1,180,0.02);
   },
   whaleSpout(){ // a real spout: a sharp pressurized BLOW rushing up, then spray pattering back down
     if(!SND.ready)return;
