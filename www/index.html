@@ -617,6 +617,26 @@ const lerp=(a,b,t)=>a+(b-a)*t;
 const dist=(ax,ay,bx,by)=>Math.hypot(ax-bx,ay-by);
 const angTo=(ax,ay,bx,by)=>Math.atan2(by-ay,bx-ax);
 function angDiff(a,b){let d=(b-a)%TAU;if(d<-Math.PI)d+=TAU;if(d>Math.PI)d-=TAU;return d;}
+/* ---- HAPTICS: native Taptic Engine via the Capacitor Haptics plugin (already a dep);
+   web/Android falls back to navigator.vibrate. Throttled per-kind so rapid events (a
+   broadside, a volley of hits) don't buzz continuously. Disable with G.hapticsOn=false. */
+const _hapLast={};
+function haptic(kind){
+  if(G.hapticsOn===false) return;
+  const now=(typeof performance!=='undefined'?performance.now():Date.now());
+  const gap = kind==='light'?70 : kind==='medium'?120 : kind==='heavy'?160 : 100;
+  if(now-(_hapLast[kind]||0) < gap) return;
+  _hapLast[kind]=now;
+  try{
+    const H=window.Capacitor&&window.Capacitor.Plugins&&window.Capacitor.Plugins.Haptics;
+    if(H){
+      if(kind==='success'||kind==='warning') H.notification({type:kind.toUpperCase()});
+      else H.impact({style:kind==='heavy'?'HEAVY':kind==='medium'?'MEDIUM':'LIGHT'});
+    } else if(navigator.vibrate){
+      navigator.vibrate(kind==='heavy'?35:kind==='medium'?18:kind==='success'?[12,40,12]:8);
+    }
+  }catch(e){}
+}
 // seeded rng for stable world gen
 function mulberry32(seed){return function(){let t=seed+=0x6D2B79F5;t=Math.imul(t^t>>>15,t|1);t^=t+Math.imul(t^t>>>7,t|61);return((t^t>>>14)>>>0)/4294967296;};}
 
@@ -2502,9 +2522,12 @@ function catchSeagull(g){
   if(G.stats) G.stats.gullsCaught=(G.stats.gullsCaught||0)+1;
   for(let k=0;k<16;k++)G.particles.push({x:g.x,y:g.y,vx:rnd(-55,55),vy:rnd(-75,10),life:.7,max:.7,c:k%2?'#ffffff':'#dfe7ee',r:rnd(2,4)});
   const un=(typeof unlockNextCosmetic==='function')?unlockNextCosmetic():null;
-  if(un) toast('🪶 Caught a gull! Unlocked “'+un.name+'” — equip it in Trim 🎀',2800);
-  else { G.gold+=40; if(typeof updateHUD==='function') updateHUD(); toast('🪶 Caught a gull! +40g (every trim unlocked)',2200); }
+  const tip=12+G.mapIndex*4;                       // a small gold trickle every catch
+  G.gold+=tip; if(typeof updateHUD==='function') updateHUD();
+  if(un) toast('🪶 Caught a gull! +'+tip+'g · Unlocked “'+un.name+'” — equip it in Trim 🎀',2900);
+  else { G.gold+=30; updateHUD(); toast('🪶 Caught a gull! +'+(tip+30)+'g (every trim unlocked)',2200); }
   if(typeof sfx!=='undefined' && sfx.coin) sfx.coin();
+  haptic('light');
   if(typeof checkAchievements==='function') checkAchievements();
   if(typeof saveLifetime==='function') saveLifetime();
 }
@@ -2938,7 +2961,7 @@ function spawnBoss(){
   const bx=G.world.spawn.x<S/2?S*0.85:S*0.15;
   const by=G.world.spawn.y<S/2?S*0.85:S*0.15;
   const b=spawnBossOf(def.boss, bx, by, {scale: bossPowerScale()});
-  if(b){ toast('⚠ '+b.bossName+'!',2600); G.shake=18; sfx.bossAppear(); }
+  if(b){ toast('⚠ '+b.bossName+'!',2600); G.shake=18; sfx.bossAppear(); haptic('heavy'); }
 }
 
 /* ================================================================
@@ -3212,7 +3235,7 @@ function playerBroadside(){
   }
   G.fireCooldown=4.5;
   G.shake=Math.max(G.shake,6);
-  sfx.cannon();
+  sfx.cannon(); haptic('light');
 }
 
 /* ================================================================
@@ -3468,7 +3491,7 @@ function dealDamage(e,amt,by){
     }
   }
   // any damage involving the player keeps them "in combat" (pauses regen)
-  if(e===G.ship){ G.ship.combatT=6; updateHUD(); }
+  if(e===G.ship){ G.ship.combatT=6; updateHUD(); if(amt>=5) haptic('medium'); }
   else if(by===G.ship && G.ship){ G.ship.combatT=Math.max(G.ship.combatT||0,4); }
   if(e.hp<=0){ killEntity(e,by); }
 }
@@ -4575,6 +4598,7 @@ function updateWhaling(sh,dt){
           const kb=angTo(wh.x,wh.y,bt.x,bt.y); bt.vx+=Math.cos(kb)*220; bt.vy+=Math.sin(kb)*220;
           for(let k=0;k<14;k++)G.particles.push({x:bt.x,y:bt.y,vx:rnd(-90,90),vy:rnd(-110,10),life:.6,max:.6,c:k%2?'#cfe6ef':'#7a5836',r:rnd(2,5)});
           if(typeof sfx!=='undefined'&&sfx.whaleSlam) sfx.whaleSlam();
+          haptic('heavy');
           wh.charging=false; wh.chargeCd=rnd(3.5,5.5);
           if(bt.hp<=0){ failWhaling(sh); return; }
           else toast('🌊 The whale slams the boat! Hull '+Math.max(0,Math.ceil(bt.hp))+'%',1600);
@@ -4619,6 +4643,7 @@ function updateWhaling(sh,dt){
         wh.hp-=rndi(9,15); wh.hurt=2.6; wh.hitFlash=1; G.shake=Math.max(G.shake,7);
         for(let k=0;k<9;k++)G.particles.push({x:h.x,y:h.y,vx:rnd(-45,45),vy:rnd(-45,45),life:.6,max:.6,c:'#9c2f2a',r:3});
         if(typeof sfx!=='undefined'&&sfx.harpoonHit) sfx.harpoonHit();
+        haptic('medium');
         if(wh.hp<=0){ wh.hp=0; sh.phase='collect'; sh.collectT=3.2; wh.state='surface'; wh.sub=0;
           toast('🐋 The whale is taken! The crew collect the oil…',2800); }
         else toast('🎯 Strike!  '+Math.ceil(wh.hp)+'/'+wh.maxhp,900);
@@ -4651,6 +4676,7 @@ function finishWhaling(sh){
   G.shore=null; G.state='play'; G.cruiseAng=null;
   toast('🐋 Whale landed! +'+oil+'g'+(wood?' +'+wood+'🪵':'')+' in oil & blubber.',3200);
   if(typeof sfx!=='undefined'&&sfx.treasure) sfx.treasure();
+  haptic('success');
   if(typeof checkAchievements==='function') checkAchievements();
   if(typeof updateHUD==='function') updateHUD();
   if(typeof saveGame==='function') saveGame();
@@ -4659,6 +4685,7 @@ function failWhaling(sh){
   // the longboat was smashed — the whale sounds and escapes with your harpoons
   G.shore=null; G.state='play'; G.cruiseAng=null;
   G.shake=Math.max(G.shake,14);
+  haptic('warning');
   toast('💥 The boat is stove in — the whale escapes into the deep!',3400);
   if(typeof updateHUD==='function') updateHUD();
 }
@@ -7987,7 +8014,7 @@ function buildShop(){
     else{btn.innerHTML=`${c.g}🪙<br>${c.w}🪵`;
       btn.disabled=G.gold<c.g||G.wood<c.w;
       btn.onclick=()=>{G.gold-=c.g;G.wood-=c.w;G.upgrades[key]++;recalcPlayer();updateHUD();buildShop();
-        sfx.upgrade();
+        sfx.upgrade(); haptic('success');
         toast('⬆ '+u.name+' upgraded!',1400); saveGame();};}
     row.appendChild(btn);wrap.appendChild(row);
   }
@@ -8199,7 +8226,7 @@ function gameOver(){
 // "this run" = lifetime - snapshot. Avoids threading a second counter through every
 // kill site. resetRun() is called wherever a fresh voyage begins.
 function runSnap(){ const s=G.stats||{}; const f={};
-  ['navySunk','cargoRaided','monstersSlain','fortsDestroyed','bossesDefeated','shorePartiesSent','shoreLootGrabbed','islandsExplored','distanceSailed','cannonballsFired','woodEarned','timePlayed'].forEach(k=>f[k]=s[k]||0);
+  ['navySunk','cargoRaided','monstersSlain','fortsDestroyed','bossesDefeated','shorePartiesSent','shoreLootGrabbed','islandsExplored','distanceSailed','cannonballsFired','woodEarned','timePlayed','whalesCaught','gullsCaught'].forEach(k=>f[k]=s[k]||0);
   return f; }
 function resetRun(){ G.runGold=0; G.runKills=0; G.combo=0; G.comboBest=0; G.runStatsBase=runSnap(); }
 function startMap(idx, restore){
@@ -8638,6 +8665,9 @@ function buildLogbook(){
       ['🐙 Bosses defeated', run('bossesDefeated'), s.bossesDefeated||0],
       ['🏝️ Islands explored', run('islandsExplored'), s.islandsExplored||0],
       ['📦 Shore loot grabbed', run('shoreLootGrabbed'), s.shoreLootGrabbed||0],
+      ['🐋 Whales landed', run('whalesCaught'), s.whalesCaught||0],
+      ['🪶 Seagulls caught', run('gullsCaught'), s.gullsCaught||0],
+      ['🎀 Ship trims unlocked', '—', COSMETIC_UNLOCKS.filter(u=>cosmeticOwned(u.cat,u.id)).length+'/'+COSMETIC_UNLOCKS.length],
       ['💰 Gold earned', (G.runGold|0)+'g', Math.floor(s.goldEarned||0)+'g'],
       ['🪵 Wood gathered', run('woodEarned'), s.woodEarned||0],
       ['💥 Cannonballs fired', run('cannonballsFired'), s.cannonballsFired||0],
