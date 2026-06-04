@@ -669,6 +669,7 @@ function saveLifetime(){
     d.dailyDate=G.dailyDate; d.dailyDone=G.dailyDone; d.dailyBounty=G.dailyBounty; d.dailyBase=G.dailyBase;
     d.cursedUnlocked=G.cursedUnlocked; d.cursedCleared=G.cursedCleared;
     d.endlessBest=G.endlessBest|0;
+    d.cosmetics=G.cosmetics; d.gullsCaught=G.gullsCaught|0;   // unlocked trims persist forever
     localStorage.setItem(SAVE_KEY, JSON.stringify(d));
   }catch(e){}
 }
@@ -759,6 +760,11 @@ function loadLifetime(d){
   G.dailyBase=(typeof d.dailyBase==='number')?d.dailyBase:0;
   G.cursedUnlocked=!!d.cursedUnlocked; G.cursedCleared=!!d.cursedCleared;
   G.endlessBest=d.endlessBest|0;
+  if(d.cosmetics && typeof d.cosmetics==='object'){
+    G.cosmetics=Object.assign({hull:'classic',sail:'plain',flag:'black',figure:'none',unlocked:{}}, d.cosmetics);
+    if(!G.cosmetics.unlocked) G.cosmetics.unlocked={};
+  }
+  G.gullsCaught=d.gullsCaught|0;
 }
 function clearSave(){ try{ localStorage.removeItem(SAVE_KEY); }catch(e){} }
 // --- per-map collected-gem tracking (persists across deaths) ---
@@ -788,6 +794,9 @@ const G = {
   ship:null,
   entities:[], cannonballs:[], particles:[], floaters:[], wakes:[],
   upgrades:{hull:0,sails:0,cannons:0,crew:0,hold:0,hotshot:0,spread:0,ballast:0,chain:0,plating:0,boarding:0},
+  // ---- ship cosmetics (unlocked by catching seagulls; persist forever) ----
+  cosmetics:{ hull:'classic', sail:'plain', flag:'black', figure:'none', unlocked:{} },
+  gullsCaught:0,         // running tally of seagulls caught (drives cosmetic unlocks)
   dev:{invincible:false, oneShot:false},   // developer god-mode toggles
   objective:'', objectiveDone:false,
   treasureFound:0, treasureTotal:0,
@@ -899,6 +908,56 @@ function upTier(u,levelBuying){
   const seg=u.max/3;
   const ti=Math.min(2,Math.floor((levelBuying-1)/Math.ceil(u.max/3)));
   return u.tiers?u.tiers[ti]:'';
+}
+
+/* ================================================================
+   SHIP COSMETICS — purely cosmetic ship trims unlocked by catching
+   seagulls. Each category's FIRST entry is the default (always owned);
+   the rest unlock one-by-one as you catch gulls. Equip in the Trim menu.
+   ================================================================ */
+const COSMETICS={
+  hull:[
+    {id:'classic',name:'Oak',       col:null},
+    {id:'crimson',name:'Crimson',   col:'#9c3a34'},
+    {id:'ebony',  name:'Ebony',     col:'#2b2b33'},
+    {id:'jade',   name:'Jade',      col:'#2f7d5a'},
+    {id:'royal',  name:'Royal Blue',col:'#34508f'},
+  ],
+  sail:[
+    {id:'plain', name:'Plain',       emblem:null},
+    {id:'skull', name:'Jolly Roger', emblem:'skull'},
+    {id:'anchor',name:'Anchor',      emblem:'anchor'},
+    {id:'sun',   name:'Sunburst',    emblem:'sun'},
+    {id:'heart', name:'Sweetheart',  emblem:'heart'},
+  ],
+  flag:[
+    {id:'black',name:'Black', col:'#222'},
+    {id:'red',  name:'Crimson',col:'#cf3a3f'},
+    {id:'gold', name:'Gold',  col:'#e6a52e'},
+    {id:'green',name:'Green', col:'#4f9e57'},
+    {id:'blue', name:'Azure', col:'#3a7bd5'},
+  ],
+  figure:[
+    {id:'none',   name:'None'},
+    {id:'mermaid',name:'Mermaid'},
+    {id:'eagle',  name:'Eagle'},
+    {id:'ram',    name:'Ram'},
+  ],
+};
+// flat ordered list of every UNLOCKABLE cosmetic (skips each category's default);
+// catching seagulls reveals them in this order.
+const COSMETIC_UNLOCKS=[];
+['hull','sail','flag','figure'].forEach(cat=>COSMETICS[cat].slice(1).forEach(o=>COSMETIC_UNLOCKS.push({cat,id:o.id,name:o.name})));
+function cosmeticOwned(cat,id){
+  if(COSMETICS[cat] && COSMETICS[cat][0] && COSMETICS[cat][0].id===id) return true;   // defaults always owned
+  return !!(G.cosmetics && G.cosmetics.unlocked && G.cosmetics.unlocked[cat+':'+id]);
+}
+function cosmeticDef(cat,id){ return (COSMETICS[cat]||[]).find(o=>o.id===id) || (COSMETICS[cat]||[])[0]; }
+function currentCosmetic(cat){ return cosmeticDef(cat, G.cosmetics ? G.cosmetics[cat] : null); }
+// reveal the next still-locked cosmetic (when a gull is caught). Returns the def or null if all owned.
+function unlockNextCosmetic(){
+  for(const u of COSMETIC_UNLOCKS){ if(!cosmeticOwned(u.cat,u.id)){ G.cosmetics.unlocked[u.cat+':'+u.id]=true; return u; } }
+  return null;
 }
 
 /* Map definitions */
@@ -4715,6 +4774,27 @@ function drawBoarding(sh){
     const helm=Pw(-sh.halfL*0.82,0);
     ctx.strokeStyle='#4a3018';ctx.lineWidth=2*z;ctx.beginPath();ctx.arc(helm[0],helm[1],6*z,0,TAU);ctx.stroke();
     for(let k=0;k<6;k++){ const a=k/6*TAU+G.t*0.4; ctx.beginPath();ctx.moveTo(helm[0],helm[1]);ctx.lineTo(helm[0]+Math.cos(a)*8*z,helm[1]+Math.sin(a)*8*z);ctx.stroke(); } }
+  // ---- deck dressing: broadside cannons, a capstan, barrels, coiled rope, lanterns ----
+  { const guns = sh.sizeF>1.3?5:3;
+    for(let i=0;i<guns;i++){ const a=lerp(-sh.halfL*0.55, sh.halfL*0.55, guns===1?0.5:i/(guns-1));
+      for(const sgn of [-1,1]){ const hw=deckHalfWidthAt(sh,a); const w=Pw(a, sgn*hw*0.8);
+        ctx.fillStyle='#2c2c33';ctx.beginPath();ctx.arc(w[0],w[1],4*z,0,TAU);ctx.fill();            // carriage
+        ctx.fillStyle='#15151a';roundRect(w[0]-1.6*z, sgn<0?w[1]-9*z:w[1]+1*z, 3.2*z, 8*z, 1.2*z);ctx.fill(); // barrel outboard
+      } } }
+  { const w=Pw(sh.halfL*0.12,0);                                       // capstan amidships
+    ctx.fillStyle='#6b4a2c';ctx.beginPath();ctx.arc(w[0],w[1],6*z,0,TAU);ctx.fill();
+    ctx.fillStyle='#8f6a40';ctx.beginPath();ctx.arc(w[0],w[1],3.5*z,0,TAU);ctx.fill();
+    ctx.strokeStyle='#4a3018';ctx.lineWidth=1.4*z;for(let k=0;k<6;k++){const a=k/6*TAU;ctx.beginPath();ctx.moveTo(w[0]+Math.cos(a)*6*z,w[1]+Math.sin(a)*6*z);ctx.lineTo(w[0]+Math.cos(a)*9*z,w[1]+Math.sin(a)*9*z);ctx.stroke();} }
+  { const spots=[[sh.halfL*0.5,-deckHalfWidthAt(sh,sh.halfL*0.5)*0.5],[sh.halfL*0.5,deckHalfWidthAt(sh,sh.halfL*0.5)*0.55],[sh.halfL*0.62,0]];
+    for(const sp of spots){ const w=Pw(sp[0],sp[1]);                   // lashed barrels/crates near the bow
+      ctx.fillStyle='#8a5a2e';ctx.beginPath();ctx.arc(w[0],w[1],5*z,0,TAU);ctx.fill();
+      ctx.strokeStyle='#caa23f';ctx.lineWidth=0.9*z;ctx.beginPath();ctx.arc(w[0],w[1],5*z,0,TAU);ctx.stroke(); } }
+  { const w=Pw(-sh.halfL*0.25,deckHalfWidthAt(sh,-sh.halfL*0.25)*0.6); // a coiled rope
+    ctx.strokeStyle='#7a5836';ctx.lineWidth=1.4*z;for(let q=1;q<=3;q++){ctx.beginPath();ctx.arc(w[0],w[1],q*1.8*z,0,TAU);ctx.stroke();} }
+  { for(const sgn of [-1,1]){ const w=Pw(-sh.halfL*0.9, sgn*deckHalfWidthAt(sh,-sh.halfL*0.9)*0.6);  // warm stern lanterns
+      const lg=0.55+Math.sin(G.t*4+sgn)*0.2;
+      ctx.fillStyle='rgba(255,180,80,'+(0.45*lg)+')';ctx.beginPath();ctx.arc(w[0],w[1],6*z,0,TAU);ctx.fill();
+      ctx.fillStyle='#ffd978';ctx.beginPath();ctx.arc(w[0],w[1],2.4*z,0,TAU);ctx.fill(); } }
   // cabin doors at the stern (enemy spawn points)
   for(const d of sh.doors){ const w=Pw(d.a,d.c);
     ctx.fillStyle='#3a2616';roundRect(w[0]-6*z,w[1]-8*z,12*z,16*z,2*z);ctx.fill();
@@ -6505,6 +6585,8 @@ function drawHull(e,z){
   else if(e.type==='boss' && e.mk==='manowar'){ body='#23202b'; bodyDk='#131119'; sailC='#2a2630'; accent='#e8c34a'; }
   else if(e.type==='boss' && e.mk==='wraith'){ body='#9a8a72'; bodyDk='#5e5040'; sailC='#6f8a52'; accent='#ff7e5a'; }  // Coral Colossus: bleached wreck + kelp sails
   else if(e.type==='boss' && e.mk==='drowned'){ body='#14201c'; bodyDk='#0a120f'; sailC='#243832'; accent='#5fc8a0'; }
+  // PLAYER hull-trim cosmetic recolours the planking (default 'classic' keeps the oak)
+  if(e.type==='player'){ const hc=currentCosmetic('hull'); if(hc&&hc.col){ body=hc.col; bodyDk=shade(hc.col,-0.34); } }
 
   // shape factors: player uses upgrades; navy uses its class profile
   const u = e.type==='player' ? G.upgrades : {hull:0,sails:0,cannons:0,crew:0,hold:0,chain:0,plating:0};
@@ -6644,6 +6726,45 @@ function drawHull(e,z){
     }
   }
 
+  // ---- SHIP CHARACTER (player): bowsprit + figurehead, deck railing, stern cabin
+  // with a turning wheel, warm hanging lanterns, and a couple of lashed deck barrels.
+  // Purely decorative — makes the player's vessel feel lived-in and special. ----
+  if(e.type==='player'){
+    const gold=getCss('--gold');
+    // bowsprit spar jutting forward off the prow
+    ctx.strokeStyle=bodyDk;ctx.lineWidth=2.4*z;ctx.lineCap='round';
+    ctx.beginPath();ctx.moveTo(0,noseY+r*0.05);ctx.lineTo(0,noseY-r*0.4);ctx.stroke();
+    // figurehead cosmetic carved at the prow
+    drawFigurehead(currentCosmetic('figure').id, r, z, noseY, gold);
+    // gunwale / deck railing highlight tracing the deck edge
+    ctx.strokeStyle=shade(body,0.18);ctx.lineWidth=1.5*z;
+    ctx.beginPath();
+    ctx.moveTo(0,noseY+r*0.3);
+    ctx.quadraticCurveTo(r*0.66,-r*0.4*L, r*0.55,r*0.6*L);
+    ctx.quadraticCurveTo(r*0.32,sternY-r*0.26, 0,sternY-r*0.26);
+    ctx.quadraticCurveTo(-r*0.32,sternY-r*0.26,-r*0.55,r*0.6*L);
+    ctx.quadraticCurveTo(-r*0.66,-r*0.4*L, 0,noseY+r*0.3);
+    ctx.stroke();
+    // a couple of lashed barrels amidships
+    for(const sgn of [-1,1]){
+      ctx.fillStyle='#8a5a2e';ctx.beginPath();ctx.arc(sgn*r*0.3,r*0.36*L,r*0.1,0,TAU);ctx.fill();
+      ctx.strokeStyle='#caa23f';ctx.lineWidth=0.9*z;ctx.beginPath();ctx.arc(sgn*r*0.3,r*0.36*L,r*0.1,0,TAU);ctx.stroke();
+    }
+    // stern cabin (quarterdeck) with a trimmed roof
+    ctx.fillStyle=shade(body,-0.12);roundRect(-r*0.34,sternY-r*0.52,r*0.68,r*0.42,3*z);ctx.fill();
+    ctx.fillStyle=shade(body,0.12);roundRect(-r*0.34,sternY-r*0.52,r*0.68,r*0.12,3*z);ctx.fill();
+    // ship's wheel, slowly turning
+    ctx.strokeStyle='#6b4326';ctx.lineWidth=1.5*z;
+    ctx.beginPath();ctx.arc(0,sternY-r*0.62,r*0.12,0,TAU);ctx.stroke();
+    for(let k=0;k<6;k++){const a=k/6*TAU+G.t*0.6;ctx.beginPath();ctx.moveTo(0,sternY-r*0.62);ctx.lineTo(Math.cos(a)*r*0.17,sternY-r*0.62+Math.sin(a)*r*0.17);ctx.stroke();}
+    // two stern lanterns with a soft warm flicker
+    const lg=0.55+Math.sin(G.t*4)*0.22;
+    for(const sgn of [-1,1]){
+      ctx.fillStyle='rgba(255,180,80,'+(0.5*lg)+')';ctx.beginPath();ctx.arc(sgn*r*0.42,sternY-r*0.16,r*0.13,0,TAU);ctx.fill();
+      ctx.fillStyle='#ffd978';ctx.beginPath();ctx.arc(sgn*r*0.42,sternY-r*0.16,r*0.05,0,TAU);ctx.fill();
+    }
+  }
+
   // ---- masts & sails ----
   ctx.strokeStyle=bodyDk;ctx.lineWidth=3.5*z;ctx.lineCap='round';
   if(e.type==='player'){
@@ -6653,6 +6774,10 @@ function drawHull(e,z){
     for(let m=0;m<masts;m++){
       const my = masts===1 ? -r*0.2 : lerp(noseY+r*0.55, sternY-r*0.55, m/(masts-1));
       drawMastSail(my, r, z, sailC, sailW, bodyDk);
+      // ratlines (rigging ladder) on the main mast for a bit of detail
+      if(m===Math.floor(masts/2)){ ctx.strokeStyle='rgba(60,44,30,0.5)';ctx.lineWidth=0.7*z;
+        for(let q=0;q<3;q++){const yy=my-r*0.42+q*r*0.16;ctx.beginPath();ctx.moveTo(-r*0.16,yy);ctx.lineTo(r*0.16,yy);ctx.stroke();} }
+      if(m===0) drawSailEmblem(my, r, z, sailC);   // sail emblem flies on the bow-most sail
     }
   } else if(e.type==='navy' || (e.type==='boss'&&(e.mk==='ghost'||e.mk==='wraith'||e.mk==='drowned'||e.mk==='manowar'))){
     // navy / ghost ship: class-driven mast count, sails sized to the beam
@@ -6676,10 +6801,56 @@ function drawHull(e,z){
   ctx.save();
   ctx.translate(0,noseY+r*0.35);
   const fw=Math.sin(G.t*5+e.bob)*0.12;
-  ctx.fillStyle = e.type==='player'?'#222':(e.type==='navy'?'#cf3a3f':'#5e3620');
+  ctx.fillStyle = e.type==='player'?(currentCosmetic('flag').col||'#222'):(e.type==='navy'?'#cf3a3f':'#5e3620');
   ctx.beginPath();ctx.moveTo(0,0);ctx.lineTo(r*0.55,r*0.1+fw*r);ctx.lineTo(0,r*0.32);ctx.fill();
   if(e.type==='player'){ // skull dot
     ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(r*0.22,r*0.16,r*0.07,0,TAU);ctx.fill();}
+  ctx.restore();
+}
+/* a small carved figurehead at the prow (cosmetic) */
+function drawFigurehead(id, r, z, noseY, gold){
+  if(!id || id==='none') return;
+  ctx.save(); ctx.translate(0, noseY-r*0.34);
+  if(id==='mermaid'){
+    ctx.fillStyle='#6fcf97'; ctx.beginPath();ctx.ellipse(0,r*0.04,r*0.11,r*0.2,0,0,TAU);ctx.fill();
+    ctx.fillStyle='#ffd9a0'; ctx.beginPath();ctx.arc(0,-r*0.14,r*0.07,0,TAU);ctx.fill();
+  } else if(id==='eagle'){
+    ctx.fillStyle='#efe6d2'; ctx.beginPath();ctx.moveTo(0,-r*0.2);ctx.lineTo(r*0.14,r*0.06);ctx.lineTo(-r*0.14,r*0.06);ctx.closePath();ctx.fill();
+    ctx.fillStyle=gold; ctx.beginPath();ctx.moveTo(0,-r*0.2);ctx.lineTo(r*0.05,-r*0.08);ctx.lineTo(-r*0.05,-r*0.08);ctx.closePath();ctx.fill();
+  } else if(id==='ram'){
+    ctx.fillStyle=gold; ctx.beginPath();ctx.arc(0,r*0.02,r*0.11,0,TAU);ctx.fill();
+    ctx.strokeStyle=gold;ctx.lineWidth=2*z;ctx.lineCap='round';
+    ctx.beginPath();ctx.arc(-r*0.08,-r*0.06,r*0.07,-0.4,Math.PI);ctx.arc(r*0.08,-r*0.06,r*0.07,0,Math.PI+0.4);ctx.stroke();
+  }
+  ctx.restore();
+}
+/* a cosmetic emblem inked onto the main sail (centered near vertical position my) */
+function drawSailEmblem(my, r, z, sailC){
+  const em=currentCosmetic('sail').emblem; if(!em) return;
+  const ink='#3a2c2c', light=sailC||'#f3e8cf';
+  ctx.save(); ctx.translate(0, my-r*0.05);
+  if(em==='skull'){
+    ctx.fillStyle=ink;
+    ctx.beginPath();ctx.arc(0,-r*0.12,r*0.18,0,TAU);ctx.fill();
+    ctx.fillRect(-r*0.1,-r*0.04,r*0.2,r*0.12);
+    ctx.fillStyle=light;
+    ctx.beginPath();ctx.arc(-r*0.07,-r*0.13,r*0.05,0,TAU);ctx.arc(r*0.07,-r*0.13,r*0.05,0,TAU);ctx.fill();
+    ctx.strokeStyle=ink;ctx.lineWidth=2.4*z;ctx.lineCap='round';
+    ctx.beginPath();ctx.moveTo(-r*0.2,r*0.16);ctx.lineTo(r*0.2,r*0.04);ctx.moveTo(r*0.2,r*0.16);ctx.lineTo(-r*0.2,r*0.04);ctx.stroke();
+  } else if(em==='anchor'){
+    ctx.strokeStyle=ink;ctx.lineWidth=2.3*z;ctx.lineCap='round';
+    ctx.beginPath();ctx.arc(0,-r*0.15,r*0.05,0,TAU);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(0,-r*0.1);ctx.lineTo(0,r*0.16);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(-r*0.13,r*0.0);ctx.lineTo(r*0.13,r*0.0);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(0,r*0.16);ctx.quadraticCurveTo(-r*0.18,r*0.13,-r*0.13,-r*0.02);ctx.moveTo(0,r*0.16);ctx.quadraticCurveTo(r*0.18,r*0.13,r*0.13,-r*0.02);ctx.stroke();
+  } else if(em==='sun'){
+    ctx.fillStyle=ink;ctx.beginPath();ctx.arc(0,0,r*0.1,0,TAU);ctx.fill();
+    ctx.strokeStyle=ink;ctx.lineWidth=2*z;ctx.lineCap='round';
+    for(let k=0;k<8;k++){const a=k/8*TAU;ctx.beginPath();ctx.moveTo(Math.cos(a)*r*0.14,Math.sin(a)*r*0.14);ctx.lineTo(Math.cos(a)*r*0.2,Math.sin(a)*r*0.2);ctx.stroke();}
+  } else if(em==='heart'){
+    ctx.fillStyle='#c4493f';
+    ctx.beginPath();ctx.moveTo(0,r*0.16);ctx.bezierCurveTo(-r*0.22,-r*0.02,-r*0.1,-r*0.2,0,-r*0.06);ctx.bezierCurveTo(r*0.1,-r*0.2,r*0.22,-r*0.02,0,r*0.16);ctx.fill();
+  }
   ctx.restore();
 }
 
