@@ -93,12 +93,22 @@
     background:linear-gradient(180deg,var(--panel),var(--panel2));
     border:3px solid var(--gold-dk);border-radius:999px;box-shadow:var(--shadow-soft);
     pointer-events:auto;color:var(--gold);}
-  #btn-mute,#btn-voyage,#btn-songbook,#btn-logbook{pointer-events:auto;width:40px;height:40px;border-radius:50%;font-size:18px;
+  #btn-mute,#btn-voyage,#btn-songbook,#btn-logbook,#btn-cruise{pointer-events:auto;width:40px;height:40px;border-radius:50%;font-size:18px;
     background:linear-gradient(180deg,var(--panel),var(--panel2));border:3px solid var(--gold-dk);
     box-shadow:var(--shadow-soft);cursor:pointer;display:grid;place-items:center;
     transition:transform .08s;}
-  #btn-mute:active,#btn-voyage:active,#btn-songbook:active,#btn-logbook:active{transform:scale(.92);}
+  #btn-mute:active,#btn-voyage:active,#btn-songbook:active,#btn-logbook:active,#btn-cruise:active{transform:scale(.92);}
+  /* travel-speed toggle lit up when engaged */
+  #btn-cruise.on{background:linear-gradient(180deg,#ffd76a,#e6a52e);border-color:#fff3c4;
+    box-shadow:0 0 12px rgba(255,206,92,.7),var(--shadow-soft);}
   .trbtns{display:flex;gap:6px;}
+  /* Songbook shuffle toggle */
+  #btn-shuffle{font-family:'Baloo 2';font-weight:700;font-size:13px;color:#cde7f2;cursor:pointer;
+    background:rgba(255,255,255,.06);border:2px solid rgba(255,255,255,.22);border-radius:999px;
+    padding:6px 14px;margin:2px 0 10px;transition:all .15s;}
+  #btn-shuffle:active{transform:scale(.95);}
+  #btn-shuffle.on{color:#3a2c12;background:linear-gradient(180deg,#ffd76a,#e6a52e);
+    border-color:#fff3c4;box-shadow:0 0 12px rgba(255,206,92,.5);}
   /* map-select (Voyage) rows */
   .cursedbox{background:linear-gradient(180deg,#3a1018,#24090f);border:2px solid #a4243a;border-radius:12px;
     padding:11px 13px;margin-bottom:12px;text-align:left;}
@@ -430,6 +440,7 @@
       <div id="mapname">The Shallows</div>
       <div class="trbtns">
         <button id="btn-voyage" title="Change sea">🗺️</button>
+        <button id="btn-cruise" title="Travel speed (auto-sail)">🧭</button>
         <button id="btn-songbook" title="Songbook">🎵</button>
         <button id="btn-logbook" title="Captain's Logbook">📖</button>
         <button id="btn-mute">🔊</button>
@@ -507,6 +518,7 @@
     <div class="card">
       <h2>🎵 The Songbook</h2>
       <p class="hint">Legendary sea shanties, found in bottles adrift. Tap a record to play it; tap again to stop.</p>
+      <button id="btn-shuffle">🔀 Shuffle playlist</button>
       <div id="songlist"></div>
       <button class="bigbtn" id="songclose">Back to Sea</button>
     </div>
@@ -770,6 +782,8 @@ const G = {
   worldSeed:0,           // per-voyage layout seed: a NEW game rolls a fresh one (new
                          // islands/ports/treasure); continue & respawn reuse it so the
                          // sea you're exploring stays the SAME map across deaths.
+  cruise:false,          // "travel speed": autopilot — keep sailing the pointed heading
+  cruiseAng:null,        //   (no finger needed), a touch faster, camera pulled back a bit.
   gold:0, wood:0,
   ship:null,
   entities:[], cannonballs:[], particles:[], floaters:[], wakes:[],
@@ -930,11 +944,12 @@ function onMove(sx,sy){
   input.fx=sx; input.fy=sy;
   let dx=sx-input.ax, dy=sy-input.ay;
   let len=Math.hypot(dx,dy);
-  // if finger pulls past the ring, slide the anchor so the stick "follows"
+  // PIN the joystick where you first pressed: never move the anchor — just clamp the
+  // knob to the ring when you pull past it (heading still tracks your finger). On
+  // release the stick vanishes; the next touch drops a fresh anchor that stays put.
   if(len>STICK_MAX){
-    const k=(len-STICK_MAX)/len;
-    input.ax+=dx*k; input.ay+=dy*k;
-    dx=sx-input.ax; dy=sy-input.ay; len=STICK_MAX;
+    const k=STICK_MAX/len;
+    dx*=k; dy*=k; len=STICK_MAX;
   }
   input.dx=dx; input.dy=dy;
   input.ang=Math.atan2(dy,dx);
@@ -2898,12 +2913,22 @@ function tryFire(e,dt,target){
    ================================================================ */
 function updatePlayer(s,dt){
   const aPrev=s.a;                            // remember heading to measure turn rate
+  // "Travel speed" cruise: a touch faster top end, and the boat keeps its heading
+  // when you let go (steer to retarget). Otherwise: classic hold-to-go.
+  const maxSpd = s.maxspeed * (G.cruise?1.28:1);
   if(input.active && input.mag>0){
     const ta=input.ang;                       // screen heading == world heading (no cam rotation)
+    if(G.cruise) G.cruiseAng=ta;              // dragging retargets the cruise heading
     steer(s,ta,dt);
     const aligned=1-Math.min(1,Math.abs(angDiff(s.a,ta))/1.2);
     // throttle scales with how far you drag; ease off while turning hard
-    s.speed=lerp(s.speed, s.maxspeed*input.mag*lerp(0.5,1,aligned), dt*3);
+    s.speed=lerp(s.speed, maxSpd*input.mag*lerp(0.5,1,aligned), dt*3);
+  } else if(G.cruise){
+    // autopilot: hold the last pointed heading at a steady clip — no finger required
+    if(G.cruiseAng==null) G.cruiseAng=s.a;
+    steer(s,G.cruiseAng,dt);
+    const aligned=1-Math.min(1,Math.abs(angDiff(s.a,G.cruiseAng))/1.2);
+    s.speed=lerp(s.speed, maxSpd*lerp(0.62,1,aligned), dt*3);
   } else {
     s.speed=lerp(s.speed,0,dt*2.5);           // coast to a stop on release
   }
@@ -6981,7 +7006,8 @@ function updateCamera(dt){
   const totalLv=(u.hull||0)+(u.sails||0)+(u.cannons||0)+(u.crew||0)+(u.hold||0);
   const maxLv = 8+8+8+8+6;                    // sum of those upgrade caps
   const growth = Math.min(1, totalLv/maxLv);
-  const target = base * (1 - growth*0.32);    // up to ~32% more world visible when maxed
+  let target = base * (1 - growth*0.32);      // up to ~32% more world visible when maxed
+  if(G.cruise) target *= 0.82;                // travel speed pulls the camera back a bit
   G.cam.zoom = lerp(G.cam.zoom, target, dt*2);
 }
 
@@ -7614,6 +7640,7 @@ function startMap(idx, restore){
   G.portPromptShown=false; G.portPromptDismissed=null; G.promptKey=null; G.nearTargetIsland=null;
   G.combo=0; G.comboT=0; G.dmgPops=[]; G.hitStop=0; G._nearCorner=null; initWeather();
   G.shore=null; G.landingParty=null;   // never carry a shore session into a new map
+  G.cruiseAng=null;                    // re-aim travel-speed autopilot at the new ship's heading
   if(typeof collapseMinimap==='function') collapseMinimap();   // start each sea with the compact chart
   if(G._shorePromptUp){ el('portprompt').classList.remove('show'); G._shorePromptUp=false; }
   hidePortPrompt();
@@ -7764,6 +7791,16 @@ window.addEventListener('beforeunload', saveGame);
 el('btn-fire').onclick=playerBroadside;
 el('shopclose').onclick=closeOverlays;
 el('btn-mute').onclick=toggleMute;
+/* "Travel speed": auto-sail the pointed heading (no held finger), a touch faster,
+   camera pulled back. Toggle on/off; lights up + swaps to a fast-forward glyph. */
+function toggleCruise(){
+  G.cruise=!G.cruise;
+  if(G.cruise && G.ship) G.cruiseAng=G.ship.a;     // start sailing straight ahead
+  const b=el('btn-cruise'); if(b){ b.classList.toggle('on',G.cruise); b.textContent=G.cruise?'⏩':'🧭'; }
+  if(typeof toast==='function') toast(G.cruise?'🧭 Travel speed ON — auto-sailing your heading':'⚓ Travel speed off',1600);
+  if(typeof sfx!=='undefined' && sfx.click) sfx.click();
+}
+el('btn-cruise').onclick=toggleCruise;
 
 /* ---- Voyage: jump to any previously-sailed sea ---- */
 function openVoyage(){
@@ -7819,6 +7856,28 @@ el('voyageclose').onclick=closeVoyage;
 
 /* ---- Songbook: replay shanties unlocked from bottles ---- */
 let _nowPlaying=null, _nowPlayingTimer=null;
+// SHUFFLE PLAYLIST: when on, a finished shanty auto-advances to another random
+// UNLOCKED shanty (instead of repeating itself) — a rolling jukebox of your collection.
+let _shuffleMode=false;
+function ownedShantyIds(){ return SHANTIES.filter(s=>G.shanties.indexOf(s.id)!==-1).map(s=>s.id); }
+function nextShuffleId(cur){
+  const owned=ownedShantyIds();
+  if(owned.length<=1) return cur;
+  let id; do{ id=owned[(Math.random()*owned.length)|0]; }while(id===cur);   // don't repeat back-to-back
+  return id;
+}
+function toggleShuffle(){
+  _shuffleMode=!_shuffleMode;
+  const b=el('btn-shuffle'); if(b) b.classList.toggle('on',_shuffleMode);
+  if(_shuffleMode){
+    const owned=ownedShantyIds();
+    if(!owned.length){ if(typeof toast==='function') toast('🔒 Find a shanty in a bottle first!',1800); _shuffleMode=false; if(b)b.classList.remove('on'); return; }
+    // kick off the playlist now (from the current track if one's playing, else a random one)
+    if(_nowPlaying && owned.indexOf(_nowPlaying)!==-1){ /* keep current, it'll roll on at loop end */ }
+    else playShanty(owned[(Math.random()*owned.length)|0]);
+    if(typeof toast==='function') toast('🔀 Shuffle on — playing your shanty playlist',1800);
+  } else if(typeof toast==='function') toast('🔀 Shuffle off',1400);
+}
 const SHANTY_EMBLEM={spanish:'\u2693',leaveher:'\u26F5',drunken:'\uD83C\uDF7A',
   wellerman:'\uD83D\uDC0B',lowlands:'\uD83C\uDF0A',randy:'\u2620\uFE0F'};
 function buildSonglist(){
@@ -7858,6 +7917,7 @@ function markNowPlaying(id, ms){
 function openSongbook(){
   if(G.state!=='play' && G.state!=='shop' && G.state!=='end') return;
   resumeAudio();
+  { const b=el('btn-shuffle'); if(b) b.classList.toggle('on',_shuffleMode); }   // reflect current mode
   buildSonglist();
   G.state='shop';
   el('ov-songbook').classList.add('show');
@@ -7870,6 +7930,7 @@ function closeSongbook(){
 }
 el('btn-songbook').onclick=openSongbook;
 el('songclose').onclick=closeSongbook;
+{ const _sb=el('btn-shuffle'); if(_sb) _sb.onclick=toggleShuffle; }
 
 /* ================================================================
    ACHIEVEMENT TOAST + CAPTAIN'S LOGBOOK
@@ -8282,6 +8343,7 @@ function bindTouchBtn(id,fn){
 }
 bindTouchBtn('btn-fire',playerBroadside);
 bindTouchBtn('btn-mute',toggleMute);
+bindTouchBtn('btn-cruise',toggleCruise);
 bindTouchBtn('btn-voyage',openVoyage);
 bindTouchBtn('btn-songbook',openSongbook);
 bindTouchBtn('btn-logbook',openLogbook);
@@ -8759,9 +8821,12 @@ function playShanty(id){
     barLen-=beats; bar+=beats;
     t+=dur;
   }
-  // LOOP: when the verse+chorus finishes, play it again (a short rest between passes)
-  // unless the user stopped it or switched songs in the meantime.
-  const loopT=setTimeout(()=>{ if(_shantyLoopId===id) playShanty(id); }, (t+0.6)*1000);
+  // LOOP: when the verse+chorus finishes, replay it — OR, in shuffle mode, roll on to
+  // another random unlocked shanty. Skips if the user stopped/switched in the meantime.
+  const loopT=setTimeout(()=>{
+    if(_shantyLoopId!==id) return;
+    playShanty(_shuffleMode ? nextShuffleId(id) : id);
+  }, (t+0.6)*1000);
   _shantyTimers.push(loopT);
   // refresh the Songbook UI "now playing" highlight if it's open
   if(typeof markNowPlaying==='function') markNowPlaying(id, t*1000);
