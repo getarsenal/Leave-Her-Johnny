@@ -227,6 +227,16 @@ git push origin main      # → Codemagic builds → TestFlight
 
 *(Newest first. The code is always the source of truth — update this list when you change behavior.)*
 
+- **2026-06 — Feature dump (shuffle, joystick, travel speed, cosmetics, seagulls, ambient, ship art, whaling):**
+  - **Shanty shuffle:** 🔀 toggle in the Songbook auto-advances through random unlocked shanties (`_shuffleMode`, `toggleShuffle`, `nextShuffleId`).
+  - **Pinned joystick:** `onMove` no longer slides the anchor — it stays where you first press; knob clamps to the ring.
+  - **Travel speed (cruise):** 🧭 HUD toggle (`G.cruise`/`G.cruiseAng`, `toggleCruise`) auto-sails the pointed heading, runs faster, and zooms the camera out (`updateCamera`).
+  - **Ship cosmetics:** `COSMETICS`/`G.cosmetics` (hull/sail/flag/figure), equipped in the 🎀 Trim menu (`buildTrim`/`openTrim`), unlocked by catching seagulls (`unlockNextCosmetic`); applied in `drawHull` (+`drawFigurehead`/`drawSailEmblem`). Lifetime-persisted.
+  - **Catchable seagulls:** `G.seagulls` (`makeSeagull`/`updateSeagulls`/`drawSeagulls`/`catchSeagull`) — resting gulls flush & flee; catch one to unlock a cosmetic. Images `assets/seagull-open.png` / `assets/seagull-folded.png` (vector fallback).
+  - **Ambient bed:** `<audio id="ambient" src="assets/ambient-waves.mp3">` looped under sailing/menus, ducked for shore/boss (`updateAmbientBed`), respects mute.
+  - **Ship enrichment:** player ship gains bowsprit, figurehead, railing, deck barrels, stern cabin + turning wheel, lanterns, ratlines; boarded deck gains rail cannons, capstan, barrels, coiled rope, lanterns.
+  - **Whaling:** AC4-style hunt — `startWhaling`/`updateWhaling`/`drawWhaling`/`finishWhaling` (a `G.shore` session with `whaling:true`, branched at the top of `updateShore`/`drawShore` like boarding). Triggered by the `'whale'` prompt mode in `checkPortPrompt` when near a surfaced whale critter (whales linger near the player in `updateCritters`). Longboat auto-rows; drag-back-release slingshot harpoons; uses `assets/whale.png` (vector fallback). Dev menu: '🐋 Whale Hunt'.
+  - **New asset files to add to /assets (+/www/assets):** `whale.png`, `seagull-open.png`, `seagull-folded.png`, `ambient-waves.mp3`. All are referenced with graceful fallbacks, so the game runs without them.
 - **2026-06 — UI / audio / persistence / minimap pass:**
   - **Notifications:** `#toast` moved from centre-screen to just under the top HUD and shrunk, so convoy/boss alerts don't block play (portrait **and** landscape).
   - **Songbook music:** picking a shanty in the Songbook now keeps it playing after the menu closes (`closeSongbook` no longer stops it) — matches bottle-found shanties.
