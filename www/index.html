@@ -4571,7 +4571,7 @@ function updateWhaling(sh,dt){
         wh.a += angDiff(wh.a, toBoat)*Math.min(1,dt*2.6);
         wh.x+=Math.cos(wh.a)*155*dt; wh.y+=Math.sin(wh.a)*155*dt;
         if(dist(wh.x,wh.y,bt.x,bt.y) < wh.r+22){
-          bt.hp-=big?34:26; bt.hurtT=0.5; G.shake=Math.max(G.shake,13);
+          bt.hp-=wh.big?34:26; bt.hurtT=0.5; G.shake=Math.max(G.shake,13);
           const kb=angTo(wh.x,wh.y,bt.x,bt.y); bt.vx+=Math.cos(kb)*220; bt.vy+=Math.sin(kb)*220;
           for(let k=0;k<14;k++)G.particles.push({x:bt.x,y:bt.y,vx:rnd(-90,90),vy:rnd(-110,10),life:.6,max:.6,c:k%2?'#cfe6ef':'#7a5836',r:rnd(2,5)});
           if(typeof sfx!=='undefined'&&sfx.whaleSlam) sfx.whaleSlam();
