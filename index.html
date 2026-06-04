@@ -1697,7 +1697,12 @@ function drawOcean(){
   // their edges, so the sea reads as gently varying depth, not visible ovals.
   ctx.save();
   const swCell=380*z;
-  const swx=(-G.cam.x*z*0.5 + W/2)%swCell, swy=(-G.cam.y*z*0.5 + H/2)%swCell;
+  // Anchor the tile seeds to a WORLD grid (baseX/baseY), not the on-screen grid index.
+  // Using the raw screen-grid index made every tile re-seed each time the scroll offset
+  // wrapped past a cell — a visible pattern "twitch" at fixed movement intervals.
+  const swrX=-G.cam.x*z*0.5 + W/2, swrY=-G.cam.y*z*0.5 + H/2;
+  const swBaseX=Math.floor(swrX/swCell), swBaseY=Math.floor(swrY/swCell);
+  const swx=swrX-swBaseX*swCell, swy=swrY-swBaseY*swCell;
   const rad=swCell*0.55;
   // Cache the two haze gradients (bright crest / dark trough) and reuse them across
   // every cell via a translate + globalAlpha. Allocating a fresh radial gradient per
@@ -1708,7 +1713,7 @@ function drawOcean(){
     G._haze={rad, light:mk('255,255,255'), dark:mk('10,53,80')};
   }
   for(let gy=-1;gy*swCell<H+swCell;gy++)for(let gx=-1;gx*swCell<W+swCell;gx++){
-    const seed=(gx*53+gy*97);
+    const seed=((gx-swBaseX)*53+(gy-swBaseY)*97);
     const tone=Math.sin(G.t*0.18+seed*1.3);
     const px=swx+gx*swCell+Math.sin(seed)*40*z, py=swy+gy*swCell+Math.cos(seed*1.7)*40*z;
     ctx.globalAlpha=(0.025+0.025*Math.abs(tone));   // very subtle
@@ -1723,15 +1728,18 @@ function drawOcean(){
   ctx.save();
   ctx.lineCap='round';
   const cellW=128*z, cellH=92*z;
-  const ox=(-G.cam.x*z + W/2)%cellW;
-  const oy=(-G.cam.y*z + H/2)%cellH;
+  // world-anchored grid (see LAYER 1) so the wave pattern scrolls seamlessly
+  const rawX=-G.cam.x*z + W/2, rawY=-G.cam.y*z + H/2;
+  const baseX=Math.floor(rawX/cellW), baseY=Math.floor(rawY/cellH);
+  const ox=rawX-baseX*cellW, oy=rawY-baseY*cellH;
   const ph=G.t*0.7;
   for(let gy=-1;gy*cellH<H+cellH;gy++){
     for(let gx=-1;gx*cellW<W+cellW;gx++){
       // stagger every other row half a cell, like masonry, so it isn't a grid
-      const stag=((gy&1)?cellW*0.5:0);
+      // (keyed to the WORLD row so the offset doesn't jump as you scroll vertically)
+      const stag=(((gy-baseY)&1)?cellW*0.5:0);
       const px=ox+gx*cellW+stag, py=oy+gy*cellH;
-      const seed=(gx*29+gy*71);
+      const seed=((gx-baseX)*29+(gy-baseY)*71);
       const wob=Math.sin(seed*0.7+ph)*5*z;
       const w=cellW*0.36, h=8*z;
       // a soft "m"-shaped double scallop (two little humps) = friendly wave
@@ -1759,10 +1767,14 @@ function drawOcean(){
   // rise & fade, world-locked so they feel part of the sea.
   ctx.save();
   const bCell=300*z;
-  const bx0=(-G.cam.x*z*1.05 + W/2)%bCell, by0=(-G.cam.y*z*1.05 + H/2)%bCell;
+  // world-anchored grid (see LAYER 1) so bubbles don't re-seed on a scroll wrap
+  const brX=-G.cam.x*z*1.05 + W/2, brY=-G.cam.y*z*1.05 + H/2;
+  const bBaseX=Math.floor(brX/bCell), bBaseY=Math.floor(brY/bCell);
+  const bx0=brX-bBaseX*bCell, by0=brY-bBaseY*bCell;
   for(let gy=-1;gy*bCell<H+bCell;gy++)for(let gx=-1;gx*bCell<W+bCell;gx++){
-    const seed=(gx*91+gy*139);
-    const cyc=(G.t*0.35+ (seed%10)*0.3)%3;        // 3s rise/fade cycle, staggered
+    const seed=((gx-bBaseX)*91+(gy-bBaseY)*139);
+    const ph2=((seed%10)+10)%10;                   // positive phase (seed can be negative)
+    const cyc=(G.t*0.35+ ph2*0.3)%3;               // 3s rise/fade cycle, staggered
     if(cyc>1.6)continue;
     const fade=Math.sin((cyc/1.6)*Math.PI);        // 0..1..0
     const px=bx0+gx*bCell+Math.sin(seed)*60*z;
