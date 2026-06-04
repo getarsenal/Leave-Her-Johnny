@@ -837,7 +837,7 @@ const G = {
   cruiseAng:null,        //   (no finger needed), a touch faster, camera pulled back a bit.
   gold:0, wood:0,
   ship:null,
-  entities:[], cannonballs:[], particles:[], floaters:[], wakes:[], seagulls:[],
+  entities:[], cannonballs:[], particles:[], floaters:[], wakes:[], debris:[], seagulls:[],
   upgrades:{hull:0,sails:0,cannons:0,crew:0,hold:0,hotshot:0,spread:0,ballast:0,chain:0,plating:0,boarding:0},
   // ---- ship cosmetics (unlocked by catching seagulls; persist forever) ----
   cosmetics:{ hull:'classic', sail:'plain', flag:'black', figure:'none', unlocked:{} },
@@ -2734,7 +2734,7 @@ function makeCargo(x,y,rng,opts){
 
 function populate(){
   const def=G.world.def, S=G.world.size, rng=mulberry32(50+G.mapIndex*999);
-  G.entities=[]; G.cannonballs=[]; G.particles=[]; G.floaters=[]; G.wakes=[]; G.octopi=[]; G.seagulls=[];
+  G.entities=[]; G.cannonballs=[]; G.particles=[]; G.floaters=[]; G.wakes=[]; G.debris=[]; G.octopi=[]; G.seagulls=[];
   // player
   G.ship=makeShip({x:G.world.spawn.x,y:G.world.spawn.y,a:-Math.PI/2});
   recalcPlayer(); G.ship.hp=G.ship.maxhp;
@@ -2984,7 +2984,22 @@ function spawnBoss(){
 function updateEntities(dt){
   const s=G.ship;
   for(const e of G.entities){
-    if(e.dead){ e.sink+=dt; continue; }
+    if(e.dead){
+      e.deathT=(e.deathT||0)+dt;
+      if(e.glideDur!==undefined){              // boats: glide → (already exploded) → slow sink
+        if(e.deathT < e.glideDur){
+          e.speed*=Math.pow(0.015,dt);         // coast to a halt over the glide
+          if(!e.isStatic) moveEntity(e,dt);
+          deathEmber(e,dt);                     // burning wreck spits fire & smoke
+        } else {
+          e.speed=0;
+          e.sink += dt*(e.sinkRate||0.5);       // settle under slowly
+          e.sinkSpin=(e.sinkSpin||0)+dt*(e.spinDir||1)*0.5*clamp(e.sink,0,1);  // lazy turn as she goes down
+          if(e.sink<1.05) deathEmber(e,dt*0.45);// smolder until mostly submerged
+        }
+      } else { e.sink+=dt; }                    // monsters & anything else: simple sink
+      continue;
+    }
     e.bob+=dt*2;
     if(e.hitflash>0)e.hitflash-=dt*4;
 
@@ -3510,8 +3525,14 @@ function dealDamage(e,amt,by){
   if(e.hp<=0){ killEntity(e,by); }
 }
 function killEntity(e,by){
-  e.dead=true; e.sink=0; e.speed=0;
-  if(e===G.ship){ sfx.sink(); gameOver(); return; }
+  e.dead=true; e.sink=0; e.deathT=0;
+  if(e===G.ship){ e.speed=0; sfx.sink(); gameOver(); return; }
+  // Boats die in three beats: coast to a halt, blow apart (fire/smoke/flying debris),
+  // then slip slowly under. Monsters/forts/bosses keep their own death handling.
+  if(e.type==='cargo'||e.type==='navy'){
+    e.glideDur=rnd(0.45,0.7); e.sinkRate=0.5; e.spinDir=Math.random()<0.5?-1:1;
+    spawnDeathExplosion(e);
+  } else { e.speed=0; }
   // --- combo streak: chaining kills before the timer lapses ramps a gold multiplier ---
   let mult=1;
   if(by===G.ship){
@@ -6038,6 +6059,85 @@ function updateMortars(dt){
    ================================================================ */
 function smoke(x,y){for(let i=0;i<4;i++)G.particles.push({x,y,vx:rnd(-30,30),vy:rnd(-50,-10),life:.7,max:.7,c:'#f5f0e6',r:rnd(4,9),smoke:1});}
 function splash(x,y,c){for(let i=0;i<7;i++)G.particles.push({x,y,vx:rnd(-60,60),vy:rnd(-90,-20),life:.5,max:.5,c:c||'#cdeefb',r:rnd(2,5)});}
+
+/* ---- SHIP DEATH: a glide-explode-sink sequence whose scale tracks the hull size.
+   The fireball & smoke ride the normal particle field; flung hull debris lives in
+   G.debris with a fake "height" (hz) so planks arc up and splash back into the sea. */
+const _woodCols=['#7a4a30','#5a3622','#8a5a36','#3a2418'];
+function spawnDeathExplosion(e){
+  const R=e.r, big=clamp(R/22, 0.7, 3.2);          // ~1 for a sloop, up to ~3 for a man-o-war
+  G.shake=Math.max(G.shake, clamp(7+R*0.22, 8, 24));
+  if(typeof sfx!=='undefined' && sfx.sink) sfx.sink();
+  // bright muzzle flash at the heart of the blast
+  G.particles.push({x:e.x,y:e.y,vx:0,vy:0,life:0.16,max:0.16,c:'#fff3c4',r:R*0.85});
+  // fireball — hot core bursting outward
+  const fire=Math.round(clamp(R*0.75,12,34));
+  for(let i=0;i<fire;i++){ const a=rnd(TAU), sp=rnd(40,130)*big;
+    G.particles.push({x:e.x,y:e.y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp-30,life:rnd(0.3,0.6),max:0.6,
+      c:_FIRE[rndi(0,_FIRE.length-1)], r:rnd(3,7)*Math.sqrt(big)});
+  }
+  // dark smoke plume — rises and lingers
+  const smk=Math.round(clamp(R*0.55,7,22));
+  for(let i=0;i<smk;i++){ const a=rnd(TAU), sp=rnd(10,55)*big;
+    G.particles.push({x:e.x+rnd(-R*0.4,R*0.4),y:e.y+rnd(-R*0.4,R*0.4),vx:Math.cos(a)*sp,vy:Math.sin(a)*sp-50,
+      life:rnd(0.8,1.5),max:1.5,c:i%3?'#4b4640':'#2c2823',r:rnd(5,10)*Math.sqrt(big),smoke:1});
+  }
+  // hull debris — planks & chunks flung skyward that arc and splash down
+  const chunks=Math.round(clamp(R*0.5,7,20));
+  for(let i=0;i<chunks;i++){ const a=rnd(TAU), sp=rnd(30,130)*big;
+    G.debris.push({x:e.x,y:e.y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,
+      hz:0, vz:rnd(120,250)*Math.sqrt(big), rot:rnd(TAU), vrot:rnd(-9,9),
+      r:rnd(3,7)*Math.sqrt(big), c:_woodCols[rndi(0,_woodCols.length-1)], plank:Math.random()<0.55});
+  }
+  if(G.debris.length>160) G.debris.splice(0, G.debris.length-160);
+}
+const _FIRE=['#ffd84a','#ff9a2e','#ff6a1e','#ff3a1e'];
+// ongoing flames + smoke licking off a burning wreck (rate-limited by dt)
+function deathEmber(e,dt){
+  const R=e.r;
+  if(Math.random()<dt*22){ const a=rnd(TAU), d=rnd(0,R*0.6);
+    G.particles.push({x:e.x+Math.cos(a)*d,y:e.y+Math.sin(a)*d,vx:rnd(-12,12),vy:rnd(-48,-18),
+      life:rnd(0.3,0.6),max:0.6,c:Math.random()<0.5?'#ff8a2e':'#ffce4a',r:rnd(2,4)});
+  }
+  if(Math.random()<dt*15){ const a=rnd(TAU), d=rnd(0,R*0.5);
+    G.particles.push({x:e.x+Math.cos(a)*d,y:e.y+Math.sin(a)*d,vx:rnd(-10,10),vy:rnd(-42,-15),
+      life:rnd(0.7,1.2),max:1.2,c:'#3a352f',r:rnd(4,7),smoke:1});
+  }
+}
+function updateDebris(dt){
+  if(!G.debris || !G.debris.length) return;
+  const drag=Math.pow(0.5,dt);                     // gentle air drag (~50%/s)
+  for(const d of G.debris){
+    d.x+=d.vx*dt; d.y+=d.vy*dt; d.vx*=drag; d.vy*=drag;
+    d.vz-=440*dt; d.hz+=d.vz*dt; d.rot+=d.vrot*dt;
+    if(d.hz<=0){                                    // splashes back into the water
+      splash(d.x,d.y,'rgba(205,238,251,0.95)');
+      G.wakes.push({x:d.x,y:d.y,r:d.r*0.7,life:0.8,max:0.8});
+      d.gone=true;
+    }
+  }
+  G.debris=G.debris.filter(d=>!d.gone);
+}
+function drawDebris(){
+  if(!G.debris || !G.debris.length) return;
+  const z=G.cam.zoom;
+  for(const d of G.debris){
+    const sx=wx(d.x), sy=wy(d.y), hz=Math.max(0,d.hz);
+    if(sx<-40||sx>W+40||sy<-40||sy>H+40) continue;
+    // shadow on the water — shrinks & fades as the piece rises
+    const sh=clamp(1-hz/130,0.18,1);
+    ctx.globalAlpha=0.28*sh; ctx.fillStyle='#06283a';
+    ctx.beginPath();ctx.ellipse(sx,sy,d.r*z*0.9*sh,d.r*z*0.5*sh,0,0,TAU);ctx.fill();
+    // the chunk itself, lifted up-screen by its height and spinning
+    ctx.globalAlpha=1;
+    ctx.save();
+    ctx.translate(sx, sy-hz*z); ctx.rotate(d.rot); ctx.fillStyle=d.c;
+    if(d.plank){ const w=d.r*z*2.2, h=d.r*z*0.8; roundRect(-w/2,-h/2,w,h,h*0.4); ctx.fill(); }
+    else { roundRect(-d.r*z*0.7,-d.r*z*0.7,d.r*z*1.4,d.r*z*1.4,2*z); ctx.fill(); }
+    ctx.restore();
+  }
+  ctx.globalAlpha=1;
+}
 // a celebratory "combo!" pop that scales with the streak
 function comboPop(x,y,combo,mult){
   G.dmgPops.push({x,y:y-12,vy:-30,life:1.1,max:1.1,
@@ -6932,7 +7032,7 @@ function drawEntity(e){
   ctx.restore();
 
   ctx.globalAlpha=1-sink*0.9;
-  ctx.rotate(e.a+Math.PI/2);
+  ctx.rotate(e.a+Math.PI/2 + (e.dead?(e.sinkSpin||0):0));   // a slow turn as a wreck goes under
   const baseScale=(1-sink*0.3)*ds;
   ctx.scale(baseScale,baseScale);
 
@@ -7703,6 +7803,7 @@ function render(){
   drawOctopi();         // octopuses clinging to the player's hull (above the ship)
   drawSeagulls();       // catchable gulls resting on / fleeing across the water
   drawParticles();
+  drawDebris();         // flung hull wreckage (arcs above the smoke, casts a shadow)
   drawDmgPops();        // floating damage numbers + combo pops
   drawGulls();          // seagulls gliding in the sky
   drawClouds();         // clouds ABOVE everything
@@ -7841,6 +7942,7 @@ function loop(now){
     updateCannonballs(G.dt);
     updateMortars(G.dt);
     updateParticles(G.dt);
+    updateDebris(G.dt);   // flying hull wreckage arcs up and splashes back down
     updateCritters(G.dt);
     updateOctopi(G.dt);   // Davy Jones' latched octopuses drain the hull
     updateSeagulls(G.dt); // resting gulls flush & flee; catch one to unlock a cosmetic
