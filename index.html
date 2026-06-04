@@ -2862,8 +2862,8 @@ function spawnCritter(){
   // skip if on land
   for(const is of G.world.islands){ if(islandClearance(is,cx,cy,1.2)<0)return; }
   const roll=Math.random();
-  if(roll<0.22){
-    // WHALE POD: 1-3 whales that rise, linger & spout, then sink. Long, calm life.
+  if(roll<0.10){
+    // WHALE POD: rarer now (a special, higher-stakes hunt). 1-3 whales rise, linger & spout.
     const n=rndi(1,3), head=rnd(TAU);
     for(let i=0;i<n;i++){
       G.critters.push({type:'whale',
@@ -2924,13 +2924,20 @@ function spawnBossOf(mk, x, y, opts){
   G.entities.push(b);
   return b;
 }
+// scale a map boss with how invested the player's ship is, so an over-geared captain
+// still gets a real fight while a fresh one isn't overwhelmed (~1.0 → ~2.4).
+function bossPowerScale(){
+  const u=G.upgrades||{};
+  const lv=(u.hull||0)+(u.cannons||0)+(u.crew||0)+(u.sails||0)+(u.hold||0)+(u.plating||0)+(u.chain||0)+(u.boarding||0);
+  return clamp(1 + lv*0.07, 1, 2.4);
+}
 function spawnBoss(){
   const def=G.world.def; if(!def.boss||G.bossSpawned)return;
   G.bossSpawned=true;
   const S=G.world.size;
   const bx=G.world.spawn.x<S/2?S*0.85:S*0.15;
   const by=G.world.spawn.y<S/2?S*0.85:S*0.15;
-  const b=spawnBossOf(def.boss, bx, by);
+  const b=spawnBossOf(def.boss, bx, by, {scale: bossPowerScale()});
   if(b){ toast('⚠ '+b.bossName+'!',2600); G.shake=18; sfx.bossAppear(); }
 }
 
@@ -4519,20 +4526,20 @@ function startWhaling(whale){
   const wx0 = whale?whale.x : s.x+Math.cos(s.a)*160;
   const wy0 = whale?whale.y : s.y+Math.sin(s.a)*160;
   const big = whale ? !!whale.big : Math.random()<0.5;
-  const hp = (big?170:115) + G.mapIndex*12;
+  const hp = (big?210:150) + G.mapIndex*16;
   const sh={
     whaling:true, phase:'hunt', collectT:0,
     shipX:s.x, shipY:s.y,
-    boat:{x:s.x+Math.cos(s.a+0.5)*44, y:s.y+Math.sin(s.a+0.5)*44, a:angTo(s.x,s.y,wx0,wy0), vx:0, vy:0, row:0},
-    whale:{x:wx0,y:wy0,a:Math.random()*TAU,hp,maxhp:hp,r:big?34:26,state:'surface',stateT:rnd(4,6),spoutT:1.0,hurt:0,hitFlash:0,big,sub:0},
+    boat:{x:s.x+Math.cos(s.a+0.5)*44, y:s.y+Math.sin(s.a+0.5)*44, a:angTo(s.x,s.y,wx0,wy0), vx:0, vy:0, row:0, hp:100, maxhp:100, hurtT:0},
+    whale:{x:wx0,y:wy0,a:Math.random()*TAU,hp,maxhp:hp,r:big?34:26,state:'surface',stateT:rnd(4,6),spoutT:1.0,hurt:0,hitFlash:0,big,sub:0,charging:false,chargeT:0,chargeCd:rnd(2.5,4.5)},
     harpoons:[], aim:null, _wasAiming:false,
-    reward:(big?rndi(420,640):rndi(260,400))+G.mapIndex*45, woodReward:rndi(2,7),
+    reward:(big?rndi(620,900):rndi(380,560))+G.mapIndex*70, woodReward:rndi(4,10),
   };
   if(G.critters) G.critters=G.critters.filter(c=>c.type!=='whale');   // engaged the pod
   G.shore=sh; G.state='shore';
   if(typeof collapseMinimap==='function') collapseMinimap();
   hidePortPrompt();
-  toast('🐋 The hunt is on! Drag BACK and release to hurl your harpoon.',3400);
+  toast('🐋 The hunt is on! Drag BACK and release to hurl your harpoon — mind the boat!',3600);
 }
 function _whaleSpoutFx(wh){
   for(let k=0;k<10;k++)G.particles.push({x:wh.x+rnd(-4,4),y:wh.y-wh.r*0.5,vx:rnd(-12,12),vy:rnd(-70,-40),life:.7,max:.7,c:'rgba(220,235,245,0.8)',r:rnd(2,4)});
@@ -4552,14 +4559,38 @@ function updateWhaling(sh,dt){
     bt.x+=bt.vx*dt; bt.y+=bt.vy*dt;
     // --- whale AI: surface (vulnerable, spouts, flees) <-> dive (submerged) ---
     wh.stateT-=dt; if(wh.hurt>0) wh.hurt-=dt; if(wh.hitFlash>0) wh.hitFlash-=dt*3;
+    if(bt.hurtT>0) bt.hurtT-=dt;
     if(wh.state==='surface'){
       wh.sub=lerp(wh.sub,0,dt*4);
       wh.spoutT-=dt; if(wh.spoutT<=0){ wh.spoutT=rnd(2.4,3.8); _whaleSpoutFx(wh); }
-      const flee=angTo(bt.x,bt.y,wh.x,wh.y)+Math.sin(G.t*0.6)*0.5;
-      wh.a += angDiff(wh.a, flee)*Math.min(1,dt*1.4);
-      const wspd=(wh.hurt>0?78:48);
-      wh.x+=Math.cos(wh.a)*wspd*dt; wh.y+=Math.sin(wh.a)*wspd*dt;
-      if(wh.stateT<=0){ wh.state='dive'; wh.stateT=rnd(2.0,3.0); }
+      wh.chargeCd-=dt;
+      if(wh.charging){
+        // BREACH CHARGE: the wounded whale turns and rams the longboat — higher stakes
+        wh.chargeT-=dt;
+        const toBoat=angTo(wh.x,wh.y,bt.x,bt.y);
+        wh.a += angDiff(wh.a, toBoat)*Math.min(1,dt*2.6);
+        wh.x+=Math.cos(wh.a)*155*dt; wh.y+=Math.sin(wh.a)*155*dt;
+        if(dist(wh.x,wh.y,bt.x,bt.y) < wh.r+22){
+          bt.hp-=big?34:26; bt.hurtT=0.5; G.shake=Math.max(G.shake,13);
+          const kb=angTo(wh.x,wh.y,bt.x,bt.y); bt.vx+=Math.cos(kb)*220; bt.vy+=Math.sin(kb)*220;
+          for(let k=0;k<14;k++)G.particles.push({x:bt.x,y:bt.y,vx:rnd(-90,90),vy:rnd(-110,10),life:.6,max:.6,c:k%2?'#cfe6ef':'#7a5836',r:rnd(2,5)});
+          if(typeof sfx!=='undefined'&&sfx.whaleSlam) sfx.whaleSlam();
+          wh.charging=false; wh.chargeCd=rnd(3.5,5.5);
+          if(bt.hp<=0){ failWhaling(sh); return; }
+          else toast('🌊 The whale slams the boat! Hull '+Math.max(0,Math.ceil(bt.hp))+'%',1600);
+        }
+        if(wh.chargeT<=0){ wh.charging=false; wh.chargeCd=rnd(3.5,5.5); }
+      } else {
+        const flee=angTo(bt.x,bt.y,wh.x,wh.y)+Math.sin(G.t*0.6)*0.5;
+        wh.a += angDiff(wh.a, flee)*Math.min(1,dt*1.4);
+        const wspd=(wh.hurt>0?78:48);
+        wh.x+=Math.cos(wh.a)*wspd*dt; wh.y+=Math.sin(wh.a)*wspd*dt;
+        // recently harpooned → it may turn and charge
+        if(wh.hurt>0 && wh.chargeCd<=0 && Math.random()<dt*0.7){
+          wh.charging=true; wh.chargeT=rnd(1.3,2.1); toast('🐋 The whale turns on you!',1500);
+        }
+      }
+      if(wh.stateT<=0 && !wh.charging){ wh.state='dive'; wh.stateT=rnd(2.0,3.0); }
     } else {
       wh.sub=lerp(wh.sub,1,dt*3);
       wh.x+=Math.cos(wh.a)*34*dt; wh.y+=Math.sin(wh.a)*34*dt;
@@ -4587,7 +4618,7 @@ function updateWhaling(sh,dt){
         h.stuck=true; h.ox=h.x-wh.x; h.oy=h.y-wh.y;
         wh.hp-=rndi(9,15); wh.hurt=2.6; wh.hitFlash=1; G.shake=Math.max(G.shake,7);
         for(let k=0;k<9;k++)G.particles.push({x:h.x,y:h.y,vx:rnd(-45,45),vy:rnd(-45,45),life:.6,max:.6,c:'#9c2f2a',r:3});
-        if(typeof sfx!=='undefined'&&sfx.hitWood) sfx.hitWood();
+        if(typeof sfx!=='undefined'&&sfx.harpoonHit) sfx.harpoonHit();
         if(wh.hp<=0){ wh.hp=0; sh.phase='collect'; sh.collectT=3.2; wh.state='surface'; wh.sub=0;
           toast('🐋 The whale is taken! The crew collect the oil…',2800); }
         else toast('🎯 Strike!  '+Math.ceil(wh.hp)+'/'+wh.maxhp,900);
@@ -4619,9 +4650,17 @@ function finishWhaling(sh){
   G.stats.whalesCaught=(G.stats.whalesCaught||0)+1;
   G.shore=null; G.state='play'; G.cruiseAng=null;
   toast('🐋 Whale landed! +'+oil+'g'+(wood?' +'+wood+'🪵':'')+' in oil & blubber.',3200);
+  if(typeof sfx!=='undefined'&&sfx.treasure) sfx.treasure();
   if(typeof checkAchievements==='function') checkAchievements();
   if(typeof updateHUD==='function') updateHUD();
   if(typeof saveGame==='function') saveGame();
+}
+function failWhaling(sh){
+  // the longboat was smashed — the whale sounds and escapes with your harpoons
+  G.shore=null; G.state='play'; G.cruiseAng=null;
+  G.shake=Math.max(G.shake,14);
+  toast('💥 The boat is stove in — the whale escapes into the deep!',3400);
+  if(typeof updateHUD==='function') updateHUD();
 }
 function drawWhaling(sh){
   const z=G.cam.zoom, wh=sh.whale, bt=sh.boat;
@@ -4660,6 +4699,13 @@ function drawWhaling(sh){
     ctx.beginPath();ctx.arc(-wr*0.55,wr*1.0,wr*0.1,0,TAU);ctx.arc(wr*0.55,wr*1.0,wr*0.1,0,TAU);ctx.fill();
   }
   ctx.restore();
+  // ---- whaling lines: a taut rope from the boat to every harpoon stuck in the whale ----
+  { const bx=wx(bt.x), by=wy(bt.y);
+    for(const h of sh.harpoons){ if(!h.stuck)continue; const hx=wx(h.x),hy=wy(h.y);
+      const mx=(bx+hx)/2, my=(by+hy)/2 + Math.min(26, dist(bt.x,bt.y,h.x,h.y)*0.06)*z;   // gentle sag
+      ctx.strokeStyle='rgba(232,224,200,0.9)';ctx.lineWidth=1.6*z;ctx.lineCap='round';
+      ctx.beginPath();ctx.moveTo(bx,by);ctx.quadraticCurveTo(mx,my,hx,hy);ctx.stroke();
+    } }
   // stuck harpoons riding the whale
   for(const h of sh.harpoons){ if(!h.stuck)continue; const hx=wx(h.x),hy=wy(h.y);
     ctx.save();ctx.translate(hx,hy);ctx.rotate(h.a);
@@ -4702,15 +4748,24 @@ function drawWhaling(sh){
     // pull-back marker behind the boat
     ctx.fillStyle='rgba(255,255,255,0.5)';ctx.beginPath();ctx.arc(bx-Math.cos(ang)*pull*z*0.6,by-Math.sin(ang)*pull*z*0.6,4*z,0,TAU);ctx.fill();
   }
-  // ---- HUD: whale health bar + phase hint (screen space, under the top HUD) ----
-  const safeTop=(window.__safeTop||0), by=Math.max(150,safeTop+118);
+  // red damage vignette when the boat is struck
+  if(bt.hurtT>0){ ctx.fillStyle='rgba(190,40,30,'+(0.35*clamp(bt.hurtT/0.5,0,1))+')'; ctx.fillRect(0,0,W,H); }
+  // ---- HUD: whale health bar + boat-hull bar + phase hint (screen space) ----
+  const safeTop=(window.__safeTop||0), hy=Math.max(150,safeTop+118);
   const bw=Math.min(W*0.6,260), bx=(W-bw)/2;
-  ctx.fillStyle='rgba(0,0,0,0.45)';roundRect(bx-3,by-3,bw+6,16,5);ctx.fill();
-  ctx.fillStyle='#1a2740';roundRect(bx,by,bw,10,4);ctx.fill();
-  ctx.fillStyle=wh.sub>0.4?'#5a6b86':'#d65a4a';roundRect(bx,by,bw*clamp(wh.hp/wh.maxhp,0,1),10,4);ctx.fill();
+  ctx.fillStyle='rgba(0,0,0,0.45)';roundRect(bx-3,hy-3,bw+6,16,5);ctx.fill();
+  ctx.fillStyle='#1a2740';roundRect(bx,hy,bw,10,4);ctx.fill();
+  ctx.fillStyle=wh.sub>0.4?'#5a6b86':'#d65a4a';roundRect(bx,hy,bw*clamp(wh.hp/wh.maxhp,0,1),10,4);ctx.fill();
+  // boat hull bar (smaller, below)
+  const hbw=bw*0.6, hbx=(W-hbw)/2, hby=hy+18;
+  ctx.fillStyle='rgba(0,0,0,0.4)';roundRect(hbx-3,hby-3,hbw+6,12,4);ctx.fill();
+  ctx.fillStyle='#1a2740';roundRect(hbx,hby,hbw,6,3);ctx.fill();
+  const hpf=clamp(bt.hp/bt.maxhp,0,1);
+  ctx.fillStyle=hpf>0.5?'#6fae7e':hpf>0.25?'#e6a52e':'#d65a4a';roundRect(hbx,hby,hbw*hpf,6,3);ctx.fill();
+  ctx.fillStyle='#bcdcea';ctx.font="700 9px 'Baloo 2'";ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('⛵ HULL',hbx-26*1,hby+3);
   ctx.fillStyle='#ffe9c4';ctx.font="800 13px 'Baloo 2'";ctx.textAlign='center';ctx.textBaseline='middle';
-  const hint = sh.phase!=='hunt' ? '🐋 Hauling in the catch…' : (wh.sub>0.4?'🌊 Diving — wait for it to surface!':'🐋 Drag back & release to harpoon!');
-  ctx.fillText(hint, W/2, by+26);
+  const hint = sh.phase!=='hunt' ? '🐋 Hauling in the catch…' : (wh.charging?'⚠ It charges — brace!':(wh.sub>0.4?'🌊 Diving — wait for it to surface!':'🐋 Drag back & release to harpoon!'));
+  ctx.fillText(hint, W/2, hby+22);
 }
 /* ================================================================
    ⚔️ BOARDING PARTIES — storm a crippled enemy ship's deck.
@@ -5380,6 +5435,16 @@ function updateBoss(e,dt,s,dp){
 function updateShark(e,dt,s,dp,low){
   e.submerged = lerp(e.submerged||0, (e.phase==='dive'||e.phase==='lunge')?(e.phase==='lunge'?0.35:0.9):0, dt*4);
   const spd = (low?1.25:1)*(e._spdBoost||1);
+  // resolve churning bite-zones (the frenzy AoE) — erupt and damage anything caught in them
+  if(!e.slams)e.slams=[];
+  for(let i=e.slams.length-1;i>=0;i--){ const sl=e.slams[i]; sl.t-=dt;
+    if(sl.t<=0 && !sl.fired){ sl.fired=true; sl.flash=0.3;
+      if(dist(s.x,s.y,sl.x,sl.y) < sl.r + s.r){ dealDamage(s,e.dmg*0.9,e); G.shake=Math.max(G.shake,9); }
+      splash(sl.x,sl.y,'rgba(190,60,55,0.7)');
+      for(let k=0;k<10;k++)G.particles.push({x:sl.x,y:sl.y,vx:rnd(-120,120),vy:rnd(-150,-20),life:.6,max:.6,c:k%2?'#9c2f2a':'#c9d6dd',r:rnd(3,6)});
+    }
+    if(sl.flash!=null){ sl.flash-=dt; if(sl.flash<=-0.1)e.slams.splice(i,1); }
+  }
   if(e.phase==='stalk'){
     // circle the player at mid range, dorsal fin showing
     const ang = dp>320 ? angTo(e.x,e.y,s.x,s.y) : angTo(e.x,e.y,s.x,s.y)+Math.PI*0.5;
@@ -5418,7 +5483,26 @@ function updateShark(e,dt,s,dp,low){
     e.invuln=false; e.stunT=Math.max(e.stunT,0.1);
     e.speed=lerp(e.speed,e.maxspeed*0.25,dt*2);
     steer(e,e.a,dt*0.2);
-    if(e.phaseT<=0){ e.phase='stalk'; e.phaseT=low?1.4:2.2; }
+    if(e.phaseT<=0){
+      // every other recovery (and always when enraged) erupts into a thrashing frenzy
+      e._lungeCount=(e._lungeCount||0)+1;
+      if(low || e._lungeCount%2===0){ e.phase='thrash'; e.phaseT=2.0; e._slamN=low?6:4; e._slamGap=0;
+        toast('🦈 '+e.bossName+' thrashes into a frenzy!',1400); }
+      else { e.phase='stalk'; e.phaseT=low?1.4:2.2; }
+    }
+  }
+  else if(e.phase==='thrash'){
+    // BLOOD FRENZY (area attack): the shark churns the surface, erupting bite-zones
+    // around the player so kiting at range isn't safe. Vulnerable throughout.
+    e.invuln=false;
+    e.speed=lerp(e.speed,e.maxspeed*0.5*spd,dt);
+    steer(e,angTo(e.x,e.y,s.x,s.y)+Math.PI*0.5,dt);     // circle the prey while churning
+    e._slamGap-=dt;
+    if((e._slamN||0)>0 && e._slamGap<=0){ e._slamGap=0.4; e._slamN--;
+      const lead=0.45, px=s.x+Math.cos(s.a)*s.speed*lead, py=s.y+Math.sin(s.a)*s.speed*lead;
+      e.slams.push({x:px+rnd(-50,50),y:py+rnd(-50,50),r:64,t:0.8,fired:false,flash:null});
+    }
+    if(e.phaseT<=0 && (e._slamN||0)<=0){ e.phase='stalk'; e.phaseT=low?1.2:1.8; }
   }
 }
 
@@ -6006,8 +6090,8 @@ function drawBossTelegraphs(){
     for(const sl of boss.slams){
       const mx=wx(sl.x), my=wy(sl.y), R=sl.r*z;
       if(sl.fired){
-        if(sl.flash>0){ // eruption flash
-          ctx.fillStyle='rgba(120,90,170,'+(sl.flash*1.8)+')';
+        if(sl.flash>0){ // eruption flash (red churn for the shark, violet for the squid/kraken)
+          ctx.fillStyle=(boss.mk==='shark'?'rgba(200,70,60,':'rgba(120,90,170,')+(sl.flash*1.8)+')';
           ctx.beginPath();ctx.arc(mx,my,R,0,TAU);ctx.fill();
         }
         continue;
@@ -6326,20 +6410,32 @@ function drawFloaters(){
       ctx.moveTo(sx-f.r*z*0.7,sy+f.r*z*0.4);ctx.lineTo(sx+f.r*z*0.7,sy+f.r*z*0.4);ctx.stroke();
     } else if(f.type==='bounty'){
       const pulse=0.5+0.5*Math.sin(G.t*4+f.bob);
-      // danger glow ring (red before sprung, gold once you've braved it)
-      ctx.strokeStyle=(f.sprung?'rgba(255,206,92,':'rgba(255,80,70,')+(0.35+0.4*pulse)+')';
-      ctx.lineWidth=3*z;
-      ctx.beginPath();ctx.arc(sx,sy,(f.r+9+pulse*4)*z,0,TAU);ctx.stroke();
-      // crate body
-      ctx.fillStyle='#8a5a2b';
-      roundRect(sx-f.r*z, sy-f.r*z, f.r*z*2, f.r*z*2, 4*z); ctx.fill();
-      ctx.strokeStyle='#5c3a18';ctx.lineWidth=2.5*z;
-      ctx.beginPath();
-      ctx.moveTo(sx-f.r*z,sy);ctx.lineTo(sx+f.r*z,sy);
-      ctx.moveTo(sx,sy-f.r*z);ctx.lineTo(sx,sy+f.r*z);ctx.stroke();
-      // gilded skull mark
-      ctx.fillStyle='#ffce5c';ctx.font=`${f.r*z*1.1}px serif`;ctx.textAlign='center';ctx.textBaseline='middle';
-      ctx.fillText('☠',sx,sy+1);
+      const R=f.r*z, sprung=f.sprung;
+      const ar=sprung?255:255, ag=sprung?206:90, ab=sprung?92:70;
+      // soft radial danger haze (a glow, not a hard stroked ring)
+      const grd=ctx.createRadialGradient(sx,sy,R*0.5,sx,sy,R*2.3);
+      grd.addColorStop(0,'rgba('+ar+','+ag+','+ab+','+(0.30+0.22*pulse)+')');
+      grd.addColorStop(1,'rgba('+ar+','+ag+','+ab+',0)');
+      ctx.fillStyle=grd;ctx.beginPath();ctx.arc(sx,sy,R*2.3,0,TAU);ctx.fill();
+      ctx.save();ctx.translate(sx,sy);
+      // crate body (chunky, rounded, flat-shaded — matches the art)
+      ctx.fillStyle='#8a5a2b';roundRect(-R*0.85,-R*0.85,R*1.7,R*1.7,4*z);ctx.fill();
+      ctx.fillStyle='#9c6a36';roundRect(-R*0.85,-R*0.85,R*1.7,R*0.5,4*z);ctx.fill();   // lit top edge
+      ctx.strokeStyle='#4a3016';ctx.lineWidth=3*z;roundRect(-R*0.85,-R*0.85,R*1.7,R*1.7,4*z);ctx.stroke();
+      ctx.fillStyle='#3a2614';for(const cx2 of [-R*0.66,R*0.66])for(const cy2 of [-R*0.66,R*0.66]){ctx.beginPath();ctx.arc(cx2,cy2,R*0.12,0,TAU);ctx.fill();}
+      // bone plate + a hand-drawn skull (no emoji — reads cleanly at any zoom)
+      ctx.fillStyle='#efe6cf';ctx.beginPath();ctx.arc(0,-R*0.04,R*0.46,0,TAU);ctx.fill();
+      ctx.fillStyle='#2a2018';
+      ctx.beginPath();ctx.arc(0,-R*0.12,R*0.28,0,TAU);ctx.fill();              // cranium
+      roundRect(-R*0.16,-R*0.02,R*0.32,R*0.2,R*0.06);ctx.fill();               // jaw
+      ctx.fillStyle='#efe6cf';
+      ctx.beginPath();ctx.arc(-R*0.12,-R*0.14,R*0.085,0,TAU);ctx.arc(R*0.12,-R*0.14,R*0.085,0,TAU);ctx.fill();  // eye sockets
+      ctx.fillStyle='#2a2018';ctx.fillRect(-R*0.02,-R*0.05,R*0.04,R*0.07);     // nasal
+      ctx.restore();
+      // a small warning pennant on a short staff
+      ctx.strokeStyle='#5c3a18';ctx.lineWidth=2*z;ctx.beginPath();ctx.moveTo(sx+R*0.6,sy-R*0.7);ctx.lineTo(sx+R*0.6,sy-R*1.5);ctx.stroke();
+      ctx.fillStyle=sprung?'#ffce5c':'#d6402f';
+      ctx.beginPath();ctx.moveTo(sx+R*0.6,sy-R*1.5);ctx.lineTo(sx+R*1.2,sy-R*1.34);ctx.lineTo(sx+R*0.6,sy-R*1.18);ctx.fill();
     } else if(f.type==='bottle'){
       // a corked green bottle bobbing on its side with a paper note inside
       ctx.save();ctx.translate(sx,sy);ctx.rotate(-0.5+Math.sin(G.t*1.5+f.bob)*0.12);
@@ -9513,9 +9609,19 @@ const sfx={
     thump(120,58,0.18,0.22);
     noise(0.24,0.13,900,'lowpass',0,0.5);
   },
-  harpoon(){ // a hurled harpoon: a quick air whoosh + a rope-twang
-    noise(0.13,0.13,1500,'highpass',0,0.6);
-    tone(360,0.07,'triangle',0.1,180,0.02);
+  harpoon(){ // hurled harpoon: a rope-zip whoosh + a short shaft hum
+    noise(0.16,0.34,1800,'highpass',0,0.7);
+    tone(330,0.10,'triangle',0.09,150,0.02);
+  },
+  harpoonHit(){ // harpoon biting blubber: a wet, meaty thunk + low groan (NOT a gunshot)
+    thump(170,60,0.12,0.34);
+    noise(0.16,0.30,520,'lowpass',0,0.5);
+    tone(140,0.24,'sine',0.13,86,0.03);
+  },
+  whaleSlam(){ // the whale stoving the longboat: heavy wooden crash + heaving water
+    thump(120,44,0.2,0.42);
+    noise(0.28,0.3,1200,'lowpass',0,0.5);
+    tone(90,0.3,'sine',0.16,60,0.02);
   },
   whaleSpout(){ // a real spout: a sharp pressurized BLOW rushing up, then spray pattering back down
     if(!SND.ready)return;
