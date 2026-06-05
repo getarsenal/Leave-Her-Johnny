@@ -629,7 +629,7 @@ resize();
 /* Build/version string shown in-app (start screen + dev readout) so it's obvious which
    build is actually running — App Store/TestFlight propagation lags the repo by hours/days.
    Keep this in lockstep with ios MARKETING_VERSION when bumping. */
-const GAME_BUILD='1.0.11';
+const GAME_BUILD='1.0.12';
 /* ---------- math ---------- */
 const TAU=Math.PI*2;
 const rnd=(a=1,b)=>b===undefined?Math.random()*a:a+Math.random()*(b-a);
@@ -2777,6 +2777,9 @@ const RELICS=[
   {id:'doubloon',   name:'Cursed Doubloon',        icon:'🪙', rarity:'rare',     cost:300, desc:'+60% gold, but +12% damage taken',      mods:{loot:1.60}, flags:{dmgTaken:1.12}},
   {id:'wind',       name:'Trade Winds Charm',      icon:'🍃', rarity:'rare',     cost:360, desc:'+10% speed, reload & gold',              mods:{spd:1.10, fireRate:1.10, loot:1.10}},
   {id:'marque',     name:'Letter of Marque',       icon:'🎖️', rarity:'rare',     cost:340, desc:'+1 fleet escort capacity',              flags:{}},
+  {id:'carronade',  name:'Carronades',             icon:'🌋', rarity:'uncommon', cost:250, desc:'+30% damage, −15% range',               mods:{dmg:1.30, range:0.85}},
+  {id:'coppered',   name:'Coppered Hull',          icon:'🛡️', rarity:'uncommon', cost:240, desc:'+18% hull, +5% speed',                  mods:{hp:1.18, spd:1.05}},
+  {id:'lucky',      name:'Lucky Figurehead',       icon:'🍀', rarity:'rare',     cost:320, desc:'+20% gold & more treasure maps',       mods:{loot:1.20}, flags:{mapLuck:0.10}},
 ];
 const RELIC_BY_ID={}; for(const r of RELICS) RELIC_BY_ID[r.id]=r;
 const RARITY_COL={common:'#8a8f98', uncommon:'#3f9e6a', rare:'#b066d6'};
