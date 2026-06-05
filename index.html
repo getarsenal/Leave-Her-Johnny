@@ -670,7 +670,7 @@ resize();
 /* Build/version string shown in-app (start screen + dev readout) so it's obvious which
    build is actually running — App Store/TestFlight propagation lags the repo by hours/days.
    Keep this in lockstep with ios MARKETING_VERSION when bumping. */
-const GAME_BUILD='1.0.16';
+const GAME_BUILD='1.0.17';
 /* ---------- math ---------- */
 const TAU=Math.PI*2;
 const rnd=(a=1,b)=>b===undefined?Math.random()*a:a+Math.random()*(b-a);
@@ -10361,6 +10361,51 @@ function updateMusic(){
   else if(G.state==='play' && G.entities && G.entities.some(e=>e.type==='boss'&&!e.dead)) want='boss';
   if(want!==_themeLoopId){ if(want) playTheme(want); else stopTheme(); }
   updateAmbientBed(want);
+  // ---- DYNAMIC LAYERS: a tense drum ostinato during open-sea skirmishes, and a
+  // heartbeat when the hull is failing. Both ride the music bus / respect mute. ----
+  const s=G.ship;
+  const inCombat = G.state==='play' && want===null && s && !s.dead && (s.combatT||0)>0.4
+    && G.entities && G.entities.some(e=>e.faction==='enemy'&&!e.dead && dist(e.x,e.y,s.x,s.y)<950);
+  if(inCombat && !_combatLayerOn) startCombatLayer();
+  else if(!inCombat && _combatLayerOn) stopCombatLayer();
+  const lowHP = G.state==='play' && s && !s.dead && s.maxhp>0 && (s.hp/s.maxhp)<0.25;
+  if(lowHP && !_heartOn) startHeart();
+  else if(!lowHP && _heartOn) stopHeart();
+}
+// percussive/bass element routed through the music bus (honors the Music slider)
+function musicHit(freq,dur,vol,delay,type){
+  if(!SND.ready)return; const bus=musicBus(); if(!bus)return;
+  const t0=aNow()+delay;
+  const o=SND.ctx.createOscillator(), g=SND.ctx.createGain();
+  o.type=type||'triangle'; o.frequency.setValueAtTime(freq,t0);
+  o.frequency.exponentialRampToValueAtTime(Math.max(28,freq*0.5),t0+dur);
+  g.gain.setValueAtTime(vol,t0); g.gain.exponentialRampToValueAtTime(0.0001,t0+dur);
+  o.connect(g); g.connect(bus); o.start(t0); o.stop(t0+dur+0.05);
+}
+let _combatLayerOn=false, _combatTimers=[];
+function startCombatLayer(){ if(_combatLayerOn)return; _combatLayerOn=true; combatBar(); }
+function stopCombatLayer(){ _combatLayerOn=false; _combatTimers.forEach(clearTimeout); _combatTimers.length=0; }
+function combatBar(){
+  if(!_combatLayerOn) return;
+  if(!SND.ready){ _combatTimers.push(setTimeout(combatBar,500)); return; }   // self-heal across audio rebuilds
+  const beat=0.5;                          // ~120bpm, driving
+  musicHit(55,0.22,0.15,0,'triangle');      // bass ostinato
+  musicHit(55,0.16,0.09,beat*1.5,'triangle');
+  musicHit(55,0.22,0.15,beat*2,'triangle');
+  musicHit(82,0.20,0.12,beat*3,'triangle'); // lift to the fifth on 4
+  musicHit(120,0.12,0.11,0,'sine');         // low thud on 1 & 3
+  musicHit(120,0.12,0.11,beat*2,'sine');
+  _combatTimers.push(setTimeout(combatBar, beat*4*1000));
+}
+let _heartOn=false, _heartTimer=null;
+function startHeart(){ if(_heartOn)return; _heartOn=true; heartBeat(); }
+function stopHeart(){ _heartOn=false; clearTimeout(_heartTimer); }
+function heartBeat(){
+  if(!_heartOn) return;
+  if(!SND.ready){ _heartTimer=setTimeout(heartBeat,500); return; }
+  const mv=(G.settings?G.settings.music:1);
+  thump(70,40,0.12,0.42*mv,0); thump(62,36,0.14,0.30*mv,0.20);   // lub-dub
+  _heartTimer=setTimeout(heartBeat, 1150);
 }
 // Ambient "waves & seagulls" loop (HTML5 <audio>): plays under normal sailing/menus,
 // ducks out for shore parties and boss fights (which have their own themes), and
