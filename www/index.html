@@ -368,6 +368,15 @@
     pointer-events:none;white-space:normal;max-width:min(380px,82vw);text-align:center;
     overflow-wrap:break-word;word-break:normal;}
   #toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+  /* first-voyage coach banner — sits low so it points toward the controls; tappable to skip */
+  #coach{position:absolute;left:50%;bottom:max(150px,calc(env(safe-area-inset-bottom) + 150px));
+    transform:translateX(-50%) translateY(10px);display:none;flex-direction:column;align-items:center;gap:2px;
+    background:linear-gradient(180deg,#2a4f63,#1d3b4b);border:2px solid var(--gold);
+    color:#fff;padding:9px 18px;border-radius:16px;font-family:'Baloo 2';font-weight:700;
+    font-size:14.5px;line-height:1.3;box-shadow:var(--shadow-soft);z-index:42;opacity:0;transition:opacity .35s,transform .35s;
+    pointer-events:auto;max-width:min(360px,84vw);text-align:center;}
+  #coach.show{display:flex;opacity:1;transform:translateX(-50%) translateY(0);}
+  #coach-skip{font-size:10px;font-weight:600;opacity:0.6;letter-spacing:.3px;}
 
   /* port entry prompt */
   #portprompt{position:absolute;left:50%;top:38%;transform:translate(-50%,-50%) scale(.9);
@@ -478,6 +487,8 @@
 
   <!-- TOAST + OVERLAYS injected/толed via JS -->
   <div id="toast"></div>
+  <!-- first-voyage coach banner: contextual one-line hints, tap to dismiss the tour -->
+  <div id="coach"><span id="coach-txt"></span><span id="coach-skip">tap to skip ✕</span></div>
   <!-- ambient "waves & seagulls" loop: plays during normal sailing, pauses for shore
        parties / boss fights. Drop the file at assets/ambient-waves.mp3 (graceful if absent). -->
   <audio id="ambient" loop preload="auto" src="assets/waves_and_seagulls_background.mp3"></audio>
@@ -630,7 +641,7 @@ resize();
 /* Build/version string shown in-app (start screen + dev readout) so it's obvious which
    build is actually running — App Store/TestFlight propagation lags the repo by hours/days.
    Keep this in lockstep with ios MARKETING_VERSION when bumping. */
-const GAME_BUILD='1.0.14';
+const GAME_BUILD='1.0.15';
 /* ---------- math ---------- */
 const TAU=Math.PI*2;
 const rnd=(a=1,b)=>b===undefined?Math.random()*a:a+Math.random()*(b-a);
@@ -716,9 +727,13 @@ function saveGame(){
       maxMapCleared:G.maxMapCleared|0,  // furthest map whose boss we've beaten
       shanties:(G.shanties||[]).slice(),  // unlocked sea shanties
       bestRun:G.bestRun|0, comboBest:G.comboBest|0,
-      // retention layer
+      // retention layer — MUST include every lifetime field, since this overwrites the
+      // whole save (autosave runs every ~4s; omitting these would wipe them from storage)
       stats:G.stats, bestiary:G.bestiary, achievements:G.achievements,
       dailyDate:G.dailyDate, dailyDone:G.dailyDone, dailyBounty:G.dailyBounty, dailyBase:G.dailyBase,
+      cosmetics:G.cosmetics, gullsCaught:G.gullsCaught|0,
+      cursedUnlocked:!!G.cursedUnlocked, cursedCleared:!!G.cursedCleared,
+      endlessBest:G.endlessBest|0, tutorialDone:!!G.tutorialDone,
     };
     localStorage.setItem(SAVE_KEY, JSON.stringify(data));
   }catch(e){ /* storage blocked — fail quietly */ }
@@ -741,6 +756,7 @@ function saveLifetime(){
     d.cursedUnlocked=G.cursedUnlocked; d.cursedCleared=G.cursedCleared;
     d.endlessBest=G.endlessBest|0;
     d.cosmetics=G.cosmetics; d.gullsCaught=G.gullsCaught|0;   // unlocked trims persist forever
+    d.tutorialDone=!!G.tutorialDone;                          // first-voyage coach shows once
     localStorage.setItem(SAVE_KEY, JSON.stringify(d));
   }catch(e){}
 }
@@ -836,6 +852,9 @@ function loadLifetime(d){
     if(!G.cosmetics.unlocked) G.cosmetics.unlocked={};
   }
   G.gullsCaught=d.gullsCaught|0;
+  // first-voyage coach shows once; auto-skip anyone with a prior save (a veteran)
+  G.tutorialDone = (d.tutorialDone!==undefined) ? !!d.tutorialDone
+                   : ((G.stats.navySunk||0)>0 || (G.stats.voyages||0)>1);
 }
 function clearSave(){ try{ localStorage.removeItem(SAVE_KEY); }catch(e){} }
 // --- per-map collected-gem tracking (persists across deaths) ---
@@ -867,6 +886,7 @@ const G = {
   relics:[],                 // roguelike charms collected this voyage (see RELICS)
   fleet:[],                  // captured escorts {cls,slot} — sail with you across seas
   encounters:[], encounterTimer:30,   // drifting event curiosities at sea
+  tut:null, tutorialDone:false,       // first-voyage coach (shown once)
   entities:[], cannonballs:[], particles:[], floaters:[], wakes:[], debris:[], seagulls:[],
   upgrades:{hull:0,sails:0,cannons:0,crew:0,hold:0,hotshot:0,spread:0,ballast:0,chain:0,plating:0,boarding:0},
   // ---- ship cosmetics (unlocked by catching seagulls; persist forever) ----
@@ -3688,6 +3708,7 @@ function updatePlayer(s,dt){
 /* full broadside on Fire button — fires from the side(s) facing a target */
 function playerBroadside(){
   if(G.state!=='play'||!G.ship||G.fireCooldown>0)return;
+  if(G.tut&&G.tut.active) G.tut._fired=true;   // coach: "fire a broadside" step
   const s=G.ship;
   // candidate targets in range
   const targets=G.entities.filter(e=>(e.faction==='enemy'||e.type==='cargo')&&!e.dead
@@ -3775,6 +3796,7 @@ function inBroadsideArc(from,target){
 /* fire a volley from ONE side of the ship toward target. One shell per cannon,
    each leaving its actual barrel (positions from cannonMounts → match the sprite). */
 function fireBroadside(from,target,dmg){
+  if(from===G.ship && G.tut&&G.tut.active) G.tut._fired=true;   // coach: guns have spoken
   const {side}=broadsideInfo(from,target);
   const mounts=cannonMounts(from, side);
   // Fireball Shots (player upgrade, the old "spread" slot): a FRACTION of cannonballs
@@ -4083,6 +4105,7 @@ function spawnLootBurst(x,y,gold,wood){
 }
 function collectFloater(f){
   f.collected=true;
+  if(G.tut&&G.tut.active) G.tut._collected=true;   // coach: "scoop the loot" step
   const goldBefore=G.gold;
   if(f.type==='treasure'){ G.gold+=f.val; G.treasureFound++;
     if(typeof f.gemIdx==='number'){ markGemCollected(G.mapIndex,f.gemIdx); requestSave(); }
@@ -8424,6 +8447,7 @@ function loop(now){
     updateParticles(G.dt);
     updateDebris(G.dt);   // flying hull wreckage arcs up and splashes back down
     updateEncounters(G.dt); // drifting event curiosities — sail in to open a choice card
+    tutUpdate(G.dt);        // first-voyage coach progression
     updateCritters(G.dt);
     updateOctopi(G.dt);   // Davy Jones' latched octopuses drain the hull
     updateSeagulls(G.dt); // resting gulls flush & flee; catch one to unlock a cosmetic
@@ -8472,6 +8496,8 @@ function loop(now){
     G.cam.y=lerp(G.cam.y,G.ship.y,G.dt*1.5);
   }
   if(SND&&SND.ready) updateMusic();   // swap background track to match the moment
+  // coach banner is only visible while actually sailing (hidden under overlays/shore)
+  { const cc=el('coach'); if(cc) cc.classList.toggle('show', !!(G.tut&&G.tut.active&&G.state==='play')); }
   if(G.world) render();
  }catch(err){
   // surface the real error once instead of a silent freeze ("Script error.")
@@ -8581,6 +8607,7 @@ function openShop(fromPrompt){
     }
     if(!near){toast('⚓ Sail up to a port dock (⚓) to trade',2200);return;}
   }
+  if(G.tut&&G.tut.active) G.tut._docked=true;   // coach: "dock to upgrade" step
   G.state='shop'; buildShop(); el('ov-shop').classList.add('show');
 }
 function buildShop(){
@@ -8968,6 +8995,59 @@ function newVoyage(){
   if(!shipClassUnlocked(currentShipClass())) G.shipClass='brig';   // guard a locked pick
   el('ov-start').classList.remove('show');
   startMap(0);
+  startTutorial();   // first-ever voyage gets a gentle, skippable coached opening
+}
+/* ================================================================
+   FIRST-VOYAGE COACH — teaches the core loop through play with one-line contextual
+   banners, shown once ever, fully skippable, with generous fallbacks so it can never
+   soft-lock. Veterans (existing saves) are auto-skipped in loadLifetime.
+   ================================================================ */
+const TUT_STEPS=[
+  {id:'sail',    txt:'⛵ Drag anywhere to sail — hold to keep moving.'},
+  {id:'fire',    txt:'⚔️ A merchant ahead! Sail alongside and tap 🔥 for a broadside.'},
+  {id:'collect', txt:'🪙 Sail over the floating loot to plunder it.'},
+  {id:'port',    txt:'⚓ Open the map (top-right) and dock at a cove to upgrade.'},
+  {id:'done',    txt:"🏴‍☠️ That's the way of it, Captain! Hunt, plunder, upgrade — and chase the seas all the way to the Kraken."},
+];
+function startTutorial(){
+  if(G.tutorialDone) return;
+  G.tut={step:0, t:0, active:true};
+  tutShow();
+}
+function tutShow(){ const s=TUT_STEPS[G.tut.step]; if(s) el('coach-txt').textContent=s.txt; }
+function tutNext(){
+  if(!G.tut) return;
+  G.tut.step++; G.tut.t=0; G.tut._spawned=false;
+  const n=TUT_STEPS[G.tut.step];
+  if(!n){ endTutorial(); return; }
+  tutShow();
+  if(n.id==='fire') spawnTutorialTarget();
+  if(n.id==='done') setTimeout(endTutorial, 6000);
+}
+function endTutorial(){
+  if(!G.tut) return; G.tut.active=false;
+  el('coach').classList.remove('show');
+  if(!G.tutorialDone){ G.tutorialDone=true; if(typeof saveLifetime==='function') saveLifetime(); }
+}
+function tutUpdate(dt){
+  if(!G.tut||!G.tut.active) return;
+  const cur=TUT_STEPS[G.tut.step]; if(!cur) return;
+  G.tut.t+=dt;
+  if(cur.id==='sail'){ G.tut.dist=(G.tut.dist||0)+(G.ship?G.ship.speed*dt:0); if(G.tut.dist>420) tutNext(); }
+  else if(cur.id==='fire'){ if(!G.tut._spawned){ spawnTutorialTarget(); G.tut._spawned=true; } if(G.tut._fired) tutNext(); }
+  else if(cur.id==='collect'){ if(G.tut._collected) tutNext(); }
+  else if(cur.id==='port'){ if(G.state==='shop'||G.tut._docked) tutNext(); }
+  // generous fallback so a confused captain is never stuck on one hint
+  if(cur.id!=='done' && G.tut.t>40) tutNext();
+}
+function spawnTutorialTarget(){
+  const s=G.ship; if(!s||!G.world) return;
+  if(G.entities.some(e=>e._tutTarget&&!e.dead)) return;
+  const a=s.a, d=440;
+  const x=clamp(s.x+Math.cos(a)*d,140,G.world.size-140), y=clamp(s.y+Math.sin(a)*d,140,G.world.size-140);
+  const cg=makeCargo(x,y,Math.random,{type:CARGO_TYPES[0]});   // a slow, soft fishing smack
+  cg.hp=cg.maxhp=26; cg._tutTarget=true; cg.ai='wander';
+  G.entities.push(cg);
 }
 function continueGame(){
   const d=loadSavedData();
@@ -9485,6 +9565,7 @@ function buildShipPage(body){
 document.querySelectorAll('#ov-logbook .logtab').forEach(b=>{
   b.addEventListener('click',()=>{ _logTab=b.dataset.tab; buildLogbook(); });
 });
+{ const _c=el('coach'); if(_c) _c.addEventListener('click', ()=>endTutorial()); }   // tap the coach to skip the tour
 el('btn-logbook').onclick=openLogbook;
 el('logclose').onclick=closeLogbook;
 
