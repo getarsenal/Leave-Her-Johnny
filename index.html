@@ -75,6 +75,11 @@
   /* top-left resources */
   #topbar{top:max(10px,env(safe-area-inset-top));left:10px;display:flex;gap:8px;
     position:absolute;pointer-events:none;}
+  /* charm strip — sits just under the gold/wood readout, top-left */
+  #relicbar{position:absolute;left:12px;top:calc(max(10px,env(safe-area-inset-top)) + 44px);
+    display:none;gap:5px;align-items:center;padding:3px 8px;pointer-events:none;
+    background:linear-gradient(180deg,rgba(34,24,14,.82),rgba(24,17,10,.82));
+    border:2px solid var(--gold-dk);border-radius:999px;box-shadow:var(--shadow-soft);}
   .stat{display:flex;align-items:center;gap:6px;padding:6px 12px 6px 8px;
     background:linear-gradient(180deg,var(--panel),var(--panel2));
     border:3px solid var(--gold-dk);border-radius:999px;
@@ -199,7 +204,7 @@
     display:flex;gap:9px;pointer-events:none;z-index:12;}
   /* Shore parties are a land excursion: the ship HP bar, world minimap and Fire button
      don't apply, so hide them. This also clears the bottom corners for the shore minimap. */
-  body.shore-mode #botright, body.shore-mode #minimapwrap, body.shore-mode .hpwrap{display:none!important;}
+  body.shore-mode #botright, body.shore-mode #minimapwrap, body.shore-mode .hpwrap, body.shore-mode #relicbar{display:none!important;}
   .abtn{pointer-events:auto;width:66px;height:66px;border-radius:20px;border:none;
     background:linear-gradient(180deg,#3a5688,#26395d);
     border:3px solid var(--gold-dk);box-shadow:var(--shadow-soft);
@@ -444,6 +449,7 @@
       <div class="stat gold"><div class="ic">⬤</div><span id="s-gold">0</span></div>
       <div class="stat wood"><div class="ic">🪵</div><span id="s-wood">0</span></div>
     </div>
+    <div id="relicbar"></div>
     <div id="topright">
       <div id="mapname">The Shallows</div>
       <div class="trbtns">
@@ -493,6 +499,7 @@
       <p id="bestrunbadge" style="display:none;margin:6px 0;font-weight:800;color:#1f7a3f">🏆 Best run: <span id="bestrunval">0</span>g</p>
       <p>Sail the bright blue. Hunt treasure, raid cargo ships, dodge the Crown's navy, and upgrade your ship until you're the terror of the tides — all the way to the Kraken.</p>
       <p class="hint">Tap the water to sail there (or <b>WASD</b> on a keyboard). Cannons fire on their own when foes draw near — tap <b>Fire</b> or hit <b>Space</b> for a full broadside.</p>
+      <div id="classpick" style="margin:10px 0"></div>
       <button class="bigbtn gold" id="continuebtn" style="display:none">Continue ⚓</button>
       <button class="bigbtn gold" id="startbtn">New Voyage ⛵</button>
       <button class="bigbtn" id="endlessbtn" style="display:none;margin-top:8px;background:#1c3a4a;color:#bfe6f2;border-color:#2b6f96">🌊 Open Seas (Endless)</button>
@@ -613,7 +620,7 @@ resize();
 /* Build/version string shown in-app (start screen + dev readout) so it's obvious which
    build is actually running — App Store/TestFlight propagation lags the repo by hours/days.
    Keep this in lockstep with ios MARKETING_VERSION when bumping. */
-const GAME_BUILD='1.0.10';
+const GAME_BUILD='1.0.11';
 /* ---------- math ---------- */
 const TAU=Math.PI*2;
 const rnd=(a=1,b)=>b===undefined?Math.random()*a:a+Math.random()*(b-a);
@@ -686,6 +693,8 @@ function saveGame(){
       revealedCaches,                                 // buried-treasure X marks already uncovered
       gold:Math.floor(G.gold),
       wood:Math.floor(G.wood),
+      shipClass:G.shipClass,                          // chosen hull (run-scoped)
+      relics:(G.relics||[]).slice(),                  // charms collected this voyage
       upgrades:{...G.upgrades},
       treasureFound:G.treasureFound,
       collectedGems:G.collectedGems||{},
@@ -843,6 +852,8 @@ const G = {
   cruiseAng:null,        //   (no finger needed), a touch faster, camera pulled back a bit.
   gold:0, wood:0,
   ship:null,
+  shipClass:'brig',          // chosen hull class (run-scoped; see SHIPCLASSES)
+  relics:[],                 // roguelike charms collected this voyage (see RELICS)
   entities:[], cannonballs:[], particles:[], floaters:[], wakes:[], debris:[], seagulls:[],
   upgrades:{hull:0,sails:0,cannons:0,crew:0,hold:0,hotshot:0,spread:0,ballast:0,chain:0,plating:0,boarding:0},
   // ---- ship cosmetics (unlocked by catching seagulls; persist forever) ----
@@ -2666,22 +2677,166 @@ function makeShip(opts){
 }
 function recalcPlayer(){
   const u=G.upgrades, s=G.ship;
-  const prevMax=s.maxhp||0;
-  s.maxhp = 120 + u.hull*72;                 // deeper hull scaling (8 lvls -> +576)
-  if(s.hp>s.maxhp)s.hp=s.maxhp;
-  s.maxspeed = 120 + u.sails*24;
-  s.turn = 2.2 + u.sails*0.30;
-  s.cannons = Math.min(15, 2 + u.cannons);   // visible guns per side (capped at 15)
-  s.dmg = 14 + u.cannons*3;                  // per-shot dmg (tempered for the higher gun cap)
-  s.fireRate = 1.0 + u.crew*0.17;
-  s.range = 340 + u.crew*32;
-  s.loot = 1 + u.hold*0.6;                    // up to ~4.6x at max hold
-  s.hotshot = (u.hotshot||0)*0.12;           // +12%/lvl bonus vs monsters/bosses
-  s.spread = (u.spread||0);                   // extra projectiles per broadside
-  s.dmgResist = (u.ballast||0)*0.04;          // up to -20% incoming damage
-  // the hull visibly grows as you invest — pairs with the camera pulling back
-  s.drawScale = 1.18 + (u.hull||0)*0.055;     // ~1.18 -> ~1.62 at max hull
-  s.r = 26 + (u.hull||0)*1.4;                 // collision radius grows modestly too
+  const C=currentShipClass();
+  // base = (upgrade curve) × class multiplier; Brig is all ×1 so it equals the old numbers.
+  let maxhp   =(120 + u.hull*72)   * C.hp;
+  let maxspeed=(120 + u.sails*24)  * C.spd;
+  let turn    =(2.2 + u.sails*0.30)* C.turn;
+  let cannons =(2 + u.cannons)     * C.gun + (C.gunFlat||0);
+  let dmg     =(14 + u.cannons*3)  * C.dmg;
+  let fireRate=(1.0 + u.crew*0.17) * C.fireRate;
+  let range   =(340 + u.crew*32)   * C.range;
+  let loot    =(1 + u.hold*0.6)    * (C.loot||1);
+  let hotshot =(u.hotshot||0)*0.12 + (C.hotshot||0);
+  let spread  =(u.spread||0)       + (C.spread||0);
+  let dmgResist=(u.ballast||0)*0.04+ (C.dmgResist||0);
+  let dmgTaken=1, mapLuck=0;
+  // RELICS — roguelike charms tilt the build further (empty until you collect any)
+  for(const rid of (G.relics||[])){
+    const R=RELIC_BY_ID[rid]; if(!R)continue; const m=R.mods||{}, f=R.flags||{};
+    if(m.hp)maxhp*=m.hp; if(m.spd)maxspeed*=m.spd; if(m.turn)turn*=m.turn;
+    if(m.gun)cannons*=m.gun; if(m.dmg)dmg*=m.dmg; if(m.fireRate)fireRate*=m.fireRate;
+    if(m.range)range*=m.range; if(m.loot)loot*=m.loot;
+    if(f.hotshot)hotshot+=f.hotshot; if(f.spread)spread+=f.spread;
+    if(f.dmgResist)dmgResist+=f.dmgResist; if(f.dmgTaken)dmgTaken*=f.dmgTaken; if(f.mapLuck)mapLuck+=f.mapLuck;
+  }
+  s.maxhp=Math.round(maxhp); if(s.hp>s.maxhp)s.hp=s.maxhp;
+  s.maxspeed=maxspeed; s.turn=turn;
+  s.cannons=Math.min(15, Math.max(1, Math.round(cannons)));
+  s.dmg=dmg; s.fireRate=fireRate; s.range=range; s.loot=loot;
+  s.hotshot=hotshot; s.spread=Math.round(spread);
+  s.dmgResist=Math.min(0.6, dmgResist); s.dmgTaken=dmgTaken; s.mapLuck=mapLuck;
+  // class silhouette + trait (length flows safely through the existing hull art)
+  s.classL=C.L||1; s.masts=C.masts||2; s.evasive=(C.traitId==='evasive');
+  s.drawScale=(C.drawScale||1.18) + (u.hull||0)*0.055;
+  s.r=(C.rBase||26) + (u.hull||0)*1.4;
+}
+/* ================================================================
+   SHIP CLASSES — pick a hull at New Voyage. Each is the same upgrade tree
+   tilted by multipliers, plus a signature trait, so every voyage plays
+   differently without new content. Brig is the neutral baseline (all ×1).
+   ================================================================ */
+const SHIPCLASSES=[
+  {id:'sloop', name:'Sloop', icon:'⛵', blurb:'Fast & nimble, lighter guns',
+   trait:'Evasive — slips shots while running', traitId:'evasive',
+   hp:0.78, spd:1.18, turn:1.30, gun:0.85, dmg:0.92, fireRate:1.05, range:0.95, loot:1.0,
+   rBase:22, drawScale:1.06, L:0.90, masts:1, unlock:null},
+  {id:'brig', name:'Brig', icon:'🚢', blurb:'Balanced all-rounder',
+   trait:'Versatile — +1 charm slot', traitId:'versatile',
+   hp:1, spd:1, turn:1, gun:1, dmg:1, fireRate:1, range:1, loot:1,
+   rBase:26, drawScale:1.18, L:1.0, masts:2, unlock:null},
+  {id:'galleon', name:'Galleon', icon:'🛳️', blurb:'Heavy, tanky, huge broadside',
+   trait:'Ironsides — +10% damage resist', traitId:'ironsides',
+   hp:1.38, spd:0.82, turn:0.78, gun:1.0, gunFlat:2, dmg:1.08, fireRate:0.92, range:1.05, loot:1.10,
+   dmgResist:0.10, rBase:32, drawScale:1.32, L:1.28, masts:3,
+   unlock:{stat:'navySunk', n:60, hint:'Sink 60 enemy ships (all-time)'}},
+  {id:'frigate', name:'Frigate', icon:'⚔️', blurb:'Glass cannon, long reach',
+   trait:'Hot Shot — shells burn (+ vs beasts & bosses)', traitId:'hotshot',
+   hp:0.92, spd:1.06, turn:1.12, gun:1.0, dmg:1.16, fireRate:1.0, range:1.12, loot:1.0,
+   hotshot:0.20, rBase:27, drawScale:1.20, L:1.18, masts:3,
+   unlock:{clearSea:2, hint:'Clear Sea 3 to earn her commission'}},
+];
+const SHIPCLASS_BY_ID={}; for(const c of SHIPCLASSES) SHIPCLASS_BY_ID[c.id]=c;
+function currentShipClass(){ return SHIPCLASS_BY_ID[G.shipClass]||SHIPCLASS_BY_ID.brig; }
+function shipClassUnlocked(c){
+  if(!c||!c.unlock) return true;
+  if(c.unlock.stat) return ((G.stats&&G.stats[c.unlock.stat])||0) >= c.unlock.n;
+  if(c.unlock.clearSea!=null) return Math.max(G.maxMapCleared|0, G._savedMaxMap|0) >= c.unlock.clearSea || !!G.cursedUnlocked;
+  return true;
+}
+function relicSlots(){ return 5 + (currentShipClass().traitId==='versatile'?1:0); }
+/* ================================================================
+   RELICS / CHARMS — roguelike modifiers collected during a voyage (run-scoped).
+   Bought at the Cove or pulled from big buried treasure. Limited slots force
+   real build choices; effects funnel through recalcPlayer so nothing is scattered.
+   ================================================================ */
+const RELICS=[
+  {id:'powder',     name:'Powder Monkey',          icon:'🐒', rarity:'common',   cost:140, desc:'+25% reload, −10% hull',                 mods:{fireRate:1.25, hp:0.90}},
+  {id:'ballast',    name:'Iron Ballast',           icon:'⚓', rarity:'common',   cost:150, desc:'+12% damage resist, −8% speed',          mods:{spd:0.92}, flags:{dmgResist:0.12}},
+  {id:'stormsails', name:'Storm Sails',            icon:'🌬️', rarity:'common',   cost:150, desc:'+16% speed, +18% turning',               mods:{spd:1.16, turn:1.18}},
+  {id:'longnines',  name:'Long Nines',             icon:'🎯', rarity:'common',   cost:150, desc:'+20% range, +8% damage',                 mods:{range:1.20, dmg:1.08}},
+  {id:'brass',      name:'Brass Cannons',          icon:'💥', rarity:'common',   cost:160, desc:'+18% damage, −10% reload',               mods:{dmg:1.18, fireRate:0.90}},
+  {id:'keel',       name:'Reinforced Keel',        icon:'🪵', rarity:'common',   cost:150, desc:'+22% hull, −6% speed',                   mods:{hp:1.22, spd:0.94}},
+  {id:'grape',      name:'Grapeshot Spreader',     icon:'🧨', rarity:'uncommon', cost:240, desc:'+1 cannonball per broadside',            flags:{spread:1}},
+  {id:'hotshot',    name:'Hot Shot Furnace',       icon:'🔥', rarity:'uncommon', cost:240, desc:'+20% vs beasts & bosses',                flags:{hotshot:0.20}},
+  {id:'ledger',     name:"Quartermaster's Ledger", icon:'📒', rarity:'uncommon', cost:260, desc:'+35% gold from plunder',                 mods:{loot:1.35}},
+  {id:'writ',       name:"Privateer's Writ",       icon:'📜', rarity:'uncommon', cost:220, desc:'Navy drop treasure maps far more often', flags:{mapLuck:0.30}},
+  {id:'krakenbone', name:'Krakenbone Charm',       icon:'🦑', rarity:'rare',     cost:360, desc:'+15% vs bosses, +6% hull',               mods:{hp:1.06}, flags:{hotshot:0.15}},
+  {id:'doubloon',   name:'Cursed Doubloon',        icon:'🪙', rarity:'rare',     cost:300, desc:'+60% gold, but +12% damage taken',      mods:{loot:1.60}, flags:{dmgTaken:1.12}},
+  {id:'wind',       name:'Trade Winds Charm',      icon:'🍃', rarity:'rare',     cost:360, desc:'+10% speed, reload & gold',              mods:{spd:1.10, fireRate:1.10, loot:1.10}},
+];
+const RELIC_BY_ID={}; for(const r of RELICS) RELIC_BY_ID[r.id]=r;
+const RARITY_COL={common:'#8a8f98', uncommon:'#3f9e6a', rare:'#b066d6'};
+function hasRelic(id){ return (G.relics||[]).indexOf(id)>=0; }
+function addRelic(id){
+  if(!RELIC_BY_ID[id] || hasRelic(id)) return false;
+  if((G.relics||[]).length >= relicSlots()) return false;   // full — must drop one first
+  G.relics.push(id); recalcPlayer(); updateHUD(); if(typeof updateRelicHUD==='function') updateRelicHUD();
+  return true;
+}
+function removeRelic(id){
+  const i=(G.relics||[]).indexOf(id); if(i<0) return;
+  G.relics.splice(i,1); recalcPlayer(); updateHUD(); if(typeof updateRelicHUD==='function') updateRelicHUD();
+}
+// surprise charm from a hoard — only if there's a free slot and an unowned charm
+function grantRandomRelic(){
+  if((G.relics||[]).length>=relicSlots()) return false;
+  const avail=RELICS.filter(r=>!hasRelic(r.id));
+  if(!avail.length) return false;
+  const R=avail[rndi(0,avail.length-1)];
+  if(addRelic(R.id)){ toast('🪬 The hoard held a charm — '+R.name+'!',3000); return true; }
+  return false;
+}
+/* Start-screen ship picker — choose a hull before a New Voyage. Locked hulls show how
+   to earn them. Styled to match the warm parchment/oak menu. */
+function buildClassPicker(){
+  const host=el('classpick'); if(!host) return;
+  host.innerHTML='';
+  const lbl=document.createElement('div');
+  lbl.style.cssText='font-weight:800;color:#7a4a1d;margin:0 0 6px;font-size:13px;letter-spacing:.5px';
+  lbl.textContent='⚓ CHOOSE YOUR SHIP';
+  host.appendChild(lbl);
+  const row=document.createElement('div');
+  row.style.cssText='display:flex;gap:6px;justify-content:center;flex-wrap:wrap';
+  host.appendChild(row);
+  for(const c of SHIPCLASSES){
+    const unlocked=shipClassUnlocked(c), sel=(G.shipClass===c.id);
+    const b=document.createElement('button');
+    b.style.cssText='flex:1 1 0;min-width:62px;max-width:100px;border-radius:12px;padding:7px 4px;cursor:pointer;'
+      +'transition:transform .08s;'
+      +'border:2px solid '+(sel?'#e8b34a':'#caa97a')+';'
+      +'background:'+(sel?'#fff3d6':'#fbf1de')+';'
+      +(unlocked?'':'opacity:.55;filter:grayscale(.5);');
+    b.innerHTML='<div style="font-size:22px;line-height:1">'+(unlocked?c.icon:'🔒')+'</div>'
+      +'<div style="font-weight:800;color:#5e3a18;font-size:11.5px;margin-top:3px">'+c.name+'</div>';
+    b.onclick=()=>{
+      if(typeof sfx!=='undefined'&&sfx.click)sfx.click();
+      if(unlocked){ G.shipClass=c.id; } else if(c.unlock){ toast('🔒 '+c.name+' — '+c.unlock.hint, 2800); }
+      buildClassPicker();
+    };
+    row.appendChild(b);
+  }
+  const sel=currentShipClass();
+  const desc=document.createElement('div');
+  desc.style.cssText='margin-top:8px;font-size:12px;color:#5e4a32;min-height:34px;line-height:1.35';
+  desc.innerHTML='<b>'+sel.name+'</b> — '+sel.blurb+'<br><span style="color:#9a6a2a;font-weight:700">✦ '+sel.trait+'</span>';
+  host.appendChild(desc);
+}
+/* Live charm strip in the sailing HUD: the icons you've collected this voyage. */
+function updateRelicHUD(){
+  const bar=el('relicbar'); if(!bar) return;
+  const list=G.relics||[];
+  if(!list.length || G.state==='shore'){ bar.style.display='none'; bar.innerHTML=''; return; }
+  bar.style.display='flex';
+  bar.innerHTML='';
+  for(const id of list){
+    const R=RELIC_BY_ID[id]; if(!R)continue;
+    const d=document.createElement('div');
+    d.textContent=R.icon;
+    d.title=R.name+' — '+R.desc;
+    d.style.cssText='font-size:16px;line-height:1;filter:drop-shadow(0 1px 1px rgba(0,0,0,.4))';
+    bar.appendChild(d);
+  }
 }
 
 /* spawn world entities */
@@ -3507,7 +3662,14 @@ function updateCannonballs(dt){
 
 function dealDamage(e,amt,by){
   if(e===G.ship && G.dev && G.dev.invincible){ e.hitflash=0.4; return; }   // DEV god mode
+  // Sloop's EVASIVE trait: a real shell against a ship at speed has a chance to be slipped.
+  if(e===G.ship && G.ship.evasive && amt>=4 && G.ship.speed>G.ship.maxspeed*0.5 && Math.random()<0.22){
+    G.dmgPops.push({x:e.x, y:e.y-e.r*0.5, vy:-46, life:0.7, max:0.7, txt:'DODGE', crit:false});
+    splash(e.x+rnd(-e.r*0.3,e.r*0.3), e.y+rnd(-e.r*0.3,e.r*0.3), 'rgba(200,230,255,0.75)');
+    return;
+  }
   if(e===G.ship && G.ship.dmgResist){ amt*=(1-G.ship.dmgResist); }
+  if(e===G.ship && G.ship.dmgTaken){ amt*=G.ship.dmgTaken; }   // Cursed Doubloon etc.
   if(by===G.ship && G.dev && G.dev.oneShot && e!==G.ship){ amt=1e9; }       // DEV one-shot kills
   if(e.dead)return;
   // a diving/submerged boss can't be hit (only when by the player's shots; contact still hurts the player elsewhere)
@@ -3572,7 +3734,7 @@ function killEntity(e,by){
     const cn=CLASS_NAME[e.cls]||'Navy Ship';
     toast('⚔ Enemy '+cn+' sunk! +'+g+'g',1400);
     if(e.guardian){ revealCache(e.guardIsland, true); }
-    else if(Math.random()<0.28){ dropTreasureMap(); }   // ~28% of regular navy drop a map
+    else if(Math.random()<0.28 + (G.ship&&G.ship.mapLuck||0)){ dropTreasureMap(); }   // base ~28%, +Privateer's Writ
     if(by===G.ship){ G.stats.navySunk++; seeKind(e.cls); }
   }
   else if(e.type==='monster'){ g=Math.floor(e.bounty*(G.ship.loot||1)*mult); spawnLootBurst(e.x,e.y,g,4);
@@ -3643,7 +3805,8 @@ function collectFloater(f){
   if(f.type==='treasure'){ G.gold+=f.val; G.treasureFound++;
     if(typeof f.gemIdx==='number'){ markGemCollected(G.mapIndex,f.gemIdx); requestSave(); }
     toast('💎 Treasure found! '+G.treasureFound+'/'+G.treasureTotal+'  (+'+f.val+'g)',1800);
-    splash(f.x,f.y,'#ffd966'); setObjective(); sfx.treasure(); checkWin(); }
+    splash(f.x,f.y,'#ffd966'); setObjective(); sfx.treasure(); checkWin();
+    if(Math.random()<0.22) grantRandomRelic(); }
   else if(f.type==='coin'){ G.gold+=f.val; sfx.coin(); }
   else if(f.type==='barrel'){ const w=f.wood||rndi(4,9); G.wood+=w; G.stats.woodEarned=(G.stats.woodEarned||0)+w; sfx.barrel(); }
   else if(f.type==='bounty'){
@@ -7168,7 +7331,7 @@ function drawHull(e,z){
 
   // shape factors: player uses upgrades; navy uses its class profile
   const u = e.type==='player' ? G.upgrades : {hull:0,sails:0,cannons:0,crew:0,hold:0,chain:0,plating:0};
-  const L = e.type==='player' ? (1 + u.hull*0.16)
+  const L = e.type==='player' ? (1 + u.hull*0.16)*(e.classL||1)
           : (e.type==='navy'||e.type==='boss'||e.type==='cargo') ? (e.shipL||1)
           : 1;
   const B = (e.type==='navy'||e.type==='boss'||e.type==='cargo') ? (e.beam||1) : 1;     // beam (width) factor
@@ -8162,6 +8325,41 @@ function buildShop(){
         toast('⬆ '+u.name+' upgraded!',1400); saveGame();};}
     row.appendChild(btn);wrap.appendChild(row);
   }
+  buildCharmShop(wrap);
+}
+/* The Cove also peddles CHARMS (relics): a rotating handful you can buy with gold.
+   Limited equip slots force a real choice; bought charms last the whole voyage. */
+function buildCharmShop(wrap){
+  // a stable per-voyage selection so the stock doesn't reshuffle every time you dock
+  if(!G._charmStock){
+    const pool=RELICS.map(r=>r.id);
+    // seed off the world so it's consistent within a run but varied between runs
+    let seed=(G.worldSeed>>>0)||12345; const rr=()=>{seed=(seed*9301+49297)%233280;return seed/233280;};
+    for(let i=pool.length-1;i>0;i--){ const j=Math.floor(rr()*(i+1)); [pool[i],pool[j]]=[pool[j],pool[i]]; }
+    G._charmStock=pool.slice(0,6);
+  }
+  const hdr=document.createElement('div');
+  hdr.style.cssText='margin:12px 2px 4px;font-weight:800;color:var(--cream);font-size:14px;border-top:2px solid var(--gold-dk);padding-top:10px';
+  hdr.innerHTML=`🪬 Charms <span style="font-weight:600;opacity:.75;font-size:12px">— ${(G.relics||[]).length}/${relicSlots()} slots</span>`;
+  wrap.appendChild(hdr);
+  // show the rotating stock plus any charm you already own (so it can be sold to free a slot)
+  const ids=[...new Set([...(G.relics||[]), ...G._charmStock])];
+  for(const id of ids){
+    const R=RELIC_BY_ID[id]; if(!R)continue;
+    const owned=hasRelic(id), full=(G.relics||[]).length>=relicSlots();
+    const row=document.createElement('div'); row.className='uprow';
+    row.innerHTML=`<div class="upic" style="background:${RARITY_COL[R.rarity]||'#888'}">${R.icon}</div>
+      <div class="upinfo"><b>${R.name}</b><small>${R.desc}</small>
+      <span class="uplvl" style="color:${RARITY_COL[R.rarity]}">${owned?'✓ equipped · '+R.rarity:R.rarity}</span></div>`;
+    const btn=document.createElement('button'); btn.className='upbuy';
+    if(owned){ const refund=Math.floor(R.cost/2); btn.innerHTML=`SELL<br>${refund}🪙`;
+      btn.onclick=()=>{ removeRelic(id); G.gold+=refund; updateHUD(); sfx.click&&sfx.click(); buildShop(); saveGame(); }; }
+    else if(full){ btn.innerHTML='SLOTS<br>FULL'; btn.classList.add('max'); btn.disabled=true; btn.title='Sell an equipped charm to free a slot, or sail a bigger hull'; }
+    else { btn.innerHTML=`${R.cost}🪙`; btn.disabled=G.gold<R.cost;
+      btn.onclick=()=>{ if(G.gold<R.cost)return; G.gold-=R.cost; addRelic(id);
+        sfx.upgrade&&sfx.upgrade(); haptic('success'); toast('🪬 '+R.name+' fitted!',1500); buildShop(); saveGame(); }; }
+    row.appendChild(btn); wrap.appendChild(row);
+  }
 }
 /* ---- Minimap ---- */
 // the world minimap can "pop out" to a big centred chart (tap to toggle). When popped
@@ -8413,7 +8611,7 @@ function startMap(idx, restore){
   if(typeof collapseMinimap==='function') collapseMinimap();   // start each sea with the compact chart
   if(G._shorePromptUp){ el('portprompt').classList.remove('show'); G._shorePromptUp=false; }
   hidePortPrompt();
-  updateHUD(); setObjective();
+  updateHUD(); setObjective(); updateRelicHUD();
   G.state='play';
   toast('⛵ '+G.world.def.name,2000);
   // if every gem on a non-boss map is already collected (e.g. found them, then
@@ -8435,6 +8633,8 @@ function newVoyage(){
   resetRun(); G.comboBest=0;
   G.stats.voyages=(G.stats.voyages||0)+1;
   G.upgrades={hull:0,sails:0,cannons:0,crew:0,hold:0,hotshot:0,spread:0,ballast:0,chain:0,plating:0,boarding:0};
+  G.relics=[]; G._charmStock=null;                      // fresh voyage → no charms, new cove stock
+  if(!shipClassUnlocked(currentShipClass())) G.shipClass='brig';   // guard a locked pick
   el('ov-start').classList.remove('show');
   startMap(0);
 }
@@ -8452,6 +8652,8 @@ function continueGame(){
   G.endless=false;
   loadLifetime(d);
   G.upgrades=Object.assign({hull:0,sails:0,cannons:0,crew:0,hold:0,hotshot:0,spread:0,ballast:0,chain:0,plating:0,boarding:0}, d.upgrades||{});
+  G.shipClass=(d.shipClass && SHIPCLASS_BY_ID[d.shipClass])?d.shipClass:'brig';
+  G.relics=Array.isArray(d.relics)?d.relics.filter(id=>RELIC_BY_ID[id]):[];
   el('ov-start').classList.remove('show');
   startMap(Math.min(d.mapIndex||0, MAPS.length-1), d);
 }
@@ -8523,6 +8725,7 @@ function startEndless(){
   resetRun(); G.comboBest=0;
   // a generous fixed loadout so endless is about survival, not grinding upgrades
   G.upgrades={hull:3,sails:3,cannons:3,crew:3,hold:3,hotshot:1,spread:1,ballast:1,chain:1,plating:1,boarding:3};
+  G.relics=[]; G._charmStock=null;                 // your chosen hull carries in; charms start fresh
   G.mapIndex=MAPS.length-1;
   el('ov-start').classList.remove('show');
   startMap(MAPS.length-1);
@@ -8534,6 +8737,9 @@ el('endlessbtn').onclick=startEndless;
 if(hasSave()) el('continuebtn').style.display='';
 // show the all-time best run on the menu if there is one
 (function(){ const d=loadSavedData(); const best=(d&&d.bestRun)|0;
+  if(d){ loadLifetime(d); G._savedMaxMap=(typeof d.maxMapCleared==='number')?d.maxMapCleared:-1;
+         if(d.shipClass && SHIPCLASS_BY_ID[d.shipClass]) G.shipClass=d.shipClass; }
+  buildClassPicker();   // populate the ship chooser (reflects unlocks from saved progress)
   if(best>0){ el('bestrunval').textContent=best; el('bestrunbadge').style.display=''; G.bestRun=best; }
   // Open Seas unlocks once you've beaten the campaign (any boss-cleared progress);
   // show it with the best score if you've played it.
@@ -9098,6 +9304,7 @@ function refreshDevDiag(){
     `STATE ${G.state}   fps~${Math.round(1/Math.max(0.001,G.dt||0.016))}  worst1s ${Math.round(G._frLast||0)}ms\n`+
     `BUILD v${GAME_BUILD}\n`+
     `SHIP  hp ${Math.round(s.hp||0)}/${Math.round(s.maxhp||0)}  spd ${Math.round(s.speed||0)}\n`+
+    `CLASS ${G.shipClass}   charms ${(G.relics||[]).length}/${relicSlots()} [${(G.relics||[]).join(',')}]\n`+
     `      pos ${Math.round(s.x||0)},${Math.round(s.y||0)}\n`+
     `GOLD  ${Math.floor(G.gold)}   WOOD ${Math.floor(G.wood)}\n`+
     `GEMS  ${G.treasureFound}/${G.treasureTotal}\n`+
