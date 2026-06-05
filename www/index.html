@@ -565,7 +565,8 @@
     <div class="card logbook">
       <h2>📖 Captain's Logbook</h2>
       <div class="logtabs">
-        <button class="logtab active" data-tab="ach">🏆 Deeds</button>
+        <button class="logtab active" data-tab="ship">🚢 Ship</button>
+        <button class="logtab" data-tab="ach">🏆 Deeds</button>
         <button class="logtab" data-tab="best">🐙 Bestiary</button>
         <button class="logtab" data-tab="rec">📜 Records</button>
         <button class="logtab" data-tab="daily">🧭 Daily</button>
@@ -629,7 +630,7 @@ resize();
 /* Build/version string shown in-app (start screen + dev readout) so it's obvious which
    build is actually running — App Store/TestFlight propagation lags the repo by hours/days.
    Keep this in lockstep with ios MARKETING_VERSION when bumping. */
-const GAME_BUILD='1.0.12';
+const GAME_BUILD='1.0.13';
 /* ---------- math ---------- */
 const TAU=Math.PI*2;
 const rnd=(a=1,b)=>b===undefined?Math.random()*a:a+Math.random()*(b-a);
@@ -2687,10 +2688,11 @@ function makeShip(opts){
     sink:0,
   },opts);
 }
-function recalcPlayer(){
-  const u=G.upgrades, s=G.ship;
-  const C=currentShipClass();
-  // base = (upgrade curve) × class multiplier; Brig is all ×1 so it equals the old numbers.
+/* Pure stat math: (upgrade curve) × class multiplier × charm mods. Used both by
+   recalcPlayer (live ship) and the Ship dossier (current vs a no-upgrade baseline),
+   so the screen always shows the exact numbers the game runs on. Brig+nothing = the
+   original values. */
+function computeStats(u, relics, C){
   let maxhp   =(120 + u.hull*72)   * C.hp;
   let maxspeed=(120 + u.sails*24)  * C.spd;
   let turn    =(2.2 + u.sails*0.30)* C.turn;
@@ -2703,8 +2705,7 @@ function recalcPlayer(){
   let spread  =(u.spread||0)       + (C.spread||0);
   let dmgResist=(u.ballast||0)*0.04+ (C.dmgResist||0);
   let dmgTaken=1, mapLuck=0;
-  // RELICS — roguelike charms tilt the build further (empty until you collect any)
-  for(const rid of (G.relics||[])){
+  for(const rid of (relics||[])){
     const R=RELIC_BY_ID[rid]; if(!R)continue; const m=R.mods||{}, f=R.flags||{};
     if(m.hp)maxhp*=m.hp; if(m.spd)maxspeed*=m.spd; if(m.turn)turn*=m.turn;
     if(m.gun)cannons*=m.gun; if(m.dmg)dmg*=m.dmg; if(m.fireRate)fireRate*=m.fireRate;
@@ -2712,12 +2713,18 @@ function recalcPlayer(){
     if(f.hotshot)hotshot+=f.hotshot; if(f.spread)spread+=f.spread;
     if(f.dmgResist)dmgResist+=f.dmgResist; if(f.dmgTaken)dmgTaken*=f.dmgTaken; if(f.mapLuck)mapLuck+=f.mapLuck;
   }
-  s.maxhp=Math.round(maxhp); if(s.hp>s.maxhp)s.hp=s.maxhp;
-  s.maxspeed=maxspeed; s.turn=turn;
-  s.cannons=Math.min(15, Math.max(1, Math.round(cannons)));
-  s.dmg=dmg; s.fireRate=fireRate; s.range=range; s.loot=loot;
-  s.hotshot=hotshot; s.spread=Math.round(spread);
-  s.dmgResist=Math.min(0.6, dmgResist); s.dmgTaken=dmgTaken; s.mapLuck=mapLuck;
+  return {maxhp,maxspeed,turn,cannons,dmg,fireRate,range,loot,hotshot,spread,
+          dmgResist:Math.min(0.6,dmgResist), dmgTaken, mapLuck};
+}
+function recalcPlayer(){
+  const u=G.upgrades, s=G.ship, C=currentShipClass();
+  const st=computeStats(u, G.relics, C);
+  s.maxhp=Math.round(st.maxhp); if(s.hp>s.maxhp)s.hp=s.maxhp;
+  s.maxspeed=st.maxspeed; s.turn=st.turn;
+  s.cannons=Math.min(15, Math.max(1, Math.round(st.cannons)));
+  s.dmg=st.dmg; s.fireRate=st.fireRate; s.range=st.range; s.loot=st.loot;
+  s.hotshot=st.hotshot; s.spread=Math.round(st.spread);
+  s.dmgResist=st.dmgResist; s.dmgTaken=st.dmgTaken; s.mapLuck=st.mapLuck;
   // class silhouette + trait (length flows safely through the existing hull art)
   s.classL=C.L||1; s.masts=C.masts||2; s.evasive=(C.traitId==='evasive');
   s.drawScale=(C.drawScale||1.18) + (u.hull||0)*0.055;
@@ -9260,7 +9267,7 @@ function openLogbook(){
   if(G.state!=='play' && G.state!=='shop' && G.state!=='end' && G.state!=='menu') return;
   rollDaily();                       // make sure today's bounty exists
   if(G.state==='play'||G.state==='shop') G.state='shop';   // pause world cleanly
-  _logTab='ach'; buildLogbook();
+  _logTab='ship'; buildLogbook();
   el('ov-logbook').classList.add('show');
 }
 function closeLogbook(){ el('ov-logbook').classList.remove('show'); if(G.state==='shop')G.state='play'; }
@@ -9358,6 +9365,102 @@ function buildLogbook(){
         `<p class="hint" style="margin-top:10px">A fresh bounty arrives each day. Reward: <b>${d.reward}g</b></p>`;
     }
     body.appendChild(card);
+  } else if(_logTab==='ship'){
+    buildShipPage(body);
+  }
+}
+/* SHIP DOSSIER — your current hull at a glance: class & trait, effective combat
+   stats (with the % gained from everything you've fitted), then the upgrades and
+   charms behind those numbers. Read-only; visit the Cove to actually buy. */
+function buildShipPage(body){
+  const C=currentShipClass();
+  const ZERO={hull:0,sails:0,cannons:0,crew:0,hold:0,hotshot:0,spread:0,ballast:0,chain:0,plating:0,boarding:0};
+  const cur=computeStats(G.upgrades, G.relics, C);
+  const base=computeStats(ZERO, [], C);              // this hull, nothing fitted
+  const totLv=Object.keys(UP).reduce((a,k)=>a+(G.upgrades[k]||0),0);
+
+  // ---- header: class, trait, totals ----
+  const head=document.createElement('div');
+  head.style.cssText='display:flex;align-items:center;gap:12px;background:#fbf1de;border:2px solid var(--gold-dk);border-radius:14px;padding:12px;margin-bottom:12px';
+  head.innerHTML=`<div style="font-size:42px;line-height:1">${C.icon}</div>
+    <div style="flex:1;text-align:left">
+      <div style="font-weight:800;color:#5e3a18;font-size:18px">${C.name}</div>
+      <div style="color:#9a6a2a;font-weight:700;font-size:12px">✦ ${C.trait}</div>
+      <div style="color:#6e5a3e;font-size:12px;margin-top:3px">${totLv} upgrade levels fitted · ${(G.relics||[]).length} charm${(G.relics||[]).length===1?'':'s'}</div>
+    </div>`;
+  body.appendChild(head);
+
+  // ---- effective combat stats with % gained from upgrades+charms ----
+  const sec=(t)=>{ const h=document.createElement('div'); h.style.cssText='font-weight:800;color:var(--cream);font-size:13px;letter-spacing:.4px;margin:6px 2px 6px'; h.textContent=t; body.appendChild(h); };
+  sec('⚙️ COMBAT STATS');
+  const statRow=(icon,name,curStr,pct)=>{
+    const r=document.createElement('div');
+    r.style.cssText='display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:10px;background:rgba(255,247,226,0.06);margin-bottom:4px';
+    const up = pct>0 ? `<b style="color:#5fcf86">+${pct}%</b>` : (pct<0?`<b style="color:#e08a6a">${pct}%</b>`:'<span style="opacity:.5">—</span>');
+    r.innerHTML=`<span style="font-size:17px;width:22px;text-align:center">${icon}</span>
+      <span style="flex:1;color:var(--cream);font-weight:600">${name}</span>
+      <b style="color:#fff;width:78px;text-align:right">${curStr}</b>
+      <span style="width:58px;text-align:right;font-size:12px">${up}</span>`;
+    body.appendChild(r);
+  };
+  const pc=(c,b)=>Math.round((c/b-1)*100);
+  statRow('🛡️','Hull',           Math.round(cur.maxhp),                 pc(cur.maxhp,base.maxhp));
+  statRow('⛵','Top Speed',       Math.round(cur.maxspeed),              pc(cur.maxspeed,base.maxspeed));
+  statRow('↩️','Turning',         cur.turn.toFixed(2),                   pc(cur.turn,base.turn));
+  statRow('💣','Guns / side',     Math.min(15,Math.round(cur.cannons)),  pc(cur.cannons,base.cannons));
+  statRow('🎯','Shot Damage',     Math.round(cur.dmg),                   pc(cur.dmg,base.dmg));
+  statRow('🔄','Reload',          cur.fireRate.toFixed(2)+'/s',          pc(cur.fireRate,base.fireRate));
+  statRow('📏','Range',           Math.round(cur.range),                 pc(cur.range,base.range));
+  statRow('🪙','Plunder',         '×'+cur.loot.toFixed(2),               pc(cur.loot,base.loot));
+
+  // ---- special perks (only the ones that are active) ----
+  const perks=[];
+  if(cur.dmgResist>0) perks.push(['🛡️','Damage resist', Math.round(cur.dmgResist*100)+'%']);
+  if(cur.hotshot>0)   perks.push(['🔥','Bonus vs beasts & bosses', '+'+Math.round(cur.hotshot*100)+'%']);
+  if(cur.spread>0)    perks.push(['🧨','Extra cannonballs', '+'+Math.round(cur.spread)]);
+  if(cur.mapLuck>0)   perks.push(['🗺️','Treasure-map luck', '+'+Math.round(cur.mapLuck*100)+'%']);
+  if(cur.dmgTaken>1)  perks.push(['☠️','Damage taken', '+'+Math.round((cur.dmgTaken-1)*100)+'%']);
+  if(C.traitId==='evasive') perks.push(['💨','Dodge while running','22%']);
+  perks.push(['⛵','Fleet capacity', fleetCount()+'/'+fleetCap()]);
+  if(perks.length){
+    sec('✦ PERKS');
+    for(const [ic,nm,val] of perks){
+      const r=document.createElement('div');
+      r.style.cssText='display:flex;align-items:center;gap:8px;padding:5px 10px;font-size:13px;color:var(--cream)';
+      r.innerHTML=`<span style="width:22px;text-align:center">${ic}</span><span style="flex:1">${nm}</span><b>${val}</b>`;
+      body.appendChild(r);
+    }
+  }
+
+  // ---- upgrades fitted (invested ones highlighted) ----
+  sec('🔧 UPGRADES');
+  for(const key in UP){
+    const u=UP[key], lvl=G.upgrades[key]||0, has=lvl>0;
+    const r=document.createElement('div');
+    r.style.cssText='display:flex;align-items:center;gap:9px;padding:6px 10px;border-radius:10px;margin-bottom:3px;'
+      +(has?'background:rgba(232,179,74,0.16);border:1px solid rgba(232,179,74,0.4)':'opacity:.5');
+    let pips=''; for(let i=1;i<=u.max;i++) pips+=`<i style="display:inline-block;width:6px;height:6px;border-radius:50%;margin-left:2px;background:${i<=lvl?'#e8b34a':'rgba(255,255,255,0.18)'}"></i>`;
+    r.innerHTML=`<span style="font-size:17px;width:22px;text-align:center">${u.emoji}</span>
+      <div style="flex:1;text-align:left"><b style="color:var(--cream)">${u.name}</b>
+        <div style="font-size:11px;color:#cdbfa6">${u.desc}</div></div>
+      <div style="text-align:right"><div style="font-size:11px;color:var(--cream);font-weight:700">Lv ${lvl}/${u.max}</div><div>${pips}</div></div>`;
+    body.appendChild(r);
+  }
+
+  // ---- charms fitted ----
+  sec('🪬 CHARMS ('+(G.relics||[]).length+'/'+relicSlots()+')');
+  if(!(G.relics||[]).length){
+    const n=document.createElement('div'); n.style.cssText='font-size:12px;color:var(--cream);opacity:.7;padding:2px 10px';
+    n.textContent='None fitted. Buy them at the Cove or find them in treasure.'; body.appendChild(n);
+  } else for(const id of G.relics){
+    const R=RELIC_BY_ID[id]; if(!R)continue;
+    const r=document.createElement('div');
+    r.style.cssText='display:flex;align-items:center;gap:9px;padding:6px 10px;border-radius:10px;margin-bottom:3px;background:rgba(255,247,226,0.06)';
+    r.innerHTML=`<span style="font-size:17px;width:22px;text-align:center">${R.icon}</span>
+      <div style="flex:1;text-align:left"><b style="color:var(--cream)">${R.name}</b>
+        <div style="font-size:11px;color:#cdbfa6">${R.desc}</div></div>
+      <span style="font-size:11px;color:${RARITY_COL[R.rarity]};font-weight:700">${R.rarity}</span>`;
+    body.appendChild(r);
   }
 }
 document.querySelectorAll('#ov-logbook .logtab').forEach(b=>{
