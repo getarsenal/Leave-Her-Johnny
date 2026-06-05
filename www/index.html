@@ -670,7 +670,7 @@ resize();
 /* Build/version string shown in-app (start screen + dev readout) so it's obvious which
    build is actually running — App Store/TestFlight propagation lags the repo by hours/days.
    Keep this in lockstep with ios MARKETING_VERSION when bumping. */
-const GAME_BUILD='1.0.17';
+const GAME_BUILD='1.0.18';
 /* ---------- math ---------- */
 const TAU=Math.PI*2;
 const rnd=(a=1,b)=>b===undefined?Math.random()*a:a+Math.random()*(b-a);
@@ -2921,6 +2921,7 @@ function captureAsAlly(e){
   e.slot=fleetNextSlot(); e.tint=shade(e.tint||'#88b0d0',0.10);
   e.combatT=0; e.reload=0;
   G.fleet=G.fleet||[]; G.fleet.push({cls:e.cls, slot:e.slot});
+  celebrate(e.x,e.y,['#7fd0a0','#bfe6c8','#ffd34d']); G.shake=Math.max(G.shake,7); haptic('success');
   if(typeof updateRelicHUD==='function') updateRelicHUD();
 }
 function updateAlly(e,dt,s,dp){
@@ -4173,7 +4174,12 @@ function collectFloater(f){
   }
   // sparkle
   for(let i=0;i<5;i++)G.particles.push({x:f.x,y:f.y,vx:rnd(-40,40),vy:rnd(-70,-20),life:.6,max:.6,c:'#ffe08a',r:3});
-  if(G.gold>goldBefore){ G.stats.goldEarned=(G.stats.goldEarned||0)+(G.gold-goldBefore); checkAchievements(); }
+  if(G.gold>goldBefore){
+    G.stats.goldEarned=(G.stats.goldEarned||0)+(G.gold-goldBefore); checkAchievements();
+    // juicy floating "+Ng" pickup popup
+    if(G.dmgPops){ G.dmgPops.push({x:f.x, y:f.y-8, vy:-40, life:0.9, max:0.9, txt:'+'+Math.round(G.gold-goldBefore)+'g', gold:true});
+      if(G.dmgPops.length>40) G.dmgPops.shift(); }
+  }
   updateHUD();
 }
 
@@ -6588,6 +6594,12 @@ function updateMortars(dt){
    ================================================================ */
 function smoke(x,y){for(let i=0;i<4;i++)G.particles.push({x,y,vx:rnd(-30,30),vy:rnd(-50,-10),life:.7,max:.7,c:'#f5f0e6',r:rnd(4,9),smoke:1});}
 function splash(x,y,c){for(let i=0;i<7;i++)G.particles.push({x,y,vx:rnd(-60,60),vy:rnd(-90,-20),life:.5,max:.5,c:c||'#cdeefb',r:rnd(2,5)});}
+// a celebratory radial burst for big positive moments (capture, level cleared)
+function celebrate(x,y,cols){
+  cols=cols||['#ffd34d','#7fd0a0','#fff3cf'];
+  for(let i=0;i<22;i++){ const a=(i/22)*TAU+rnd(-0.15,0.15), sp=rnd(70,180);
+    G.particles.push({x,y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp-30,life:rnd(.6,1.0),max:1.0,c:cols[i%cols.length],r:rnd(2.5,5)}); }
+}
 
 /* ---- SHIP DEATH: a glide-explode-sink sequence whose scale tracks the hull size.
    The fireball & smoke ride the normal particle field; flung hull debris lives in
@@ -6700,6 +6712,11 @@ function drawDmgPops(){
       ctx.font=`800 ${15*z}px 'Baloo 2'`;
       ctx.lineWidth=4*z;ctx.strokeStyle='rgba(60,30,10,0.8)';ctx.strokeText(d.txt,sx,sy);
       ctx.fillStyle='#ffe066';ctx.fillText(d.txt,sx,sy);
+    } else if(d.gold){
+      const sz=12*z*(0.85+0.15*(2-a));
+      ctx.font=`800 ${sz}px 'Baloo 2'`;
+      ctx.lineWidth=3.5*z;ctx.strokeStyle='rgba(70,45,8,0.8)';ctx.strokeText(d.txt,sx,sy);
+      ctx.fillStyle='#ffd34d';ctx.fillText(d.txt,sx,sy);
     } else {
       const sz=(d.crit?18:13)*z*(0.8+0.2*(2-a));
       ctx.font=`800 ${sz}px 'Baloo 2'`;
@@ -8347,6 +8364,21 @@ function render(){
     G._vigG={w:W,h:H,grad:vg};
   }
   ctx.fillStyle=G._vigG.grad;ctx.fillRect(0,0,W,H);
+  // low-hull danger vignette — pulsing red edges below 28% (a clear, accessible "you're dying" cue)
+  { const s=G.ship;
+    if(s && !s.dead && s.maxhp>0 && (s.hp/s.maxhp)<0.28 && (G.state==='play'||G.state==='shore')){
+      if(!G._dangerG || G._dangerG.w!==W || G._dangerG.h!==H){
+        const dg=ctx.createRadialGradient(W/2,H/2,Math.min(W,H)*0.28,W/2,H/2,Math.max(W,H)*0.72);
+        dg.addColorStop(0,'rgba(150,18,22,0)'); dg.addColorStop(1,'rgba(150,18,22,1)');
+        G._dangerG={w:W,h:H,grad:dg};
+      }
+      const intensity=clamp((0.28-(s.hp/s.maxhp))/0.28,0,1);
+      const pulse=G.reducedMotion?0.55:(0.4+0.6*Math.abs(Math.sin(G.t*4)));
+      ctx.globalAlpha=0.42*intensity*pulse;
+      ctx.fillStyle=G._dangerG.grad; ctx.fillRect(0,0,W,H);
+      ctx.globalAlpha=1;
+    }
+  }
 
   // Cursed Voyage: a blood-moon tint so the cursed seas FEEL different
   if(G.cursed){
