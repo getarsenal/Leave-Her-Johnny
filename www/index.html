@@ -680,7 +680,7 @@ resize();
 /* Build/version string shown in-app (start screen + dev readout) so it's obvious which
    build is actually running — App Store/TestFlight propagation lags the repo by hours/days.
    Keep this in lockstep with ios MARKETING_VERSION when bumping. */
-const GAME_BUILD='1.0.21';
+const GAME_BUILD='1.0.22';
 /* ---------- math ---------- */
 const TAU=Math.PI*2;
 const rnd=(a=1,b)=>b===undefined?Math.random()*a:a+Math.random()*(b-a);
@@ -3308,7 +3308,7 @@ function populate(){
       val:rndi(220,360)+G.mapIndex*120, sprung:false, escorts:2+Math.min(G.mapIndex,2)});}
   // a little salvage floating beside some shipwrecks
   if(G.world.wrecks){ for(const w of G.world.wrecks){ if(!w.hasLoot)continue;
-    const a=rnd(TAU), d=rnd(30,60);
+    const a=rnd(TAU), d=rnd(70,105);   // OUTSIDE the wreck's collision core so it's always reachable
     G.floaters.push({x:w.x+Math.cos(a)*d,y:w.y+Math.sin(a)*d,type:'coin',r:11,bob:rnd(TAU),collected:false,val:rndi(10,28)});
   }}
 
@@ -3607,18 +3607,24 @@ function avoidIslands(e){
     }
   }
   if(e.type==='player')e._touchingLand=false;
-  // shipwrecks are solid too — bump and glide off them like a small island
+  // shipwrecks are SEMI-solid: a small core you glide around, not a sticky wall.
+  // (radius shrunk + heading nudged tangentially so the boat slides off instead of
+  //  clinging; loot beside wrecks now spawns OUTSIDE this core so it's collectable.)
   if(G.world.wrecks){
     for(const w of G.world.wrecks){
-      const wr=46*(w.s||1)+e.r, d=dist(e.x,e.y,w.x,w.y);
+      const wr=32*(w.s||1)+e.r*0.5, d=dist(e.x,e.y,w.x,w.y)||0.01;
       if(d<wr){
-        const a=angTo(w.x,w.y,e.x,e.y);
-        e.x=w.x+Math.cos(a)*wr; e.y=w.y+Math.sin(a)*wr;
+        const a=angTo(w.x,w.y,e.x,e.y);                 // surface normal (wreck -> ship)
+        e.x=w.x+Math.cos(a)*wr; e.y=w.y+Math.sin(a)*wr; // pop to the surface
+        // steer the heading toward whichever tangent matches travel, so it glides off
+        const t1=a+Math.PI/2, t2=a-Math.PI/2;
+        const tgt=Math.abs(angDiff(e.a,t1))<Math.abs(angDiff(e.a,t2))?t1:t2;
+        e.a += clamp(angDiff(e.a,tgt), -0.10, 0.10);
         if(e.type==='player'){
-          if(!e._touchingWreck){ G.shake=Math.max(G.shake,Math.min(6,e.speed*0.05)); if(e.speed>25)sfx.beach(); }
+          if(!e._touchingWreck){ G.shake=Math.max(G.shake,Math.min(4,e.speed*0.035)); if(e.speed>45)sfx.beach(); }
           e._touchingWreck=true;
         }
-        e.speed*=0.55;
+        e.speed*=0.86;                                  // gentle drag, not a dead stop
         return;
       }
     }
