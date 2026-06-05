@@ -630,7 +630,7 @@ resize();
 /* Build/version string shown in-app (start screen + dev readout) so it's obvious which
    build is actually running — App Store/TestFlight propagation lags the repo by hours/days.
    Keep this in lockstep with ios MARKETING_VERSION when bumping. */
-const GAME_BUILD='1.0.13';
+const GAME_BUILD='1.0.14';
 /* ---------- math ---------- */
 const TAU=Math.PI*2;
 const rnd=(a=1,b)=>b===undefined?Math.random()*a:a+Math.random()*(b-a);
@@ -2730,6 +2730,24 @@ function recalcPlayer(){
   s.drawScale=(C.drawScale||1.18) + (u.hull||0)*0.055;
   s.r=(C.rBase||26) + (u.hull||0)*1.4;
 }
+/* POWER-AWARE DIFFICULTY: how much stronger you are than a plain Brig at the SAME
+   upgrade levels — isolates the extra power from hull class, charms and fleet. An
+   upgrade-only Brig run returns 1.0, so the originally-tuned curve is untouched; only
+   optimized builds face proportionally tougher enemies (so power still *feels* strong
+   without trivializing the game). Orthogonal to bossPowerScale (which tracks upgrades). */
+function buildBonus(){
+  const C=currentShipClass();
+  const cur=computeStats(G.upgrades, G.relics, C);
+  const ref=computeStats(G.upgrades, [], SHIPCLASS_BY_ID.brig);   // same upgrades, plain Brig, no charms
+  const off=s=>s.dmg*Math.min(15,s.cannons)*s.fireRate*(1+(s.hotshot||0));
+  const ehp=s=>s.maxhp/((s.dmgTaken||1)*(1-Math.min(0.6,s.dmgResist||0)));
+  const offR=off(cur)/Math.max(1,off(ref)), ehpR=ehp(cur)/Math.max(1,ehp(ref));
+  let b=Math.pow(offR,0.6)*Math.pow(ehpR,0.4);
+  b*=(1+0.18*(typeof fleetCount==='function'?fleetCount():0));    // escorts add effective power
+  return clamp(b,1,3);
+}
+function threatHpMul(){ return clamp(1+(buildBonus()-1)*0.40, 1, 1.7); }
+function threatDmgMul(){ return clamp(1+(buildBonus()-1)*0.55, 1, 1.9); }
 /* ================================================================
    SHIP CLASSES — pick a hull at New Voyage. Each is the same upgrade tree
    tilted by multipliers, plus a signature trait, so every voyage plays
@@ -2751,7 +2769,7 @@ const SHIPCLASSES=[
    unlock:{stat:'navySunk', n:60, hint:'Sink 60 enemy ships (all-time)'}},
   {id:'frigate', name:'Frigate', icon:'⚔️', blurb:'Glass cannon, long reach',
    trait:'Hot Shot — shells burn (+ vs beasts & bosses)', traitId:'hotshot',
-   hp:0.92, spd:1.06, turn:1.12, gun:1.0, dmg:1.16, fireRate:1.0, range:1.12, loot:1.0,
+   hp:0.92, spd:1.06, turn:1.12, gun:1.0, dmg:1.10, fireRate:1.0, range:1.12, loot:1.0,
    hotshot:0.20, rBase:27, drawScale:1.20, L:1.18, masts:3,
    unlock:{clearSea:2, hint:'Clear Sea 3 to earn her commission'}},
 ];
@@ -2780,12 +2798,12 @@ const RELICS=[
   {id:'hotshot',    name:'Hot Shot Furnace',       icon:'🔥', rarity:'uncommon', cost:240, desc:'+20% vs beasts & bosses',                flags:{hotshot:0.20}},
   {id:'ledger',     name:"Quartermaster's Ledger", icon:'📒', rarity:'uncommon', cost:260, desc:'+35% gold from plunder',                 mods:{loot:1.35}},
   {id:'writ',       name:"Privateer's Writ",       icon:'📜', rarity:'uncommon', cost:220, desc:'Navy drop treasure maps far more often', flags:{mapLuck:0.30}},
-  {id:'krakenbone', name:'Krakenbone Charm',       icon:'🦑', rarity:'rare',     cost:360, desc:'+15% vs bosses, +6% hull',               mods:{hp:1.06}, flags:{hotshot:0.15}},
+  {id:'krakenbone', name:'Krakenbone Charm',       icon:'🦑', rarity:'rare',     cost:360, desc:'+15% vs beasts & bosses, −6% reload', mods:{fireRate:0.94}, flags:{hotshot:0.15}},
   {id:'doubloon',   name:'Cursed Doubloon',        icon:'🪙', rarity:'rare',     cost:300, desc:'+60% gold, but +12% damage taken',      mods:{loot:1.60}, flags:{dmgTaken:1.12}},
-  {id:'wind',       name:'Trade Winds Charm',      icon:'🍃', rarity:'rare',     cost:360, desc:'+10% speed, reload & gold',              mods:{spd:1.10, fireRate:1.10, loot:1.10}},
+  {id:'wind',       name:'Trade Winds Charm',      icon:'🍃', rarity:'rare',     cost:360, desc:'+10% speed, reload & gold; −10% hull', mods:{spd:1.10, fireRate:1.10, loot:1.10, hp:0.90}},
   {id:'marque',     name:'Letter of Marque',       icon:'🎖️', rarity:'rare',     cost:340, desc:'+1 fleet escort capacity',              flags:{}},
   {id:'carronade',  name:'Carronades',             icon:'🌋', rarity:'uncommon', cost:250, desc:'+30% damage, −15% range',               mods:{dmg:1.30, range:0.85}},
-  {id:'coppered',   name:'Coppered Hull',          icon:'🛡️', rarity:'uncommon', cost:240, desc:'+18% hull, +5% speed',                  mods:{hp:1.18, spd:1.05}},
+  {id:'coppered',   name:'Coppered Hull',          icon:'🛡️', rarity:'uncommon', cost:240, desc:'+22% hull, −5% turning',                mods:{hp:1.22, turn:0.95}},
   {id:'lucky',      name:'Lucky Figurehead',       icon:'🍀', rarity:'rare',     cost:320, desc:'+20% gold & more treasure maps',       mods:{loot:1.20}, flags:{mapLuck:0.10}},
 ];
 const RELIC_BY_ID={}; for(const r of RELICS) RELIC_BY_ID[r.id]=r;
@@ -3106,10 +3124,11 @@ function makeNavy(x,y,patrol,clsDef){
   const c=clsDef||pickNavyClass();
   const mi=G.mapIndex;
   const cm=G.cursed?1.6:1, cd=G.cursed?1.3:1;     // Cursed Voyage: tougher, hits harder
+  const th=threatHpMul(), td=threatDmgMul();      // power-aware: tougher vs optimized builds (1.0 for a plain Brig)
   return makeShip({x,y,type:'navy',faction:'enemy',cls:c.cls,
-    hp:(c.hp+mi*45)*cm, maxhp:(c.hp+mi*45)*cm, r:c.r,
+    hp:(c.hp+mi*45)*cm*th, maxhp:(c.hp+mi*45)*cm*th, r:c.r,
     maxspeed:c.spd+mi*5, turn:c.turn,
-    fireRate:c.fireRate+mi*0.05, dmg:(c.dmg+mi*5)*cd,
+    fireRate:c.fireRate+mi*0.05, dmg:(c.dmg+mi*5)*cd*td,
     cannons:c.cannons, range:c.range+mi*15,
     shipL:c.L, beam:c.beam, masts:c.masts, sailC:c.sail,
     ai:'patrol', tint:c.tint, patrol:patrol||{x,y}, bounty:Math.round((c.bounty+mi*20)*(G.cursed?1.5:1))});
@@ -3369,8 +3388,8 @@ function spawnBossOf(mk, x, y, opts){
   const stats=Object.assign({},base);
   const cm=G.cursed?1.6:1, cd=G.cursed?1.3:1;
   const sc=opts.scale||1;
-  stats.hp=Math.round(stats.hp*sc*cm);
-  stats.dmg=Math.round(stats.dmg*(0.6+sc*0.4)*cd);   // damage scales gentler than HP
+  stats.hp=Math.round(stats.hp*sc*cm*threatHpMul());             // power-aware: charm/class/fleet builds get a meatier boss
+  stats.dmg=Math.round(stats.dmg*(0.6+sc*0.4)*cd*threatDmgMul()); // …that hits back harder (damage scales gentler than HP)
   const isShipBoss = (mk==='ghost'||mk==='wraith'||mk==='drowned'||mk==='manowar');
   const tint = mk==='manowar' ? '#3a2f4a'
     : isShipBoss ? (mk==='wraith'?'#7a8a5a':mk==='drowned'?'#16241e':'#2e3a44')
