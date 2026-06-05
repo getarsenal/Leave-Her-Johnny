@@ -680,7 +680,7 @@ resize();
 /* Build/version string shown in-app (start screen + dev readout) so it's obvious which
    build is actually running — App Store/TestFlight propagation lags the repo by hours/days.
    Keep this in lockstep with ios MARKETING_VERSION when bumping. */
-const GAME_BUILD='1.0.23';
+const GAME_BUILD='1.0.24';
 /* ---------- math ---------- */
 const TAU=Math.PI*2;
 const rnd=(a=1,b)=>b===undefined?Math.random()*a:a+Math.random()*(b-a);
@@ -3653,6 +3653,16 @@ function tryFire(e,dt,target){
       fireBroadside(e,target,e.dmg);              // navy: one shell per drawn gun port
     }
     if(G.ship && dist(e.x,e.y,G.ship.x,G.ship.y)<700) sfx.enemyCannon();
+  }
+  // BOW CHASERS: ship-bosses (man-o-wars, ghost/wraith/drowned) get a couple of limited
+  // forward-firing guns on a slow cadence, so they can't be trivially trapped dead-ahead.
+  if(shipBoss){
+    e.bowReload=(e.bowReload||0)-dt;
+    if(e.bowReload<=0 && rel<0.5 && dp<e.range*1.05){
+      e.bowReload=2.6;                                  // slow — broadside stays the main threat
+      fireCannon(e,target,Math.round(e.dmg*0.7),false,2);
+      if(G.ship && dist(e.x,e.y,G.ship.x,G.ship.y)<700) sfx.enemyCannon&&sfx.enemyCannon();
+    }
   }
 }
 
