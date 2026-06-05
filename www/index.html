@@ -693,7 +693,7 @@ resize();
 /* Build/version string shown in-app (start screen + dev readout) so it's obvious which
    build is actually running — App Store/TestFlight propagation lags the repo by hours/days.
    Keep this in lockstep with ios MARKETING_VERSION when bumping. */
-const GAME_BUILD='1.0.27';
+const GAME_BUILD='1.0.28';
 /* ---------- math ---------- */
 const TAU=Math.PI*2;
 const rnd=(a=1,b)=>b===undefined?Math.random()*a:a+Math.random()*(b-a);
@@ -769,6 +769,7 @@ function saveGame(){
       shipClass:G.shipClass,                          // chosen hull (run-scoped)
       relics:(G.relics||[]).slice(),                  // charms collected this voyage
       fleet:(G.fleet||[]).map(d=>({cls:d.cls,slot:d.slot})),  // captured escorts
+      companion:G.companion||null,                            // animal companion
       upgrades:{...G.upgrades},
       treasureFound:G.treasureFound,
       collectedGems:G.collectedGems||{},
@@ -945,6 +946,7 @@ const G = {
   settings:{vol:0.8, music:1.0, haptics:true, reducedMotion:false, bigText:false, highContrast:false, difficulty:'normal'},
   reducedMotion:false, diffMul:1.0,   // derived from settings
   wind:null,                          // directional sailing wind {ang,str,...}: subtle speed help/hinder
+  companion:null,                     // ship animal companion id (passive buff, run-scoped)
   entities:[], cannonballs:[], particles:[], floaters:[], wakes:[], debris:[], seagulls:[],
   upgrades:{hull:0,sails:0,cannons:0,crew:0,hold:0,hotshot:0,spread:0,ballast:0,chain:0,plating:0,boarding:0},
   // ---- ship cosmetics (unlocked by catching seagulls; persist forever) ----
@@ -2577,6 +2579,42 @@ function drawClouds(){
     ctx.restore();
   }
 }
+/* the player's animal companion, drawn riding along with the ship (custom art, no emoji) */
+function drawCompanion(){
+  const cmp=companionDef(), s=G.ship; if(!cmp||!s||s.dead||G.state!=='play') return;
+  const z=G.cam.zoom, t=G.t;
+  if(cmp.id==='gull'){
+    const orb=t*1.5, R=s.r+22;
+    const sx=wx(s.x+Math.cos(orb)*R), sy=wy(s.y+Math.sin(orb)*R)-12*z;
+    const flap=2.5+Math.abs(Math.sin(t*9))*3;
+    ctx.strokeStyle='#f4f7fa'; ctx.lineWidth=2*z; ctx.lineCap='round';
+    ctx.beginPath();
+    ctx.moveTo(sx-6*z,sy); ctx.quadraticCurveTo(sx-2*z,sy-flap*z,sx,sy);
+    ctx.quadraticCurveTo(sx+2*z,sy-flap*z,sx+6*z,sy); ctx.stroke();
+  } else if(cmp.id==='dolphin'||cmp.id==='narwhal'){
+    const side=Math.sin(t*0.5)>=0?1:-1, perp=s.a+Math.PI/2;
+    const off=(s.r+24)*side, along=Math.sin(t*1.3)*s.r*0.5;
+    const bx=s.x+Math.cos(perp)*off+Math.cos(s.a)*along, by=s.y+Math.sin(perp)*off+Math.sin(s.a)*along;
+    const arc=Math.max(0,Math.sin(t*1.6))*9*z;
+    const sx=wx(bx), sy=wy(by)-arc;
+    // shadow on the water
+    ctx.fillStyle='rgba(8,40,58,0.22)'; ctx.beginPath();ctx.ellipse(wx(bx),wy(by),6*z,3*z,0,0,TAU);ctx.fill();
+    ctx.save(); ctx.translate(sx,sy); ctx.rotate(s.a+Math.PI/2+Math.sin(t*1.6)*0.3);
+    ctx.fillStyle=cmp.col;
+    ctx.beginPath(); ctx.ellipse(0,0,4.5*z,11*z,0,0,TAU); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(0,11*z);ctx.lineTo(-5*z,16*z);ctx.lineTo(5*z,16*z);ctx.closePath(); ctx.fill();
+    if(cmp.id==='narwhal'){ ctx.strokeStyle='#efe6d2';ctx.lineWidth=1.6*z;ctx.beginPath();ctx.moveTo(0,-10*z);ctx.lineTo(0,-21*z);ctx.stroke(); }
+    ctx.restore();
+  } else if(cmp.id==='otter'){
+    const bx=s.x-Math.cos(s.a)*s.r*0.35, by=s.y-Math.sin(s.a)*s.r*0.35;
+    const sx=wx(bx), sy=wy(by)+Math.sin(s.bob||0)*2*z;
+    ctx.save(); ctx.translate(sx,sy); ctx.rotate(s.a+Math.PI/2);
+    ctx.fillStyle=cmp.col; ctx.beginPath();ctx.ellipse(0,0,4*z,6.5*z,0,0,TAU);ctx.fill();
+    ctx.beginPath();ctx.arc(0,-6*z,2.6*z,0,TAU);ctx.fill();
+    ctx.fillStyle='#2a1c12'; ctx.beginPath();ctx.arc(-1*z,-6.5*z,0.7*z,0,TAU);ctx.arc(1*z,-6.5*z,0.7*z,0,TAU);ctx.fill();
+    ctx.restore();
+  }
+}
 function drawGulls(){
   if(!G.world.gulls)return;
   const z=G.cam.zoom;
@@ -2662,6 +2700,8 @@ function catchSeagull(g){
   else { G.gold+=30; updateHUD(); toast('🪶 Caught a gull! +'+(tip+30)+'g (every trim unlocked)',2200); }
   if(typeof sfx!=='undefined' && sfx.coin) sfx.coin();
   haptic('light');
+  // now and then a caught gull takes a shine to your ship and becomes a deck companion
+  if(!G.companion && Math.random()<0.18) grantCompanion('gull');
   if(typeof checkAchievements==='function') checkAchievements();
   if(typeof saveLifetime==='function') saveLifetime();
 }
@@ -2803,6 +2843,12 @@ function recalcPlayer(){
   s.dmg=st.dmg; s.fireRate=st.fireRate; s.range=st.range; s.loot=st.loot;
   s.hotshot=st.hotshot; s.spread=Math.round(st.spread);
   s.dmgResist=st.dmgResist; s.dmgTaken=st.dmgTaken; s.mapLuck=st.mapLuck;
+  // a ship companion (animal friend) lends a small passive buff
+  const cmp=companionDef();
+  if(cmp&&cmp.mods){ const m=cmp.mods;
+    if(m.loot)s.loot*=m.loot; if(m.spd)s.maxspeed*=m.spd; if(m.dmg)s.dmg*=m.dmg;
+    if(m.fireRate)s.fireRate*=m.fireRate;
+    if(m.hp){ s.maxhp=Math.round(s.maxhp*m.hp); if(s.hp>s.maxhp)s.hp=s.maxhp; } }
   // class silhouette + trait (length flows safely through the existing hull art)
   s.classL=C.L||1; s.masts=C.masts||2; s.evasive=(C.traitId==='evasive');
   s.drawScale=(C.drawScale||1.18) + (u.hull||0)*0.055;
@@ -2860,6 +2906,26 @@ function shipClassUnlocked(c){
   return true;
 }
 function relicSlots(){ return 5 + (currentShipClass().traitId==='versatile'?1:0); }
+/* ================================================================
+   COMPANIONS — a sea-animal friend that rides with your ship for the voyage and lends
+   a small passive buff. One at a time; found via encounters / befriending wildlife.
+   ================================================================ */
+const COMPANIONS=[
+  {id:'gull',    name:'Deck Gull',  blurb:'A gull rides your rigging', mods:{loot:1.12}, perk:'+12% plunder', col:'#eef3f6'},
+  {id:'dolphin', name:'Dolphin',    blurb:'A dolphin races your bow',  mods:{spd:1.08},  perk:'+8% speed',    col:'#9fc6d8'},
+  {id:'narwhal', name:'Narwhal',    blurb:'A narwhal swims alongside', mods:{dmg:1.10},  perk:'+10% damage',  col:'#cfe6f0'},
+  {id:'otter',   name:'Sea Otter',  blurb:'An otter naps on deck',     mods:{fireRate:1.10}, perk:'+10% reload', col:'#9a6a44'},
+];
+const COMPANION_BY_ID={}; for(const c of COMPANIONS) COMPANION_BY_ID[c.id]=c;
+function companionDef(){ return G.companion?COMPANION_BY_ID[G.companion]:null; }
+function grantCompanion(id){
+  if(!COMPANION_BY_ID[id]) return false;
+  G.companion=id; recalcPlayer(); updateHUD(); if(typeof updateRelicHUD==='function') updateRelicHUD();
+  const c=COMPANION_BY_ID[id]; toast('🐾 '+c.name+' joins your ship! '+c.perk, 3200); haptic('success');
+  // a little welcoming flourish near the ship
+  if(G.ship && typeof celebrate==='function') celebrate(G.ship.x, G.ship.y-G.ship.r, [c.col,'#fff3cf']);
+  return true;
+}
 /* ================================================================
    RELICS / CHARMS — roguelike modifiers collected during a voyage (run-scoped).
    Bought at the Cove or pulled from big buried treasure. Limited slots force
@@ -3044,10 +3110,18 @@ const EVENTS=[
      {label:'Let her pass', go:()=>{ toast('Not today.',1600); }},
    ]},
   {id:'whalepod', emoji:'🐋', title:'A Whale Pod',
-   text:'Spouts on the horizon — a pod breaches in the gold of evening. A fine, peaceful sight.',
+   text:'Spouts on the horizon — a pod breaches in the gold of evening. A young narwhal lingers, curious about your ship.',
    choices:[
-     {label:'Render oil from a straggler', go:()=>{ gainGold(rndi(80,150)); G.gullsCaught=G.gullsCaught; toast('🛢️ Whale oil fetches a tidy sum.',2400); }},
+     {label:'Befriend the narwhal', go:()=>{ if(!grantCompanion('narwhal')) gainGold(rndi(80,150)); }},
+     {label:'Render oil from a straggler', go:()=>{ gainGold(rndi(90,160)); toast('🛢️ Whale oil fetches a tidy sum.',2400); }},
      {label:'Just watch a while', go:()=>{ healShip(0.18); toast('😌 The crew’s spirits lift — a little rest. Hull mended.',2600); }},
+   ]},
+  {id:'companions', emoji:'🐬', title:'A Curious Pod',
+   text:'A pod of sea creatures circles your hull, playful and unafraid. One might just take a shine to your crew.',
+   choices:[
+     {label:'Coax one to ride along', go:()=>{ const pool=['dolphin','gull','otter']; if(!grantCompanion(pool[rndi(0,pool.length-1)])) gainGold(rndi(60,120)); }},
+     {label:'Toss them some fish', go:()=>{ healShip(0.12); toast('🐟 The crew shares their catch — good spirits all round.',2400); }},
+     {label:'Sail on', go:()=>{ toast('You leave the pod to their play.',1700); }},
    ]},
 ];
 const EVENT_BY_ID={}; for(const e of EVENTS) EVENT_BY_ID[e.id]=e;
@@ -8414,6 +8488,7 @@ function render(){
   }
   drawOctopi();         // octopuses clinging to the player's hull (above the ship)
   drawSeagulls();       // catchable gulls resting on / fleeing across the water
+  drawCompanion();      // your animal friend riding along (gull / dolphin / narwhal / otter)
   drawParticles();
   drawDebris();         // flung hull wreckage (arcs above the smoke, casts a shadow)
   drawDmgPops();        // floating damage numbers + combo pops
@@ -9152,7 +9227,7 @@ function newVoyage(){
   resetRun(); G.comboBest=0;
   G.stats.voyages=(G.stats.voyages||0)+1;
   G.upgrades={hull:0,sails:0,cannons:0,crew:0,hold:0,hotshot:0,spread:0,ballast:0,chain:0,plating:0,boarding:0};
-  G.relics=[]; G._charmStock=null; G.fleet=[];           // fresh voyage → no charms, new stock, empty fleet
+  G.relics=[]; G._charmStock=null; G.fleet=[]; G.companion=null;   // fresh voyage → no charms, new stock, empty fleet, no companion
   if(!shipClassUnlocked(currentShipClass())) G.shipClass='brig';   // guard a locked pick
   el('ov-start').classList.remove('show');
   startMap(0);
@@ -9227,6 +9302,7 @@ function continueGame(){
   G.shipClass=(d.shipClass && SHIPCLASS_BY_ID[d.shipClass])?d.shipClass:'brig';
   G.relics=Array.isArray(d.relics)?d.relics.filter(id=>RELIC_BY_ID[id]):[];
   G.fleet=Array.isArray(d.fleet)?d.fleet.filter(x=>x&&NAVY_CLASSES.some(n=>n.cls===x.cls)).map(x=>({cls:x.cls,slot:x.slot|0})):[];
+  G.companion=(d.companion&&COMPANION_BY_ID[d.companion])?d.companion:null;
   el('ov-start').classList.remove('show');
   startMap(Math.min(d.mapIndex||0, MAPS.length-1), d);
 }
@@ -9298,7 +9374,7 @@ function startEndless(){
   resetRun(); G.comboBest=0;
   // a generous fixed loadout so endless is about survival, not grinding upgrades
   G.upgrades={hull:3,sails:3,cannons:3,crew:3,hold:3,hotshot:1,spread:1,ballast:1,chain:1,plating:1,boarding:3};
-  G.relics=[]; G._charmStock=null; G.fleet=[];     // your chosen hull carries in; charms & fleet start fresh
+  G.relics=[]; G._charmStock=null; G.fleet=[]; G.companion=null;   // your chosen hull carries in; charms/fleet/companion start fresh
   G.mapIndex=MAPS.length-1;
   el('ov-start').classList.remove('show');
   startMap(MAPS.length-1);
@@ -9707,6 +9783,7 @@ function buildShipPage(body){
   if(cur.dmgTaken>1)  perks.push(['☠️','Damage taken', '+'+Math.round((cur.dmgTaken-1)*100)+'%']);
   if(C.traitId==='evasive') perks.push(['💨','Dodge while running','22%']);
   perks.push(['⛵','Fleet capacity', fleetCount()+'/'+fleetCap()]);
+  { const cm=companionDef(); if(cm) perks.push(['🐾','Companion: '+cm.name, cm.perk]); }
   if(perks.length){
     sec('✦ PERKS');
     for(const [ic,nm,val] of perks){
@@ -9923,6 +10000,7 @@ function buildDevSpawners(){
   devPicker(sp,'Charm',RELICS.map(r=>({label:r.icon+' '+r.name,v:r.id})),o=>{ if(!hasRelic(o.v)){ G.relics.push(o.v); recalcPlayer(); updateRelicHUD&&updateRelicHUD(); updateHUD(); refreshDevDiag(); devToast('Charm: '+o.v); } else devToast('Already fitted'); },'Grant');
   devPicker(sp,'Escort',NAVY_CLASSES.map(c=>({label:'⛵ '+c.cls,v:c.cls})),o=>{ const slot=fleetNextSlot(); G.fleet.push({cls:o.v,slot}); spawnAlly({cls:o.v,slot}); updateRelicHUD&&updateRelicHUD(); refreshDevDiag(); devToast('Escort: '+o.v); },'Add');
   devPicker(sp,'Event',EVENTS.map(e=>({label:e.emoji+' '+e.title,v:e.id})),o=>{ const ev=EVENT_BY_ID[o.v]; closeDev(); openEvent(ev); },'Run');
+  devPicker(sp,'Pet',[{label:'— none —',v:''}].concat(COMPANIONS.map(c=>({label:c.name+' ('+c.perk+')',v:c.id}))),o=>{ G.companion=o.v||null; recalcPlayer(); updateHUD(); refreshDevDiag(); devToast(o.v?('Companion: '+o.v):'Companion cleared'); },'Set');
   { const row=document.createElement('div'); row.style.cssText='display:flex;gap:6px;align-items:center;width:100%;margin:4px 0;';
     const lbl=document.createElement('span'); lbl.textContent='Difficulty'; lbl.style.cssText='font:700 11px/1 system-ui;color:#9fd0e6;min-width:58px;text-align:left;'; row.appendChild(lbl);
     [['relaxed','Relaxed'],['normal','Normal'],['hard','Hard']].forEach(([id,nm])=>{ const b=document.createElement('button'); b.textContent=nm;
