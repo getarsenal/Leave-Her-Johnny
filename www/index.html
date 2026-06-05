@@ -631,7 +631,7 @@
       <div id="devdiag" style="font:600 11px/1.5 monospace;text-align:left;background:#10243a;
         color:#bfe6f2;border-radius:10px;padding:10px;margin:8px 0;white-space:pre-wrap;
         max-height:160px;overflow:auto;"></div>
-      <div id="devbtns" style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin:8px 0;"></div>
+      <div id="devbtns" style="margin:8px 0;"></div>
       <div id="devspawn" style="margin:6px 0;"></div>
       <div style="font:700 11px/1 system-ui;color:#8fc4dd;text-align:left;margin:10px 0 4px;text-transform:uppercase;letter-spacing:.5px;">🎵 Shanty Player <span style="opacity:.6;font-weight:500;text-transform:none;">— tap to play, tap again to stop</span></div>
       <div id="devsongs" style="display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin:0 0 8px;max-height:140px;overflow:auto;"></div>
@@ -680,7 +680,7 @@ resize();
 /* Build/version string shown in-app (start screen + dev readout) so it's obvious which
    build is actually running — App Store/TestFlight propagation lags the repo by hours/days.
    Keep this in lockstep with ios MARKETING_VERSION when bumping. */
-const GAME_BUILD='1.0.19';
+const GAME_BUILD='1.0.20';
 /* ---------- math ---------- */
 const TAU=Math.PI*2;
 const rnd=(a=1,b)=>b===undefined?Math.random()*a:a+Math.random()*(b-a);
@@ -9733,48 +9733,69 @@ function devTapHandler(){
 function openDev(){ G.state='shop'; buildDevMenu(); el('ov-dev').classList.add('show'); }
 function closeDev(){ el('ov-dev').classList.remove('show'); if(G.state==='shop')G.state='play'; }
 
-const DEV_ACTIONS=[
-  // --- spawns: close the menu so you actually SEE the result on the water ---
-  ['⚔️ Spawn Boss', ()=>{ G.bossSpawned=false; G.bossDead=false; if(G.world&&G.world.def&&!G.world.def.boss){ G.world.def.boss='kraken'; } spawnBoss(); closeDev(); }],
-  ['🐋 Spawn Whale', ()=>{ for(let i=0;i<3;i++){ G.critterTimer=0; spawnCritter(); } closeDev(); }],
-  ['🏰 Spawn Fort', ()=>{ devSpawnFort(); /* devSpawnFort already closes */ }],
-  ['🌪️ Clear Enemies', ()=>{ for(const e of G.entities){ if(e.faction==='enemy'&&e.type!=='boss')e.dead=true; } closeDev(); }],
-  // --- god mode toggles (label reflects state) ---
-  [()=>'🛡️ Invincible: '+(G.dev.invincible?'ON':'OFF'), ()=>{ G.dev.invincible=!G.dev.invincible; }],
-  [()=>'💥 One-Shot Kills: '+(G.dev.oneShot?'ON':'OFF'), ()=>{ G.dev.oneShot=!G.dev.oneShot; }],
-  // --- ship progression ---
-  ['⬆️ Max All Upgrades', ()=>{ for(const k in UP){ G.upgrades[k]=UP[k].max; } recalcPlayer(); G.ship.hp=G.ship.maxhp; updateHUD(); }],
-  ['⬇️ Reset Upgrades', ()=>{ for(const k in G.upgrades){ G.upgrades[k]=0; } recalcPlayer(); G.ship.hp=G.ship.maxhp; updateHUD(); }],
-  ['➕ Upgrade +1 (all)', ()=>{ for(const k in UP){ G.upgrades[k]=Math.min(UP[k].max,(G.upgrades[k]||0)+1); } recalcPlayer(); updateHUD(); }],
-  ['➖ Downgrade -1 (all)', ()=>{ for(const k in UP){ G.upgrades[k]=Math.max(0,(G.upgrades[k]||0)-1); } recalcPlayer(); updateHUD(); }],
-  // --- resources ---
-  ['💰 +1000 Gold', ()=>{ G.gold+=1000; updateHUD(); }],
-  ['🪵 +500 Wood', ()=>{ G.wood+=500; updateHUD(); }],
-  ['💎 Find Gem', ()=>{ const g=(G.world.gems||[]).find(x=>!getCollectedGems(G.mapIndex).has(x.idx)); if(g){ markGemCollected(G.mapIndex,g.idx); G.treasureFound++; const fl=G.floaters.find(f=>f.gemIdx===g.idx); if(fl)fl.collected=true; setObjective(); updateHUD(); } }],
-  ['💎💎 Find All Gems', ()=>{ for(const g of (G.world.gems||[])){ if(!getCollectedGems(G.mapIndex).has(g.idx)){ markGemCollected(G.mapIndex,g.idx); G.treasureFound++; const fl=G.floaters.find(f=>f.gemIdx===g.idx); if(fl)fl.collected=true; } } setObjective(); updateHUD(); }],
-  ['❤️ Full Heal', ()=>{ if(G.ship){ G.ship.hp=G.ship.maxhp; updateHUD(); } }],
-  // --- navigation ---
-  ['⏭️ Next Map', ()=>{ closeDev(); if(G.mapIndex<MAPS.length-1){ G.mapIndex++; startMap(G.mapIndex); } }],
-  ['🔄 Restart Map', ()=>{ closeDev(); startMap(G.mapIndex); }],
-  // --- shanty tester: cycle through every shanty (label shows the next one) ---
-  ['🍾 Preview Bottle Pop', ()=>{ const s=SHANTIES[Math.floor(Math.random()*SHANTIES.length)]; closeDev(); showBottlePop(s.name); }],
-  // --- weather ---
-  ['🌩️ Force Storm', ()=>{ if(!G.weather)initWeather(); const w=G.weather; w.state='storm'; w.intensity=1; w.t=0; w.dur=45; }],
-  ['☀️ Clear Weather', ()=>{ if(!G.weather)initWeather(); const w=G.weather; w.state='clear'; w.intensity=0; w.t=0; w.rain=[]; }],
-  ['⚡ Lightning Now', ()=>{ if(!G.weather)initWeather(); const w=G.weather; w.intensity=Math.max(w.intensity,0.9); w.flash=1; w.boltX=W*(0.2+Math.random()*0.6); w.boltSeed=Math.random()*999; if(typeof sfx!=='undefined'&&sfx.thunder)sfx.thunder(); }],
-  // --- excursions & treasure ---
-  ['🏝️ Shore Party (nearest)', ()=>{ const is=devNearestIsland(i=>i.explorable); if(is){ is.exploredOnce=false; is.shoreCooldownUntil=0; closeDev(); startShoreParty(is); } else devToast('No explorable island near'); }],
-  ['🐋 Whale Hunt', ()=>{ closeDev(); startWhaling(null); }],
-  ['🗺️ Reveal Cache (nearest)', ()=>{ const is=devNearestIsland(i=>i.cache); if(is){ revealCache(is.id, !!is.cache.big); devToast('Cache revealed on '+(is.id)); } else devToast('No cache island near'); }],
-  ['📜 Drop Treasure Map', ()=>{ dropTreasureMap(); }],
-  // --- fleets & wildlife ---
-  ['⛵ Spawn Convoy', ()=>{ spawnConvoy(); closeDev(); }],
-  // --- progression & unlocks ---
-  ['🏆 Win This Sea', ()=>{ G.bossDead=true; if(G.treasureTotal)G.treasureFound=G.treasureTotal; if(G.world&&G.world.corners)for(const c of G.world.corners)c.cleared=true; setObjective(); closeDev(); checkWin(); }],
-  ['🌊 Open Seas (Endless)', ()=>{ closeDev(); startEndless(); }],
-  ['🎵 Unlock All Shanties', ()=>{ for(const s of SHANTIES){ if(G.shanties.indexOf(s.id)<0)G.shanties.push(s.id); } if(typeof saveGame==='function')saveGame(); devToast('All shanties unlocked'); }],
-  ['📖 Fill Bestiary', ()=>{ for(const k of BESTIARY_KINDS){ seeKind(k.id); } devToast('Bestiary filled'); }],
-  ['🏅 Grant All Achievements', ()=>{ for(const a of ACHIEVEMENTS){ G.achievements[a.id]=true; } checkAchievements(); saveLifetime(); devToast('Achievements granted'); }],
+// Dev actions grouped into labelled sections, each rendered as a clean 2-column grid.
+// A label may be a function (for toggles whose text reflects live state).
+const DEV_SECTIONS=[
+  ['😈 God Mode', [
+    [()=>'🛡️ Invincible: '+(G.dev.invincible?'ON':'OFF'), ()=>{ G.dev.invincible=!G.dev.invincible; }],
+    [()=>'💥 One-Shot: '+(G.dev.oneShot?'ON':'OFF'), ()=>{ G.dev.oneShot=!G.dev.oneShot; }],
+    ['❤️ Full Heal', ()=>{ if(G.ship){ G.ship.hp=G.ship.maxhp; updateHUD(); } }],
+    ['🏆 Win This Sea', ()=>{ G.bossDead=true; if(G.treasureTotal)G.treasureFound=G.treasureTotal; if(G.world&&G.world.corners)for(const c of G.world.corners)c.cleared=true; setObjective(); closeDev(); checkWin(); }],
+  ]],
+  ['💰 Resources', [
+    ['💰 +1000 Gold', ()=>{ G.gold+=1000; updateHUD(); }],
+    ['🪵 +500 Wood', ()=>{ G.wood+=500; updateHUD(); }],
+    ['💎 Find Gem', ()=>{ const g=(G.world.gems||[]).find(x=>!getCollectedGems(G.mapIndex).has(x.idx)); if(g){ markGemCollected(G.mapIndex,g.idx); G.treasureFound++; const fl=G.floaters.find(f=>f.gemIdx===g.idx); if(fl)fl.collected=true; setObjective(); updateHUD(); } }],
+    ['💎 Find All Gems', ()=>{ for(const g of (G.world.gems||[])){ if(!getCollectedGems(G.mapIndex).has(g.idx)){ markGemCollected(G.mapIndex,g.idx); G.treasureFound++; const fl=G.floaters.find(f=>f.gemIdx===g.idx); if(fl)fl.collected=true; } } setObjective(); updateHUD(); }],
+  ]],
+  ['🛠️ Upgrades', [
+    ['⬆️ Max All', ()=>{ for(const k in UP){ G.upgrades[k]=UP[k].max; } recalcPlayer(); G.ship.hp=G.ship.maxhp; updateHUD(); }],
+    ['⬇️ Reset All', ()=>{ for(const k in G.upgrades){ G.upgrades[k]=0; } recalcPlayer(); G.ship.hp=G.ship.maxhp; updateHUD(); }],
+    ['➕ +1 All', ()=>{ for(const k in UP){ G.upgrades[k]=Math.min(UP[k].max,(G.upgrades[k]||0)+1); } recalcPlayer(); updateHUD(); }],
+    ['➖ −1 All', ()=>{ for(const k in UP){ G.upgrades[k]=Math.max(0,(G.upgrades[k]||0)-1); } recalcPlayer(); updateHUD(); }],
+  ]],
+  ['🪬 Charms', [
+    ['🪬 Grant All', ()=>{ for(const r of RELICS){ if(!hasRelic(r.id))G.relics.push(r.id); } recalcPlayer(); updateRelicHUD&&updateRelicHUD(); updateHUD(); }],
+    ['🚫 Clear Charms', ()=>{ G.relics=[]; recalcPlayer(); updateRelicHUD&&updateRelicHUD(); updateHUD(); }],
+  ]],
+  ['⛵ Fleet', [
+    ['⛵ Max Fleet', ()=>{ let guard=0; while(fleetCount()<fleetCap()&&guard++<8){ const slot=fleetNextSlot(); G.fleet.push({cls:'frigate',slot}); spawnAlly({cls:'frigate',slot}); } updateRelicHUD&&updateRelicHUD(); closeDev(); }],
+    ['🚫 Clear Fleet', ()=>{ G.fleet=[]; for(const e of G.entities){ if(e.type==='ally')e.dead=true; } updateRelicHUD&&updateRelicHUD(); }],
+    ['🎯 Capture Target', ()=>{ const p=devNear(); G.upgrades.boarding=Math.max(1,G.upgrades.boarding||0); const n=makeNavy(p.x,p.y,{x:G.ship.x,y:G.ship.y}, NAVY_CLASSES.find(c=>c.cls==='frigate')); n.hp=n.maxhp*0.18; G.entities.push(n); closeDev(); devToast('Crippled frigate — board it to capture (Sea 2+)'); }],
+  ]],
+  ['🎲 Events', [
+    ['❔ Drop Encounter', ()=>{ G.encounters=[]; spawnEncounter(); closeDev(); devToast('Encounter dropped ahead'); }],
+    ['🎲 Random Event Now', ()=>{ const ev=EVENTS[rndi(0,EVENTS.length-1)]; closeDev(); openEvent(ev); }],
+  ]],
+  ['🌊 Spawn & World', [
+    ['⚔️ Spawn Boss', ()=>{ G.bossSpawned=false; G.bossDead=false; if(G.world&&G.world.def&&!G.world.def.boss){ G.world.def.boss='kraken'; } spawnBoss(); closeDev(); }],
+    ['🐋 Spawn Whale', ()=>{ for(let i=0;i<3;i++){ G.critterTimer=0; spawnCritter(); } closeDev(); }],
+    ['🏰 Spawn Fort', ()=>{ devSpawnFort(); }],
+    ['⛵ Spawn Convoy', ()=>{ spawnConvoy(); closeDev(); }],
+    ['🌪️ Clear Enemies', ()=>{ for(const e of G.entities){ if(e.faction==='enemy'&&e.type!=='boss')e.dead=true; } closeDev(); }],
+    ['🌩️ Force Storm', ()=>{ if(!G.weather)initWeather(); const w=G.weather; w.state='storm'; w.intensity=1; w.t=0; w.dur=45; }],
+    ['☀️ Clear Weather', ()=>{ if(!G.weather)initWeather(); const w=G.weather; w.state='clear'; w.intensity=0; w.t=0; w.rain=[]; }],
+    ['⚡ Lightning', ()=>{ if(!G.weather)initWeather(); const w=G.weather; w.intensity=Math.max(w.intensity,0.9); w.flash=1; w.boltX=W*(0.2+Math.random()*0.6); w.boltSeed=Math.random()*999; if(typeof sfx!=='undefined'&&sfx.thunder)sfx.thunder(); }],
+  ]],
+  ['🏝️ Excursions & Treasure', [
+    ['🏝️ Shore Party', ()=>{ const is=devNearestIsland(i=>i.explorable); if(is){ is.exploredOnce=false; is.shoreCooldownUntil=0; closeDev(); startShoreParty(is); } else devToast('No explorable island near'); }],
+    ['🐋 Whale Hunt', ()=>{ closeDev(); startWhaling(null); }],
+    ['🗺️ Reveal Cache', ()=>{ const is=devNearestIsland(i=>i.cache); if(is){ revealCache(is.id, !!is.cache.big); devToast('Cache revealed'); } else devToast('No cache island near'); }],
+    ['📜 Drop Map', ()=>{ dropTreasureMap(); }],
+    ['🍾 Bottle Pop', ()=>{ const s=SHANTIES[Math.floor(Math.random()*SHANTIES.length)]; closeDev(); showBottlePop(s.name); }],
+  ]],
+  ['🧭 Navigation', [
+    ['⏭️ Next Sea', ()=>{ closeDev(); if(G.mapIndex<MAPS.length-1){ G.mapIndex++; startMap(G.mapIndex); } }],
+    ['🔄 Restart Sea', ()=>{ closeDev(); startMap(G.mapIndex); }],
+    ['🌊 Open Seas', ()=>{ closeDev(); startEndless(); }],
+  ]],
+  ['🏅 Progression & Unlocks', [
+    ['🚢 Unlock Classes', ()=>{ G.stats.navySunk=Math.max(G.stats.navySunk||0,99); G.maxMapCleared=Math.max(G.maxMapCleared|0,9); G.cursedUnlocked=true; devToast('All ship classes unlocked'); }],
+    ['🎵 Unlock Shanties', ()=>{ for(const s of SHANTIES){ if(G.shanties.indexOf(s.id)<0)G.shanties.push(s.id); } saveGame&&saveGame(); devToast('All shanties unlocked'); }],
+    ['📖 Fill Bestiary', ()=>{ for(const k of BESTIARY_KINDS){ seeKind(k.id); } devToast('Bestiary filled'); }],
+    ['🏅 All Achievements', ()=>{ for(const a of ACHIEVEMENTS){ G.achievements[a.id]=true; } checkAchievements(); saveLifetime(); devToast('Achievements granted'); }],
+    ['🎓 Reset Tutorial', ()=>{ G.tutorialDone=false; saveLifetime&&saveLifetime(); devToast('Coach will replay next New Voyage'); }],
+  ]],
 ];
 // nearest island matching an optional predicate (for shore-party / cache dev actions)
 function devNearestIsland(pred){
@@ -9810,7 +9831,19 @@ function devPicker(parent,label,opts,onGo,goLabel){
 }
 function buildDevSpawners(){
   const sp=el('devspawn'); if(!sp)return; sp.innerHTML='';
-  const head=t=>{ const h=document.createElement('div'); h.textContent=t; h.style.cssText='font:700 11px/1 system-ui;color:#8fc4dd;text-align:left;margin:9px 0 3px;text-transform:uppercase;letter-spacing:.5px;'; sp.appendChild(h); };
+  const head=t=>{ const h=document.createElement('div'); h.textContent=t; h.style.cssText='font:800 11px/1 system-ui;color:#8fc4dd;text-align:left;margin:11px 2px 5px;text-transform:uppercase;letter-spacing:.6px;'; sp.appendChild(h); };
+  head('🚢 Ship & build (live)');
+  devPicker(sp,'Class',SHIPCLASSES.map(c=>({label:c.icon+' '+c.name,v:c.id})),o=>{ G.shipClass=o.v; recalcPlayer(); if(G.ship)G.ship.hp=G.ship.maxhp; updateHUD(); refreshDevDiag(); devToast('Hull → '+o.v); },'Set');
+  devPicker(sp,'Charm',RELICS.map(r=>({label:r.icon+' '+r.name,v:r.id})),o=>{ if(!hasRelic(o.v)){ G.relics.push(o.v); recalcPlayer(); updateRelicHUD&&updateRelicHUD(); updateHUD(); refreshDevDiag(); devToast('Charm: '+o.v); } else devToast('Already fitted'); },'Grant');
+  devPicker(sp,'Escort',NAVY_CLASSES.map(c=>({label:'⛵ '+c.cls,v:c.cls})),o=>{ const slot=fleetNextSlot(); G.fleet.push({cls:o.v,slot}); spawnAlly({cls:o.v,slot}); updateRelicHUD&&updateRelicHUD(); refreshDevDiag(); devToast('Escort: '+o.v); },'Add');
+  devPicker(sp,'Event',EVENTS.map(e=>({label:e.emoji+' '+e.title,v:e.id})),o=>{ const ev=EVENT_BY_ID[o.v]; closeDev(); openEvent(ev); },'Run');
+  { const row=document.createElement('div'); row.style.cssText='display:flex;gap:6px;align-items:center;width:100%;margin:4px 0;';
+    const lbl=document.createElement('span'); lbl.textContent='Difficulty'; lbl.style.cssText='font:700 11px/1 system-ui;color:#9fd0e6;min-width:58px;text-align:left;'; row.appendChild(lbl);
+    [['relaxed','Relaxed'],['normal','Normal'],['hard','Hard']].forEach(([id,nm])=>{ const b=document.createElement('button'); b.textContent=nm;
+      const on=(G.settings.difficulty===id);
+      b.style.cssText='flex:1;font:700 11px/1 system-ui;padding:7px 4px;border-radius:8px;cursor:pointer;border:2px solid '+(on?'#6fc6e6':'#2b6f96')+';background:'+(on?'#2b6f96':'#16304a')+';color:'+(on?'#fff':'#bfe0f0')+';';
+      b.onclick=()=>{ G.settings.difficulty=id; applySettings(); refreshDevDiag(); buildDevSpawners(); }; row.appendChild(b); });
+    sp.appendChild(row); }
   head('🎯 Spawn near ship');
   devPicker(sp,'Enemy',NAVY_CLASSES.map(c=>({label:c.cls,v:c})),o=>{ const p=devNear(); G.entities.push(makeNavy(p.x,p.y,{x:G.ship.x,y:G.ship.y},o.v)); closeDev(); });
   devPicker(sp,'Cargo',CARGO_TYPES.map(c=>({label:c.name,v:c})),o=>{ const p=devNear(); G.entities.push(makeCargo(p.x,p.y,Math.random,{type:o.v})); closeDev(); });
@@ -9837,15 +9870,24 @@ function buildDevSpawners(){
 let _devShanty=0;
 function buildDevMenu(){
   const box=el('devbtns'); if(!box)return; box.innerHTML='';
-  DEV_ACTIONS.forEach(([label,fn])=>{
-    const b=document.createElement('button');
-    b.textContent=(typeof label==='function')?label():label;
-    b.style.cssText='font:700 12px/1 system-ui;padding:9px 11px;border-radius:10px;border:2px solid #2b6f96;'+
-      'background:#1a3a52;color:#cfeaf6;cursor:pointer;';
-    b.onclick=()=>{ try{ fn(); }catch(e){ devToast('Error: '+e.message); } buildDevMenu(); };
-    box.appendChild(b);
-  });
-  buildDevSpawners();   // pick-lists: enemies, cargo, bosses, forts, hazards, seas, upgrades
+  // each section = a header + a tidy 2-column grid of equal-width buttons
+  for(const [title,items] of DEV_SECTIONS){
+    const h=document.createElement('div'); h.textContent=title;
+    h.style.cssText='font:800 11px/1 system-ui;color:#8fc4dd;text-align:left;margin:11px 2px 5px;text-transform:uppercase;letter-spacing:.6px;';
+    box.appendChild(h);
+    const grid=document.createElement('div');
+    grid.style.cssText='display:grid;grid-template-columns:1fr 1fr;gap:6px;';
+    for(const [label,fn] of items){
+      const b=document.createElement('button');
+      b.textContent=(typeof label==='function')?label():label;
+      b.style.cssText='font:700 12px/1.15 system-ui;padding:10px 8px;border-radius:10px;border:2px solid #2b6f96;'+
+        'background:#1a3a52;color:#cfeaf6;cursor:pointer;text-align:center;min-height:38px;';
+      b.onclick=()=>{ try{ fn(); }catch(e){ devToast('Error: '+e.message); } buildDevMenu(); };
+      grid.appendChild(b);
+    }
+    box.appendChild(grid);
+  }
+  buildDevSpawners();   // pick-lists: ship/build, spawns, seas, upgrades
   // shanty picker: each row = play toggle + live tempo editor (− BPM +)
   const sbox=el('devsongs');
   if(sbox){
@@ -9916,10 +9958,12 @@ function refreshDevDiag(){
     `STATE ${G.state}   fps~${Math.round(1/Math.max(0.001,G.dt||0.016))}  worst1s ${Math.round(G._frLast||0)}ms\n`+
     `BUILD v${GAME_BUILD}\n`+
     `SHIP  hp ${Math.round(s.hp||0)}/${Math.round(s.maxhp||0)}  spd ${Math.round(s.speed||0)}\n`+
-    `CLASS ${G.shipClass}   charms ${(G.relics||[]).length}/${relicSlots()} [${(G.relics||[]).join(',')}]\n`+
-    `      pos ${Math.round(s.x||0)},${Math.round(s.y||0)}\n`+
+    `CLASS ${G.shipClass}   pos ${Math.round(s.x||0)},${Math.round(s.y||0)}\n`+
+    `CHARM ${(G.relics||[]).length}/${relicSlots()} [${(G.relics||[]).join(',')||'-'}]\n`+
+    `FLEET ${(typeof fleetCount==='function'?fleetCount():0)}/${(typeof fleetCap==='function'?fleetCap():0)}   threat x${(typeof buildBonus==='function'?buildBonus():1).toFixed(2)}\n`+
+    `DIFF  ${G.settings.difficulty} (x${(G.diffMul||1)})   redMotion ${G.reducedMotion?'ON':'off'}\n`+
     `GOLD  ${Math.floor(G.gold)}   WOOD ${Math.floor(G.wood)}\n`+
-    `GEMS  ${G.treasureFound}/${G.treasureTotal}\n`+
+    `GEMS  ${G.treasureFound}/${G.treasureTotal}   encounters ${(G.encounters||[]).length}\n`+
     `ENEM  navy/monsters: ${enemies}   forts: ${forts}\n`+
     `BOSS  ${boss?('alive hp '+Math.round(boss.hp)):(G.bossDead?'dead':(G.bossSpawned?'spawned':'not yet'))}\n`+
     `ENT   total ${G.entities.length}   balls ${G.cannonballs.length}   parts ${G.particles.length}\n`+
