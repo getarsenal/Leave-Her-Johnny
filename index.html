@@ -222,7 +222,17 @@
     display:flex;gap:9px;pointer-events:none;z-index:12;}
   /* Shore parties are a land excursion: the ship HP bar, world minimap and Fire button
      don't apply, so hide them. This also clears the bottom corners for the shore minimap. */
-  body.shore-mode #botright, body.shore-mode #minimapwrap, body.shore-mode .hpwrap, body.shore-mode #relicbar{display:none!important;}
+  body.shore-mode #botright, body.shore-mode #minimapwrap, body.shore-mode .hpwrap, body.shore-mode #relicbar, body.shore-mode #windcompass{display:none!important;}
+  /* HUD weathervane: shows the wind direction; rim tints green with a tail-wind, red against */
+  #windcompass{position:fixed;right:12px;top:calc(max(10px,env(safe-area-inset-top)) + 96px);
+    width:44px;height:44px;border-radius:50%;pointer-events:none;z-index:11;color:#f3e6c8;
+    background:radial-gradient(circle at 50% 38%, rgba(32,58,78,.72), rgba(15,32,48,.72));
+    border:2px solid var(--gold-dk);box-shadow:var(--shadow-soft);display:grid;place-items:center;
+    transition:border-color .35s ease, color .35s ease;}
+  #windcompass.help{border-color:#5fcf86;color:#c4f0d2;}
+  #windcompass.hinder{border-color:#e08a6a;color:#ffd3c4;}
+  #windcompass::before{content:'';position:absolute;top:3px;left:50%;width:2px;height:5px;margin-left:-1px;background:var(--gold);border-radius:1px;}
+  #wind-arrow{width:28px;height:28px;display:grid;place-items:center;transform-origin:50% 50%;transition:transform .25s linear;}
   .abtn{pointer-events:auto;width:66px;height:66px;border-radius:20px;border:none;
     background:linear-gradient(180deg,#3a5688,#26395d);
     border:3px solid var(--gold-dk);box-shadow:var(--shadow-soft);
@@ -485,6 +495,7 @@
       <div class="stat wood"><div class="ic">🪵</div><span id="s-wood">0</span></div>
     </div>
     <div id="relicbar"></div>
+    <div id="windcompass" title="Wind"><div id="wind-arrow"><svg viewBox="0 0 28 28" width="28" height="28"><path d="M5 14h13M13 9l6 5-6 5" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></div></div>
     <div id="topright">
       <div id="mapname">The Shallows</div>
       <div class="trbtns">
@@ -682,7 +693,7 @@ resize();
 /* Build/version string shown in-app (start screen + dev readout) so it's obvious which
    build is actually running — App Store/TestFlight propagation lags the repo by hours/days.
    Keep this in lockstep with ios MARKETING_VERSION when bumping. */
-const GAME_BUILD='1.0.26';
+const GAME_BUILD='1.0.27';
 /* ---------- math ---------- */
 const TAU=Math.PI*2;
 const rnd=(a=1,b)=>b===undefined?Math.random()*a:a+Math.random()*(b-a);
@@ -933,6 +944,7 @@ const G = {
   tut:null, tutorialDone:false,       // first-voyage coach (shown once)
   settings:{vol:0.8, music:1.0, haptics:true, reducedMotion:false, bigText:false, highContrast:false, difficulty:'normal'},
   reducedMotion:false, diffMul:1.0,   // derived from settings
+  wind:null,                          // directional sailing wind {ang,str,...}: subtle speed help/hinder
   entities:[], cannonballs:[], particles:[], floaters:[], wakes:[], debris:[], seagulls:[],
   upgrades:{hull:0,sails:0,cannons:0,crew:0,hold:0,hotshot:0,spread:0,ballast:0,chain:0,plating:0,boarding:0},
   // ---- ship cosmetics (unlocked by catching seagulls; persist forever) ----
@@ -3671,11 +3683,35 @@ function tryFire(e,dt,target){
 /* ================================================================
    PLAYER UPDATE
    ================================================================ */
+/* DIRECTIONAL WIND — a slowly-swinging breeze that subtly speeds you with it and slows
+   you against it. Shown on a small HUD weathervane; also nudges the clouds so the sky
+   drifts with the wind. Re-rolled each sea. */
+function updateSailingWind(dt){
+  if(!G.wind) G.wind={ang:rnd(TAU),str:0.5,tAng:rnd(TAU),tStr:0.5,t:rnd(8,18)};
+  const w=G.wind; w.t-=dt;
+  if(w.t<=0){ w.t=rnd(16,30); w.tAng=rnd(TAU); w.tStr=rnd(0.25,0.95); }
+  w.ang += clamp(angDiff(w.ang,w.tAng), -0.10*dt, 0.10*dt);   // slow swing (~13s for a quarter turn)
+  w.str += clamp(w.tStr-w.str, -0.06*dt, 0.06*dt);
+}
+let _windHelpState=null;
+function updateWindHud(){
+  const w=G.wind, s=G.ship; if(!w) return;
+  const arrow=el('wind-arrow');
+  if(arrow){ arrow.style.transform='rotate('+(w.ang*180/Math.PI)+'deg)'; }
+  // tint the dial: green when this heading rides the wind, red when fighting it
+  const wc=el('windcompass');
+  if(wc && s){ const align=Math.cos(angDiff(s.a,w.ang));
+    const st = align>0.35?'help' : align<-0.35?'hinder' : 'neutral';
+    if(st!==_windHelpState){ wc.classList.remove('help','hinder'); if(st!=='neutral')wc.classList.add(st); _windHelpState=st; }
+  }
+}
 function updatePlayer(s,dt){
   const aPrev=s.a;                            // remember heading to measure turn rate
   // "Travel speed" cruise: a touch faster top end, and the boat keeps its heading
   // when you let go (steer to retarget). Otherwise: classic hold-to-go.
-  const maxSpd = s.maxspeed * (G.cruise?1.28:1);
+  // directional wind: a subtle tail/head-wind nudge to top speed (helps with it, hinders against)
+  const wf = G.wind ? (1 + G.wind.str*Math.cos(angDiff(s.a,G.wind.ang))*0.12) : 1;
+  const maxSpd = s.maxspeed * (G.cruise?1.28:1) * wf;
   if(input.active && input.mag>0){
     const ta=input.ang;                       // screen heading == world heading (no cam rotation)
     if(G.cruise) G.cruiseAng=ta;              // dragging retargets the cruise heading
@@ -8510,9 +8546,12 @@ function loop(now){
   if(el('ov-dev').classList.contains('show')) refreshDevDiag();
   // combo streak decays if you stop landing kills
   if(G.combo>0){ G.comboT-=G.dt; if(G.comboT<=0){ G.combo=0; } }
-  // clouds drift in menu + play for living ocean
+  // clouds drift in menu + play for living ocean — gently herded by the wind direction
   if((G.state==='play'||G.state==='menu') && G.world){
-    for(const c of G.world.clouds){c.x+=c.vx*G.dt;c.y+=c.vy*G.dt;
+    const w=G.wind, wcx=w?Math.cos(w.ang)*(8+w.str*16):0, wcy=w?Math.sin(w.ang)*(8+w.str*16):0;
+    for(const c of G.world.clouds){
+      if(w){ c.vx += (wcx-c.vx)*0.4*G.dt; c.vy += (wcy-c.vy)*0.4*G.dt; }
+      c.x+=c.vx*G.dt;c.y+=c.vy*G.dt;
       if(c.x<-300)c.x=G.world.size+200;if(c.x>G.world.size+300)c.x=-200;
       if(c.y<-300)c.y=G.world.size+200;if(c.y>G.world.size+300)c.y=-200;}
     // seagulls glide, flap, and lazily change heading; wrap at the edges
@@ -8541,6 +8580,7 @@ function loop(now){
     updateParticles(G.dt);
     updateDebris(G.dt);   // flying hull wreckage arcs up and splashes back down
     updateEncounters(G.dt); // drifting event curiosities — sail in to open a choice card
+    updateSailingWind(G.dt); updateWindHud();   // directional wind + HUD weathervane
     tutUpdate(G.dt);        // first-voyage coach progression
     updateCritters(G.dt);
     updateOctopi(G.dt);   // Davy Jones' latched octopuses drain the hull
@@ -9083,6 +9123,7 @@ function startMap(idx, restore){
   G.shore=null; G.landingParty=null;   // never carry a shore session into a new map
   G.encounters=[]; G.encounterTimer=rnd(30,55);   // fresh event curiosities each sea
   G.cruiseAng=null;                    // re-aim travel-speed autopilot at the new ship's heading
+  G.wind=null;                         // a fresh breeze for the new sea
   if(typeof collapseMinimap==='function') collapseMinimap();   // start each sea with the compact chart
   if(G._shorePromptUp){ el('portprompt').classList.remove('show'); G._shorePromptUp=false; }
   hidePortPrompt();
