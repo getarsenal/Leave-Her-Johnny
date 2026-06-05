@@ -100,8 +100,9 @@
     pointer-events:auto;color:var(--gold);}
   #btn-mute,#btn-voyage,#btn-songbook,#btn-logbook,#btn-cruise,#btn-trim,#btn-settings{pointer-events:auto;width:40px;height:40px;border-radius:50%;font-size:18px;
     background:linear-gradient(180deg,var(--panel),var(--panel2));border:3px solid var(--gold-dk);
-    box-shadow:var(--shadow-soft);cursor:pointer;display:grid;place-items:center;
+    box-shadow:var(--shadow-soft);cursor:pointer;display:grid;place-items:center;color:#f3e6c8;
     transition:transform .08s;}
+  #btn-cruise.on{color:#3a2410;}   /* dark wheel on the gold 'autopilot on' state */
   #btn-mute:active,#btn-voyage:active,#btn-songbook:active,#btn-logbook:active,#btn-cruise:active,#btn-trim:active,#btn-settings:active{transform:scale(.92);}
   /* ---- Settings & accessibility ---- */
   .setrow{display:flex;align-items:center;gap:10px;padding:10px 4px;border-bottom:1px solid rgba(255,255,255,0.08);text-align:left;}
@@ -673,6 +674,7 @@ window.addEventListener('orientationchange',()=>setTimeout(resize,150));
 window.addEventListener('load',()=>{ resize(); setTimeout(resize,200); setTimeout(resize,600);
   const bb=document.getElementById('buildbadge'); if(bb) bb.textContent='build v'+GAME_BUILD;
   applySettings();
+  applyHudIcons();
 });
 if(window.visualViewport){ window.visualViewport.addEventListener('resize',resize); }
 resize();
@@ -680,7 +682,7 @@ resize();
 /* Build/version string shown in-app (start screen + dev readout) so it's obvious which
    build is actually running — App Store/TestFlight propagation lags the repo by hours/days.
    Keep this in lockstep with ios MARKETING_VERSION when bumping. */
-const GAME_BUILD='1.0.25';
+const GAME_BUILD='1.0.26';
 /* ---------- math ---------- */
 const TAU=Math.PI*2;
 const rnd=(a=1,b)=>b===undefined?Math.random()*a:a+Math.random()*(b-a);
@@ -9298,10 +9300,34 @@ el('shopclose').onclick=closeOverlays;
 el('btn-mute').onclick=toggleMute;
 /* "Travel speed": auto-sail the pointed heading (no held finger), a touch faster,
    camera pulled back. Toggle on/off; lights up + swaps to a fast-forward glyph. */
+/* ================================================================
+   CUSTOM UI ICONS — hand-drawn SVG glyphs in the warm wood/cream style, replacing
+   stock emoji on the HUD controls (and onward through the de-emoji sweep). Inherit
+   button color via currentColor so on/off states recolor cleanly.
+   ================================================================ */
+const UI_ICONS={
+  wheel:'<circle cx="12" cy="12" r="6.3"/><circle cx="12" cy="12" r="1.8"/><path d="M12 1.6V5.7M12 18.3V22.4M1.6 12H5.7M18.3 12H22.4M4.6 4.6l2.9 2.9M16.5 16.5l2.9 2.9M19.4 4.6l-2.9 2.9M7.5 16.5l-2.9 2.9"/>',
+  map:'<path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z"/><path d="M9 4v14M15 6v14"/>',
+  flag:'<path d="M6 3v18"/><path d="M6 4l12 3-12 4z" fill="currentColor" stroke="none"/>',
+  note:'<path d="M9 17V6l9-2v11"/><circle cx="6.6" cy="17" r="2.4" fill="currentColor" stroke="none"/><circle cx="15.6" cy="15" r="2.4" fill="currentColor" stroke="none"/>',
+  book:'<path d="M12 6C9.5 4.3 5.5 4.3 3 5.3v13c2.5-1 6.5-1 9 .7 2.5-1.7 6.5-1.7 9-.7v-13C18.5 4.3 14.5 4.3 12 6z"/><path d="M12 6v13"/>',
+  sliders:'<path d="M4 7h16M4 12h16M4 17h16"/><circle cx="9" cy="7" r="2.1" fill="currentColor" stroke="none"/><circle cx="15" cy="12" r="2.1" fill="currentColor" stroke="none"/><circle cx="8" cy="17" r="2.1" fill="currentColor" stroke="none"/>',
+  speaker:'<path d="M4 9h3l4-3.5v13L7 15H4z" fill="currentColor" stroke="none"/><path d="M14.5 9.2C15.8 11 15.8 13 14.5 14.8M16.8 7C19 10 19 14 16.8 17"/>',
+  speakerMute:'<path d="M4 9h3l4-3.5v13L7 15H4z" fill="currentColor" stroke="none"/><path d="M14.5 9.5l5 5M19.5 9.5l-5 5"/>',
+  cannon:'<circle cx="6.8" cy="15.5" r="2.3"/><path d="M9 13.8l8-4.6 2.1 3.6-8 4.6z" fill="currentColor" stroke="none"/><circle cx="18" cy="7.4" r="1.9" fill="currentColor" stroke="none"/>',
+};
+function svgIcon(name,sz){ return '<svg viewBox="0 0 24 24" width="'+(sz||22)+'" height="'+(sz||22)+'" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">'+(UI_ICONS[name]||'')+'</svg>'; }
+function applyHudIcons(){
+  const set=(id,name)=>{ const b=el(id); if(b) b.innerHTML=svgIcon(name); };
+  set('btn-voyage','map'); set('btn-cruise','wheel'); set('btn-trim','flag');
+  set('btn-songbook','note'); set('btn-logbook','book'); set('btn-settings','sliders');
+  const mb=el('btn-mute'); if(mb) mb.innerHTML=svgIcon(SND.muted?'speakerMute':'speaker');
+  const fe=document.querySelector('#btn-fire .em'); if(fe) fe.innerHTML=svgIcon('cannon',26);
+}
 function toggleCruise(){
   G.cruise=!G.cruise;
   if(G.cruise && G.ship) G.cruiseAng=G.ship.a;     // start sailing straight ahead
-  const b=el('btn-cruise'); if(b){ b.classList.toggle('on',G.cruise); b.textContent=G.cruise?'⏩':'🧭'; }
+  const b=el('btn-cruise'); if(b){ b.classList.toggle('on',G.cruise); b.innerHTML=svgIcon('wheel'); }
   if(typeof toast==='function') toast(G.cruise?'🧭 Travel speed ON — auto-sailing your heading':'⚓ Travel speed off',1600);
   if(typeof sfx!=='undefined' && sfx.click) sfx.click();
 }
@@ -10768,7 +10794,7 @@ function applyAudio(){
     try{ if(SND.shantyBus) SND.shantyBus.gain.setTargetAtTime(1.0*s.music, aNow(), 0.1); }catch(e){}
   }
   const amb=el('ambient'); if(amb) amb.volume=0.32*s.music;
-  const mb=el('btn-mute'); if(mb) mb.textContent=SND.muted?'🔇':'🔊';
+  const mb=el('btn-mute'); if(mb && typeof svgIcon==='function') mb.innerHTML=svgIcon(SND.muted?'speakerMute':'speaker');
 }
 function applySettings(){
   const s=G.settings;
