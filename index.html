@@ -680,7 +680,7 @@ resize();
 /* Build/version string shown in-app (start screen + dev readout) so it's obvious which
    build is actually running — App Store/TestFlight propagation lags the repo by hours/days.
    Keep this in lockstep with ios MARKETING_VERSION when bumping. */
-const GAME_BUILD='1.0.24';
+const GAME_BUILD='1.0.25';
 /* ---------- math ---------- */
 const TAU=Math.PI*2;
 const rnd=(a=1,b)=>b===undefined?Math.random()*a:a+Math.random()*(b-a);
@@ -4057,7 +4057,7 @@ function dealDamage(e,amt,by){
     }
   }
   // any damage involving the player keeps them "in combat" (pauses regen)
-  if(e===G.ship){ G.ship.combatT=6; updateHUD(); if(amt>=5) haptic('medium'); }
+  if(e===G.ship){ G.ship.combatT=6; updateHUD(); if(amt>0) G.stats.damageTaken=(G.stats.damageTaken||0)+amt; if(amt>=5) haptic('medium'); }
   else if(by===G.ship && G.ship){ G.ship.combatT=Math.max(G.ship.combatT||0,4); }
   if(e.hp<=0){ killEntity(e,by); }
 }
@@ -9040,7 +9040,7 @@ function gameOver(){
 // "this run" = lifetime - snapshot. Avoids threading a second counter through every
 // kill site. resetRun() is called wherever a fresh voyage begins.
 function runSnap(){ const s=G.stats||{}; const f={};
-  ['navySunk','cargoRaided','monstersSlain','fortsDestroyed','bossesDefeated','shorePartiesSent','shoreLootGrabbed','islandsExplored','distanceSailed','cannonballsFired','woodEarned','timePlayed','whalesCaught','gullsCaught'].forEach(k=>f[k]=s[k]||0);
+  ['navySunk','cargoRaided','monstersSlain','fortsDestroyed','bossesDefeated','shorePartiesSent','shoreLootGrabbed','islandsExplored','distanceSailed','cannonballsFired','woodEarned','timePlayed','whalesCaught','gullsCaught','damageTaken'].forEach(k=>f[k]=s[k]||0);
   return f; }
 function resetRun(){ G.runGold=0; G.runKills=0; G.combo=0; G.comboBest=0; G.runStatsBase=runSnap(); }
 function startMap(idx, restore){
@@ -9551,6 +9551,7 @@ function buildLogbook(){
       ['💰 Gold earned', (G.runGold|0)+'g', Math.floor(s.goldEarned||0)+'g'],
       ['🪵 Wood gathered', run('woodEarned'), s.woodEarned||0],
       ['💥 Cannonballs fired', run('cannonballsFired'), s.cannonballsFired||0],
+      ['💢 Damage taken', Math.round(run('damageTaken')), Math.round(s.damageTaken||0)],
       ['🧭 Distance sailed', lg(run('distanceSailed')), lg(s.distanceSailed)],
       ['⏱️ Time at sea', tm(run('timePlayed')), tm(s.timePlayed)],
       ['🔥 Best kill streak', 'x'+(G.comboBest||0), 'x'+(s.bestCombo||0)],
