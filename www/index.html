@@ -394,6 +394,14 @@
     pointer-events:auto;max-width:min(360px,84vw);text-align:center;}
   #coach.show{display:flex;opacity:1;transform:translateX(-50%) translateY(0);}
   #coach-skip{font-size:10px;font-weight:600;opacity:0.6;letter-spacing:.3px;}
+  /* cinematic chapter title card — fades in/out, non-blocking */
+  #chapter{position:absolute;left:50%;top:38%;transform:translateX(-50%) translateY(-50%) scale(0.96);
+    display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center;pointer-events:none;
+    z-index:44;opacity:0;transition:opacity .8s ease, transform .8s ease;width:min(420px,86vw);}
+  #chapter.show{opacity:1;transform:translateX(-50%) translateY(-50%) scale(1);}
+  #chapter-num{font-family:'Baloo 2';font-weight:800;font-size:13px;letter-spacing:3px;color:#ffe08a;text-shadow:0 2px 8px #000;}
+  #chapter-name{font-family:'Baloo 2';font-weight:800;font-size:30px;line-height:1.05;color:#fff;text-shadow:0 3px 14px #000,0 0 2px #000;}
+  #chapter-desc{font-family:'Baloo 2';font-weight:600;font-size:14px;color:#dbe8f2;text-shadow:0 2px 8px #000;font-style:italic;margin-top:2px;}
 
   /* port entry prompt */
   #portprompt{position:absolute;left:50%;top:38%;transform:translate(-50%,-50%) scale(.9);
@@ -507,6 +515,8 @@
   <div id="toast"></div>
   <!-- first-voyage coach banner: contextual one-line hints, tap to dismiss the tour -->
   <div id="coach"><span id="coach-txt"></span><span id="coach-skip">tap to skip ✕</span></div>
+  <!-- cinematic chapter card shown when entering a sea -->
+  <div id="chapter"><div id="chapter-num"></div><div id="chapter-name"></div><div id="chapter-desc"></div></div>
   <!-- ambient "waves & seagulls" loop: plays during normal sailing, pauses for shore
        parties / boss fights. Drop the file at assets/ambient-waves.mp3 (graceful if absent). -->
   <audio id="ambient" loop preload="auto" src="assets/waves_and_seagulls_background.mp3"></audio>
@@ -670,7 +680,7 @@ resize();
 /* Build/version string shown in-app (start screen + dev readout) so it's obvious which
    build is actually running — App Store/TestFlight propagation lags the repo by hours/days.
    Keep this in lockstep with ios MARKETING_VERSION when bumping. */
-const GAME_BUILD='1.0.18';
+const GAME_BUILD='1.0.19';
 /* ---------- math ---------- */
 const TAU=Math.PI*2;
 const rnd=(a=1,b)=>b===undefined?Math.random()*a:a+Math.random()*(b-a);
@@ -8901,6 +8911,19 @@ function closeOverlays(){['ov-shop'].forEach(i=>el(i).classList.remove('show'));
   G.portPromptDismissed=G.promptKey; /* don't re-prompt what we just used */ }
 
 /* ---- Win / Lose ---- */
+/* Cinematic "chapter" title card on entering a sea — fades in over the new waters,
+   non-blocking. The first-ever voyage gets a short prologue framing. */
+let _chapterT=null;
+function showChapter(idx, prologue){
+  const m=MAPS[idx]; if(!m) return;
+  const c=el('chapter'); if(!c) return;
+  el('chapter-num').textContent = prologue ? "A PIRATE'S TALE" : ('CHAPTER '+(idx+1)+' OF '+MAPS.length);
+  el('chapter-name').textContent = m.name;
+  el('chapter-desc').textContent = prologue ? 'The tide is calling, Captain — hoist the black flag and make your name.' : (m.desc||'');
+  c.classList.add('show');
+  clearTimeout(_chapterT);
+  _chapterT=setTimeout(()=>{ c.classList.remove('show'); }, prologue?5200:4200);
+}
 function mapFullyCleared(){
   const treasureDone = G.treasureFound>=G.treasureTotal;
   if(G.world.corners && G.world.corners.length){
@@ -8924,7 +8947,15 @@ function endMap(victory){
     clearSave();
     el('continuebtn') && (el('continuebtn').style.display='none');
     el('endtitle').textContent='🏴‍☠️ Legend of the Tides!';
-    el('endbody').innerHTML=`You conquered every sea and slew the Kraken. Your name is sung in every port.<br><br>Gold amassed: <b>${Math.floor(G.gold)}</b>`;
+    el('endbody').innerHTML=
+      `You conquered every sea and slew the <b>Kraken</b>. From the Shallows to the Maelstrom, your black flag flies over all the tides.<br><br>`+
+      `<div style="display:inline-block;text-align:left;font-size:13px;line-height:1.8">`+
+        `💰 Gold this voyage: <b>${Math.floor(G.runGold||G.gold)}</b><br>`+
+        `⚔️ Ships sent under (all-time): <b>${G.stats.navySunk||0}</b><br>`+
+        `🔥 Best kill streak: <b>x${G.comboBest||0}</b><br>`+
+        `🐋 Whales landed: <b>${G.stats.whalesCaught||0}</b>`+
+      `</div><br><br><i>They'll sing your tale in every tavern from here to the edge of the map.</i>`+
+      (G.cursedUnlocked?`<br><br>☠ <b>Cursed Voyage</b> now awaits the truly fearless…`:'');
     el('endbtn').textContent='Sail Again';
     el('endbtn').onclick=()=>{G.mapIndex=0;G.gold=0;G.wood=0;G.maxMapCleared=-1;G.collectedGems={};G.worldSeed=(Math.random()*0xffffffff)>>>0;G.upgrades={hull:0,sails:0,cannons:0,crew:0,hold:0,hotshot:0,spread:0,ballast:0,chain:0,plating:0,boarding:0};clearSave();startMap(0);};
     // on the final map you can still choose to linger and mop up treasure
@@ -9037,7 +9068,10 @@ function startMap(idx, restore){
   hidePortPrompt();
   updateHUD(); setObjective(); updateRelicHUD();
   G.state='play';
-  toast('⛵ '+G.world.def.name,2000);
+  // cinematic chapter card on a fresh entry (not on a death-respawn restore); a prologue
+  // line the very first time. Falls back to the old toast for restores.
+  if(restore || G.endless) toast('⛵ '+G.world.def.name,2000);
+  else showChapter(idx, idx===0 && !G.tutorialDone);
   // if every gem on a non-boss map is already collected (e.g. found them, then
   // died), let the map complete instead of stranding the player with nothing to find
   if(!G.world.def.boss && G.treasureTotal>0 && G.treasureFound>=G.treasureTotal){ checkWin(); }
