@@ -98,11 +98,28 @@
     background:linear-gradient(180deg,var(--panel),var(--panel2));
     border:3px solid var(--gold-dk);border-radius:999px;box-shadow:var(--shadow-soft);
     pointer-events:auto;color:var(--gold);}
-  #btn-mute,#btn-voyage,#btn-songbook,#btn-logbook,#btn-cruise,#btn-trim{pointer-events:auto;width:40px;height:40px;border-radius:50%;font-size:18px;
+  #btn-mute,#btn-voyage,#btn-songbook,#btn-logbook,#btn-cruise,#btn-trim,#btn-settings{pointer-events:auto;width:40px;height:40px;border-radius:50%;font-size:18px;
     background:linear-gradient(180deg,var(--panel),var(--panel2));border:3px solid var(--gold-dk);
     box-shadow:var(--shadow-soft);cursor:pointer;display:grid;place-items:center;
     transition:transform .08s;}
-  #btn-mute:active,#btn-voyage:active,#btn-songbook:active,#btn-logbook:active,#btn-cruise:active,#btn-trim:active{transform:scale(.92);}
+  #btn-mute:active,#btn-voyage:active,#btn-songbook:active,#btn-logbook:active,#btn-cruise:active,#btn-trim:active,#btn-settings:active{transform:scale(.92);}
+  /* ---- Settings & accessibility ---- */
+  .setrow{display:flex;align-items:center;gap:10px;padding:10px 4px;border-bottom:1px solid rgba(255,255,255,0.08);text-align:left;}
+  .setrow .setlbl{flex:1;font-weight:700;color:var(--cream);font-size:14px;}
+  .setrow .setlbl small{display:block;font-weight:500;font-size:11px;opacity:.65;}
+  .settoggle{min-width:64px;padding:8px 12px;border-radius:999px;border:2px solid var(--gold-dk);
+    font-weight:800;font-size:13px;cursor:pointer;background:#3a2a1c;color:#cdbfa6;}
+  .settoggle.on{background:#2b6f96;color:#fff;border-color:#6fc6e6;}
+  .setseg{display:flex;gap:4px;}
+  .setseg button{padding:7px 10px;border-radius:9px;border:2px solid var(--gold-dk);background:#3a2a1c;color:#cdbfa6;font-weight:700;font-size:12px;cursor:pointer;}
+  .setseg button.on{background:#2b6f96;color:#fff;border-color:#6fc6e6;}
+  .setrow input[type=range]{width:130px;accent-color:#2b6f96;}
+  /* accessibility: larger HUD text + higher-contrast panels */
+  body.big-text #objective{font-size:17px;}
+  body.big-text .stat{font-size:18px;}
+  body.big-text #coach,body.big-text #toast{font-size:16px;}
+  body.high-contrast #objective,body.high-contrast #toast{background:#06121c;border-color:#ffe08a;color:#fff;}
+  body.high-contrast .hpbar{outline:2px solid rgba(0,0,0,0.6);}
   /* Ship's Trim (cosmetics) menu */
   #ov-trim .trimsec{margin:9px 0;text-align:left;}
   #ov-trim .trimlabel{font:700 12px/1 'Baloo 2',sans-serif;color:#8fc4dd;text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px;}
@@ -467,6 +484,7 @@
         <button id="btn-trim" title="Ship's Trim">🎀</button>
         <button id="btn-songbook" title="Songbook">🎵</button>
         <button id="btn-logbook" title="Captain's Logbook">📖</button>
+        <button id="btn-settings" title="Settings">⚙️</button>
         <button id="btn-mute">🔊</button>
       </div>
     </div>
@@ -515,6 +533,7 @@
       <button class="bigbtn gold" id="startbtn">New Voyage ⛵</button>
       <button class="bigbtn" id="endlessbtn" style="display:none;margin-top:8px;background:#1c3a4a;color:#bfe6f2;border-color:#2b6f96">🌊 Open Seas (Endless)</button>
       <p id="endlessbest" class="hint" style="display:none;margin-top:6px">Best Open Seas score: <span id="endlessbestval">0</span></p>
+      <button class="bigbtn" id="startsettings" style="margin-top:8px;background:#1c3a4a;color:#bfe6f2;border-color:#2b6f96">⚙️ Settings &amp; Accessibility</button>
       <p id="buildbadge" class="hint" style="margin-top:10px;opacity:0.55;font-size:11px">build —</p>
     </div>
   </div>
@@ -525,6 +544,14 @@
       <p style="margin-top:0">Spend gold &amp; timber to upgrade. Your ship changes as you build.</p>
       <div id="shoprows"></div>
       <button class="bigbtn" id="shopclose">Back to Sea</button>
+    </div>
+  </div>
+
+  <div class="overlay" id="ov-settings">
+    <div class="card">
+      <h2>⚙️ Settings</h2>
+      <div id="settingsbody" style="margin-top:6px"></div>
+      <button class="bigbtn" id="settingsclose">Back</button>
     </div>
   </div>
 
@@ -634,14 +661,16 @@ function resize(){
 window.addEventListener('resize',resize);
 window.addEventListener('orientationchange',()=>setTimeout(resize,150));
 window.addEventListener('load',()=>{ resize(); setTimeout(resize,200); setTimeout(resize,600);
-  const bb=document.getElementById('buildbadge'); if(bb) bb.textContent='build v'+GAME_BUILD; });
+  const bb=document.getElementById('buildbadge'); if(bb) bb.textContent='build v'+GAME_BUILD;
+  applySettings();
+});
 if(window.visualViewport){ window.visualViewport.addEventListener('resize',resize); }
 resize();
 
 /* Build/version string shown in-app (start screen + dev readout) so it's obvious which
    build is actually running — App Store/TestFlight propagation lags the repo by hours/days.
    Keep this in lockstep with ios MARKETING_VERSION when bumping. */
-const GAME_BUILD='1.0.15';
+const GAME_BUILD='1.0.16';
 /* ---------- math ---------- */
 const TAU=Math.PI*2;
 const rnd=(a=1,b)=>b===undefined?Math.random()*a:a+Math.random()*(b-a);
@@ -733,7 +762,7 @@ function saveGame(){
       dailyDate:G.dailyDate, dailyDone:G.dailyDone, dailyBounty:G.dailyBounty, dailyBase:G.dailyBase,
       cosmetics:G.cosmetics, gullsCaught:G.gullsCaught|0,
       cursedUnlocked:!!G.cursedUnlocked, cursedCleared:!!G.cursedCleared,
-      endlessBest:G.endlessBest|0, tutorialDone:!!G.tutorialDone,
+      endlessBest:G.endlessBest|0, tutorialDone:!!G.tutorialDone, settings:G.settings,
     };
     localStorage.setItem(SAVE_KEY, JSON.stringify(data));
   }catch(e){ /* storage blocked — fail quietly */ }
@@ -757,6 +786,7 @@ function saveLifetime(){
     d.endlessBest=G.endlessBest|0;
     d.cosmetics=G.cosmetics; d.gullsCaught=G.gullsCaught|0;   // unlocked trims persist forever
     d.tutorialDone=!!G.tutorialDone;                          // first-voyage coach shows once
+    d.settings=G.settings;                                    // audio/accessibility/difficulty prefs
     localStorage.setItem(SAVE_KEY, JSON.stringify(d));
   }catch(e){}
 }
@@ -855,6 +885,8 @@ function loadLifetime(d){
   // first-voyage coach shows once; auto-skip anyone with a prior save (a veteran)
   G.tutorialDone = (d.tutorialDone!==undefined) ? !!d.tutorialDone
                    : ((G.stats.navySunk||0)>0 || (G.stats.voyages||0)>1);
+  if(d.settings && typeof d.settings==='object') G.settings=Object.assign(G.settings, d.settings);
+  applySettings();
 }
 function clearSave(){ try{ localStorage.removeItem(SAVE_KEY); }catch(e){} }
 // --- per-map collected-gem tracking (persists across deaths) ---
@@ -887,6 +919,8 @@ const G = {
   fleet:[],                  // captured escorts {cls,slot} — sail with you across seas
   encounters:[], encounterTimer:30,   // drifting event curiosities at sea
   tut:null, tutorialDone:false,       // first-voyage coach (shown once)
+  settings:{vol:0.8, music:1.0, haptics:true, reducedMotion:false, bigText:false, highContrast:false, difficulty:'normal'},
+  reducedMotion:false, diffMul:1.0,   // derived from settings
   entities:[], cannonballs:[], particles:[], floaters:[], wakes:[], debris:[], seagulls:[],
   upgrades:{hull:0,sails:0,cannons:0,crew:0,hold:0,hotshot:0,spread:0,ballast:0,chain:0,plating:0,boarding:0},
   // ---- ship cosmetics (unlocked by catching seagulls; persist forever) ----
@@ -3144,7 +3178,7 @@ function makeNavy(x,y,patrol,clsDef){
   const c=clsDef||pickNavyClass();
   const mi=G.mapIndex;
   const cm=G.cursed?1.6:1, cd=G.cursed?1.3:1;     // Cursed Voyage: tougher, hits harder
-  const th=threatHpMul(), td=threatDmgMul();      // power-aware: tougher vs optimized builds (1.0 for a plain Brig)
+  const th=threatHpMul(), td=threatDmgMul()*(G.diffMul||1);  // power-aware + difficulty setting (1.0 for a plain Brig on Normal)
   return makeShip({x,y,type:'navy',faction:'enemy',cls:c.cls,
     hp:(c.hp+mi*45)*cm*th, maxhp:(c.hp+mi*45)*cm*th, r:c.r,
     maxspeed:c.spd+mi*5, turn:c.turn,
@@ -3409,7 +3443,7 @@ function spawnBossOf(mk, x, y, opts){
   const cm=G.cursed?1.6:1, cd=G.cursed?1.3:1;
   const sc=opts.scale||1;
   stats.hp=Math.round(stats.hp*sc*cm*threatHpMul());             // power-aware: charm/class/fleet builds get a meatier boss
-  stats.dmg=Math.round(stats.dmg*(0.6+sc*0.4)*cd*threatDmgMul()); // …that hits back harder (damage scales gentler than HP)
+  stats.dmg=Math.round(stats.dmg*(0.6+sc*0.4)*cd*threatDmgMul()*(G.diffMul||1)); // …that hits back harder (+ difficulty setting)
   const isShipBoss = (mk==='ghost'||mk==='wraith'||mk==='drowned'||mk==='manowar');
   const tint = mk==='manowar' ? '#3a2f4a'
     : isShipBoss ? (mk==='wraith'?'#7a8a5a':mk==='drowned'?'#16241e':'#2e3a44')
@@ -8249,7 +8283,7 @@ function render(){
     G.shake=Math.max(G.shake, Math.min(5, 1.2+Math.sqrt(G._shakeBudget)*0.9));
     G._shakeBudget=0;
   }
-  if(G.shake>0){ const s=G.shake; ctx.translate(rnd(-s,s),rnd(-s,s)); G.shake=Math.max(0,G.shake-G.dt*40); }
+  if(G.shake>0){ const s=G.shake*(G.reducedMotion?0.25:1); ctx.translate(rnd(-s,s),rnd(-s,s)); G.shake=Math.max(0,G.shake-G.dt*40); }
 
   drawOcean();
   drawCloudShadows();   // shadows on water (below entities)
@@ -9568,6 +9602,9 @@ document.querySelectorAll('#ov-logbook .logtab').forEach(b=>{
 { const _c=el('coach'); if(_c) _c.addEventListener('click', ()=>endTutorial()); }   // tap the coach to skip the tour
 el('btn-logbook').onclick=openLogbook;
 el('logclose').onclick=closeLogbook;
+el('btn-settings').onclick=openSettings;
+el('startsettings').onclick=openSettings;
+el('settingsclose').onclick=closeSettings;
 
 /* ---- DAILY BOUNTY: one rotating goal per calendar day (cozy, optional) ---- */
 const DAILY_TYPES=[
@@ -10057,11 +10094,12 @@ function initAudio(){
     const AC=window.AudioContext||window.webkitAudioContext;
     SND.ctx=new AC();
     SND.master=SND.ctx.createGain();
-    SND.master.gain.value=SND.muted?0:0.8;
+    SND.master.gain.value=SND.muted?0:(G.settings?G.settings.vol:0.8);
     SND.master.connect(SND.ctx.destination);
     startAmbient();
     SND.ready=true;
     loadSamples();
+    applyAudio();   // honor saved volume/music settings
   }catch(e){ /* audio unsupported — game still runs silently */ }
 }
 function aNow(){return SND.ctx.currentTime;}
@@ -10542,8 +10580,75 @@ function updateWind(speed,maxspeed){
 }
 function toggleMute(){
   SND.muted=!SND.muted;
-  if(SND.master)SND.master.gain.setTargetAtTime(SND.muted?0:0.8,aNow(),0.05);
-  const b=el('btn-mute'); if(b)b.textContent=SND.muted?'🔇':'🔊';
+  applyAudio();
+}
+/* ================================================================
+   SETTINGS & ACCESSIBILITY — one place for volume, haptics, motion, contrast,
+   text size and a difficulty dial. Persisted in the lifetime save; applied live.
+   ================================================================ */
+function applyAudio(){
+  const s=G.settings;
+  if(SND.master){ try{ SND.master.gain.setTargetAtTime(SND.muted?0:s.vol, aNow(), 0.05); }catch(e){} }
+  if(SND.ready){
+    try{ if(SND.musicBus)  SND.musicBus.gain.setTargetAtTime(0.5*s.music, aNow(), 0.1); }catch(e){}
+    try{ if(SND.shantyBus) SND.shantyBus.gain.setTargetAtTime(1.0*s.music, aNow(), 0.1); }catch(e){}
+  }
+  const amb=el('ambient'); if(amb) amb.volume=0.32*s.music;
+  const mb=el('btn-mute'); if(mb) mb.textContent=SND.muted?'🔇':'🔊';
+}
+function applySettings(){
+  const s=G.settings;
+  G.hapticsOn   = s.haptics!==false;
+  G.reducedMotion = !!s.reducedMotion;
+  G.diffMul     = s.difficulty==='relaxed'?0.65 : s.difficulty==='hard'?1.4 : 1.0;
+  document.body.classList.toggle('big-text', !!s.bigText);
+  document.body.classList.toggle('high-contrast', !!s.highContrast);
+  applyAudio();
+}
+function openSettings(){
+  if(G.state==='play') G.state='shop';   // pause the world cleanly like other menus
+  else G._settingsFromMenu=true;
+  buildSettings(); el('ov-settings').classList.add('show');
+}
+function closeSettings(){
+  el('ov-settings').classList.remove('show');
+  if(G._settingsFromMenu){ G._settingsFromMenu=false; }
+  else if(G.state==='shop') G.state='play';
+  if(typeof saveLifetime==='function') saveLifetime();
+}
+function buildSettings(){
+  const host=el('settingsbody'); if(!host) return; host.innerHTML='';
+  const s=G.settings;
+  const slider=(lbl,sub,val,oninput)=>{
+    const r=document.createElement('div'); r.className='setrow';
+    r.innerHTML=`<div class="setlbl">${lbl}<small>${sub}</small></div>`;
+    const inp=document.createElement('input'); inp.type='range'; inp.min=0; inp.max=100; inp.value=Math.round(val*100);
+    inp.oninput=()=>{ oninput(inp.value/100); };
+    r.appendChild(inp); host.appendChild(r);
+  };
+  const toggle=(lbl,sub,on,onclick)=>{
+    const r=document.createElement('div'); r.className='setrow';
+    r.innerHTML=`<div class="setlbl">${lbl}<small>${sub}</small></div>`;
+    const b=document.createElement('button'); b.className='settoggle'+(on?' on':''); b.textContent=on?'ON':'OFF';
+    b.onclick=()=>{ onclick(!on); buildSettings(); };
+    r.appendChild(b); host.appendChild(r);
+  };
+  slider('🔊 Volume','Overall sound', SND.muted?0:s.vol, v=>{ s.vol=v; SND.muted=(v<=0); applyAudio(); });
+  slider('🎵 Music','Shanties & themes', s.music, v=>{ s.music=v; applyAudio(); });
+  toggle('📳 Haptics','Vibration feedback', s.haptics!==false, v=>{ s.haptics=v; applySettings(); });
+  toggle('🌊 Reduced Motion','Less screen-shake & flashing', !!s.reducedMotion, v=>{ s.reducedMotion=v; applySettings(); });
+  toggle('🔤 Larger Text','Bigger HUD lettering', !!s.bigText, v=>{ s.bigText=v; applySettings(); });
+  toggle('◐ High Contrast','Stronger panel outlines', !!s.highContrast, v=>{ s.highContrast=v; applySettings(); });
+  // difficulty segmented control
+  const dr=document.createElement('div'); dr.className='setrow';
+  dr.innerHTML=`<div class="setlbl">⚔️ Difficulty<small>How hard enemies hit</small></div>`;
+  const seg=document.createElement('div'); seg.className='setseg';
+  [['relaxed','Relaxed'],['normal','Normal'],['hard','Hard']].forEach(([id,nm])=>{
+    const b=document.createElement('button'); b.textContent=nm; if(s.difficulty===id)b.classList.add('on');
+    b.onclick=()=>{ s.difficulty=id; applySettings(); buildSettings(); };
+    seg.appendChild(b);
+  });
+  dr.appendChild(seg); host.appendChild(dr);
 }
 
 
