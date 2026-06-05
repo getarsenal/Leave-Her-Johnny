@@ -517,6 +517,15 @@
     </div>
   </div>
 
+  <div class="overlay" id="ov-event">
+    <div class="card">
+      <div id="ev-emoji" style="font-size:46px;line-height:1;margin-bottom:6px">🚢</div>
+      <h2 id="ev-title" style="margin:0 0 6px">An Encounter</h2>
+      <p id="ev-text" style="margin:0 0 14px"></p>
+      <div id="ev-choices" style="display:flex;flex-direction:column;gap:8px"></div>
+    </div>
+  </div>
+
   <div class="overlay" id="ov-end">
     <div class="card">
       <h2 id="endtitle">Map Cleared!</h2>
@@ -856,6 +865,7 @@ const G = {
   shipClass:'brig',          // chosen hull class (run-scoped; see SHIPCLASSES)
   relics:[],                 // roguelike charms collected this voyage (see RELICS)
   fleet:[],                  // captured escorts {cls,slot} — sail with you across seas
+  encounters:[], encounterTimer:30,   // drifting event curiosities at sea
   entities:[], cannonballs:[], particles:[], floaters:[], wakes:[], debris:[], seagulls:[],
   upgrades:{hull:0,sails:0,cannons:0,crew:0,hold:0,hotshot:0,spread:0,ballast:0,chain:0,plating:0,boarding:0},
   // ---- ship cosmetics (unlocked by catching seagulls; persist forever) ----
@@ -2855,6 +2865,157 @@ function updateAlly(e,dt,s,dp){
   e.combatT=Math.max(0,(e.combatT||0)-dt);
   if(!engaging && e.combatT<=0 && e.hp<e.maxhp){ e.hp=Math.min(e.maxhp, e.hp+e.maxhp*0.05*dt); }  // slow self-repair
 }
+/* ================================================================
+   SEA ENCOUNTERS & EVENTS — drifting curiosities (derelicts, castaways,
+   peddler rafts…) you sail into to open a choice card. Risk/reward outcomes
+   hand out gold, timber, charms, escorts — or spring a trap. Fully decoupled
+   from the shore minigame, so it can't entangle other systems.
+   ================================================================ */
+function hurtShip(frac){ const s=G.ship; if(!s)return; s.hp=Math.max(1, s.hp - s.maxhp*frac); s.combatT=6; s.hitflash=1; G._shakeBudget=(G._shakeBudget||0)+5; haptic('medium'); }
+function healShip(frac){ const s=G.ship; if(!s)return; s.hp=Math.min(s.maxhp, s.hp + s.maxhp*frac); }
+function gainGold(g){ G.gold+=g; G.runGold=(G.runGold||0)+g; G.stats.goldEarned=(G.stats.goldEarned||0)+g; updateHUD(); }
+function grantAllyShip(cls){
+  if(fleetCount()>=fleetCap()) return false;
+  const slot=fleetNextSlot(); G.fleet=G.fleet||[]; G.fleet.push({cls,slot}); spawnAlly({cls,slot});
+  updateRelicHUD(); return true;
+}
+function spawnAmbush(n){
+  const s=G.ship; if(!s)return;
+  for(let i=0;i<n;i++){ const a=(i/n)*TAU+rnd(-0.3,0.3), d=rnd(260,420);
+    const ex=clamp(s.x+Math.cos(a)*d,60,G.world.size-60), ey=clamp(s.y+Math.sin(a)*d,60,G.world.size-60);
+    const nv=makeNavy(ex,ey,{x:s.x,y:s.y}, pickNavyClass()); G.entities.push(nv); }
+  G.shake=Math.max(G.shake,8); sfx.enemyCannon&&sfx.enemyCannon();
+}
+const EVENTS=[
+  {id:'derelict', emoji:'🚢', title:'A Drifting Derelict',
+   text:'A dismasted hulk wallows in the swell. Her hold may be full — or it may be a deathtrap of rotten decking.',
+   choices:[
+     {label:'Search the hold', go:()=>{ if(Math.random()<0.62){ const g=rndi(90,210); gainGold(g); toast('💰 A forgotten strongbox! +'+g+'g',2600); } else { hurtShip(0.12); toast('🪤 The deck gives way — splinters and seawater!',2600); } }},
+     {label:'Strip her for timber', go:()=>{ const w=rndi(10,20); G.wood+=w; G.stats.woodEarned=(G.stats.woodEarned||0)+w; updateHUD(); toast('🪵 Salvaged +'+w+' timber',2200); }},
+     {label:'Leave her to the sea', go:()=>{ toast('You give the wreck a wide berth.',1800); }},
+   ]},
+  {id:'castaway', emoji:'🏝️', title:'A Castaway',
+   text:'A sun-blistered sailor waves from a scrap of raft, croaking that he’ll earn his keep.',
+   choices:[
+     {label:'Haul him aboard', go:()=>{ if(!grantRandomRelic()){ const g=rndi(70,140); gainGold(g); toast('🙏 Grateful, he shares a hidden cache. +'+g+'g',2800);} }},
+     {label:'Ask what he knows', go:()=>{ if(typeof dropTreasureMap==='function'){ dropTreasureMap(); toast('🗺️ He marks a buried cache on your chart!',2800);} else { gainGold(80); } }},
+     {label:'Sail past', go:()=>{ toast('You leave him to his prayers.',1800); }},
+   ]},
+  {id:'peddler', emoji:'⛵', title:'A Peddler’s Raft',
+   text:'A wily trader has lashed barrels into a floating shop. "Charms, repairs, bargains for a bold captain!"',
+   choices:[
+     {label:'Buy a charm (120g)', go:()=>{ if(G.gold<120){ toast('Not enough gold.',1800); return;} if((G.relics||[]).length>=relicSlots()){ toast('No charm slots free!',2200); return;} G.gold-=120; grantRandomRelic(); updateHUD(); }},
+     {label:'Pay for repairs (60g)', go:()=>{ if(G.gold<60){ toast('Not enough gold.',1800); return;} G.gold-=60; healShip(0.5); updateHUD(); toast('🔧 Patched up — hull restored.',2200); }},
+     {label:'Haggle and leave', go:()=>{ toast('"Bah! Your loss, captain."',1800); }},
+   ]},
+  {id:'smuggler', emoji:'📦', title:'A Smuggler’s Cache',
+   text:'Crates bob beneath a buoy marked with a smuggler’s sign. Someone will miss these.',
+   choices:[
+     {label:'Take it quietly', go:()=>{ if(Math.random()<0.5 && !grantRandomRelic()){ gainGold(rndi(120,220)); } else if(!grantRandomRelic()){ gainGold(rndi(120,220)); } toast('🤫 You spirit the cache away.',2400); }},
+     {label:'Wait to ambush the owners', go:()=>{ gainGold(rndi(160,260)); spawnAmbush(rndi(2,3)); toast('⚔ You grab the lot — but the smugglers return!',2800); }},
+     {label:'Don’t risk it', go:()=>{ toast('Best not to cross smugglers.',1800); }},
+   ]},
+  {id:'mutineers', emoji:'🏴', title:'Mutineers Adrift',
+   text:'A longboat of hard-eyed sailors hail you — they’ve cast off their captain and want a new flag to follow.',
+   choices:[
+     {label:'Take them into your fleet', go:()=>{ if(grantAllyShip(['cutter','frigate'][rndi(0,1)])){ toast('🏴 A crew — and their ship — join your fleet!',2800);} else { gainGold(rndi(90,150)); toast('No room in the fleet; they pay for passage instead.',2600);} }},
+     {label:'Relieve them of their purse', go:()=>{ gainGold(rndi(100,180)); toast('💰 You take their coin and wave goodbye.',2400); }},
+     {label:'Wish them luck', go:()=>{ toast('You let the mutineers drift on.',1800); }},
+   ]},
+  {id:'ghostwreck', emoji:'☠️', title:'A Ghostly Wreck',
+   text:'A barnacled wreck glows with a cold light. The drowned still guard their gold... for the brave or the foolish.',
+   choices:[
+     {label:'Plunder the cursed hold', go:()=>{ if(Math.random()<0.55){ const g=rndi(200,360); gainGold(g); toast('💀 You snatch the cursed gold! +'+g+'g',2800);} else { hurtShip(0.2); toast('👻 Cold hands drag at the hull!',2600);} }},
+     {label:'Burn it to free the souls', go:()=>{ if(!grantRandomRelic()) gainGold(rndi(60,120)); toast('🔥 A grateful spirit leaves you a token.',2800); }},
+     {label:'Flee the haunt', go:()=>{ toast('Some gold isn’t worth the price.',1800); }},
+   ]},
+  {id:'paymaster', emoji:'💂', title:'The Royal Paymaster',
+   text:'A lone Crown ship rides low — heavy with payroll gold. She hasn’t seen you yet.',
+   choices:[
+     {label:'Ambush her!', go:()=>{ gainGold(rndi(140,240)); spawnAmbush(2); toast('⚔ You strike — but her escorts close in!',2800); }},
+     {label:'Shadow her for scraps', go:()=>{ gainGold(rndi(60,110)); toast('🪙 You skim a little and slip away.',2400); }},
+     {label:'Let her pass', go:()=>{ toast('Not today.',1600); }},
+   ]},
+  {id:'whalepod', emoji:'🐋', title:'A Whale Pod',
+   text:'Spouts on the horizon — a pod breaches in the gold of evening. A fine, peaceful sight.',
+   choices:[
+     {label:'Render oil from a straggler', go:()=>{ gainGold(rndi(80,150)); G.gullsCaught=G.gullsCaught; toast('🛢️ Whale oil fetches a tidy sum.',2400); }},
+     {label:'Just watch a while', go:()=>{ healShip(0.18); toast('😌 The crew’s spirits lift — a little rest. Hull mended.',2600); }},
+   ]},
+];
+const EVENT_BY_ID={}; for(const e of EVENTS) EVENT_BY_ID[e.id]=e;
+let _curEvent=null;
+function openEvent(ev){
+  if(G.state!=='play') return;
+  _curEvent=ev;
+  el('ev-emoji').textContent=ev.emoji;
+  el('ev-title').textContent=ev.title;
+  el('ev-text').textContent=ev.text;
+  const host=el('ev-choices'); host.innerHTML='';
+  ev.choices.forEach((c,i)=>{
+    const b=document.createElement('button'); b.className='bigbtn'; b.textContent=c.label;
+    if(i===0) b.classList.add('gold');
+    b.onclick=()=>resolveEvent(i);
+    host.appendChild(b);
+  });
+  G.state='event'; el('ov-event').classList.add('show');
+  if(typeof sfx!=='undefined' && sfx.treasure) sfx.treasure();
+}
+function resolveEvent(i){
+  const ev=_curEvent; el('ov-event').classList.remove('show'); G.state='play'; _curEvent=null;
+  if(ev && ev.choices[i]){ try{ ev.choices[i].go(); }catch(e){} }
+  updateHUD(); saveGame();
+}
+function spawnEncounter(){
+  const s=G.ship; if(!s||!G.world) return;
+  if((G.encounters||[]).length>0) return;        // one at a time
+  // place it a little ahead/around the ship, off the immediate path, in open water
+  for(let tries=0;tries<10;tries++){
+    const a=rnd(TAU), d=rnd(520,820);
+    const x=clamp(s.x+Math.cos(a)*d,120,G.world.size-120), y=clamp(s.y+Math.sin(a)*d,120,G.world.size-120);
+    let onLand=false;
+    for(const is of G.world.islands){ if(dist(x,y,is.x,is.y)<is.r+90){ onLand=true; break; } }
+    if(onLand) continue;
+    const ev=EVENTS[rndi(0,EVENTS.length-1)];
+    G.encounters=G.encounters||[];
+    G.encounters.push({x,y,bob:rnd(TAU),ev:ev.id,life:75});   // despawns if ignored
+    return;
+  }
+}
+function updateEncounters(dt){
+  if(!G.encounters||!G.encounters.length) return;
+  const s=G.ship;
+  for(let i=G.encounters.length-1;i>=0;i--){
+    const c=G.encounters[i]; c.bob+=dt*2; c.life-=dt;
+    if(s && dist(c.x,c.y,s.x,s.y) < s.r+34){
+      const ev=EVENT_BY_ID[c.ev]; G.encounters.splice(i,1);
+      if(ev) openEvent(ev);
+      return;
+    }
+    if(c.life<=0) G.encounters.splice(i,1);
+  }
+}
+function drawEncounters(){
+  if(!G.encounters||!G.encounters.length) return;
+  const z=G.cam.zoom;
+  for(const c of G.encounters){
+    const sx=wx(c.x), sy=wy(c.y)+Math.sin(c.bob)*4*z;
+    if(sx<-40||sx>W+40||sy<-40||sy>H+40) continue;
+    const ev=EVENT_BY_ID[c.ev];
+    // soft beckoning glow ring
+    ctx.globalAlpha=0.30+0.18*Math.sin(G.t*3+c.bob);
+    ctx.fillStyle='rgba(255,225,140,0.5)';
+    ctx.beginPath();ctx.arc(sx,sy,(20+3*Math.sin(G.t*3))*z,0,TAU);ctx.fill();
+    ctx.globalAlpha=1;
+    // shadow + marker
+    ctx.fillStyle='rgba(10,40,60,0.25)';ctx.beginPath();ctx.ellipse(sx,wy(c.y)+10*z,12*z,6*z,0,0,TAU);ctx.fill();
+    ctx.font=(24*z)+'px serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText((ev&&ev.emoji)||'❓', sx, sy);
+    // a little "?" tag so it reads as interactive
+    ctx.font=('bold '+(12*z)+'px sans-serif'); ctx.fillStyle='#fff7df';
+    ctx.fillText('❔', sx+14*z, sy-14*z);
+  }
+}
 /* Start-screen ship picker — choose a hull before a New Voyage. Locked hulls show how
    to earn them. Styled to match the warm parchment/oak menu. */
 function buildClassPicker(){
@@ -3103,6 +3264,11 @@ function updateSpawns(dt){
   if(G.convoyTimer<=0){
     G.convoyTimer=rnd(45,80);
     spawnConvoy();
+  }
+  // --- drifting event encounters (not in Endless; endless is pure survival) ---
+  if(!G.endless){
+    G.encounterTimer-=dt;
+    if(G.encounterTimer<=0){ G.encounterTimer=rnd(40,70); spawnEncounter(); }
   }
 }
 /* A convoy: a column of fat high-value cargo ships with navy escorts
@@ -8041,6 +8207,7 @@ function render(){
   // islands
   for(const is of G.world.islands) drawIsland(is);
   drawFloaters();
+  drawEncounters();     // drifting event curiosities (derelicts, rafts…)
   drawCacheMarkers();   // revealed buried-treasure X marks on beaches
   drawCritters();       // ambient dolphins/fish on the water
   drawLandingParty();   // the dinghy + shore party
@@ -8227,6 +8394,7 @@ function loop(now){
     updateMortars(G.dt);
     updateParticles(G.dt);
     updateDebris(G.dt);   // flying hull wreckage arcs up and splashes back down
+    updateEncounters(G.dt); // drifting event curiosities — sail in to open a choice card
     updateCritters(G.dt);
     updateOctopi(G.dt);   // Davy Jones' latched octopuses drain the hull
     updateSeagulls(G.dt); // resting gulls flush & flee; catch one to unlock a cosmetic
@@ -8736,10 +8904,11 @@ function startMap(idx, restore){
   G.cam.x=G.ship.x;G.cam.y=G.ship.y;G.cam.zoom=H>W?0.92:1.05;
   el('mapname').textContent=G.world.def.name;
   document.documentElement.style.setProperty('--sea',G.world.def.tint);
-  ['ov-shop','ov-end','ov-start'].forEach(i=>el(i).classList.remove('show'));
+  ['ov-shop','ov-end','ov-start','ov-event'].forEach(i=>el(i).classList.remove('show'));
   G.portPromptShown=false; G.portPromptDismissed=null; G.promptKey=null; G.nearTargetIsland=null;
   G.combo=0; G.comboT=0; G.dmgPops=[]; G.hitStop=0; G._nearCorner=null; initWeather();
   G.shore=null; G.landingParty=null;   // never carry a shore session into a new map
+  G.encounters=[]; G.encounterTimer=rnd(30,55);   // fresh event curiosities each sea
   G.cruiseAng=null;                    // re-aim travel-speed autopilot at the new ship's heading
   if(typeof collapseMinimap==='function') collapseMinimap();   // start each sea with the compact chart
   if(G._shorePromptUp){ el('portprompt').classList.remove('show'); G._shorePromptUp=false; }
