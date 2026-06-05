@@ -695,6 +695,7 @@ function saveGame(){
       wood:Math.floor(G.wood),
       shipClass:G.shipClass,                          // chosen hull (run-scoped)
       relics:(G.relics||[]).slice(),                  // charms collected this voyage
+      fleet:(G.fleet||[]).map(d=>({cls:d.cls,slot:d.slot})),  // captured escorts
       upgrades:{...G.upgrades},
       treasureFound:G.treasureFound,
       collectedGems:G.collectedGems||{},
@@ -854,6 +855,7 @@ const G = {
   ship:null,
   shipClass:'brig',          // chosen hull class (run-scoped; see SHIPCLASSES)
   relics:[],                 // roguelike charms collected this voyage (see RELICS)
+  fleet:[],                  // captured escorts {cls,slot} — sail with you across seas
   entities:[], cannonballs:[], particles:[], floaters:[], wakes:[], debris:[], seagulls:[],
   upgrades:{hull:0,sails:0,cannons:0,crew:0,hold:0,hotshot:0,spread:0,ballast:0,chain:0,plating:0,boarding:0},
   // ---- ship cosmetics (unlocked by catching seagulls; persist forever) ----
@@ -2764,6 +2766,7 @@ const RELICS=[
   {id:'krakenbone', name:'Krakenbone Charm',       icon:'🦑', rarity:'rare',     cost:360, desc:'+15% vs bosses, +6% hull',               mods:{hp:1.06}, flags:{hotshot:0.15}},
   {id:'doubloon',   name:'Cursed Doubloon',        icon:'🪙', rarity:'rare',     cost:300, desc:'+60% gold, but +12% damage taken',      mods:{loot:1.60}, flags:{dmgTaken:1.12}},
   {id:'wind',       name:'Trade Winds Charm',      icon:'🍃', rarity:'rare',     cost:360, desc:'+10% speed, reload & gold',              mods:{spd:1.10, fireRate:1.10, loot:1.10}},
+  {id:'marque',     name:'Letter of Marque',       icon:'🎖️', rarity:'rare',     cost:340, desc:'+1 fleet escort capacity',              flags:{}},
 ];
 const RELIC_BY_ID={}; for(const r of RELICS) RELIC_BY_ID[r.id]=r;
 const RARITY_COL={common:'#8a8f98', uncommon:'#3f9e6a', rare:'#b066d6'};
@@ -2786,6 +2789,71 @@ function grantRandomRelic(){
   const R=avail[rndi(0,avail.length-1)];
   if(addRelic(R.id)){ toast('🪬 The hoard held a charm — '+R.name+'!',3000); return true; }
   return false;
+}
+/* ================================================================
+   FLEET — capture crippled navy ships (via boarding) and they sail with you
+   as AI escorts: holding formation, engaging foes with friendly broadsides,
+   soaking fire, and sinking like any ship. Run-scoped; persists across seas.
+   ================================================================ */
+function fleetList(){ return G.entities.filter(e=>e.type==='ally'&&!e.dead); }
+function fleetCount(){ return fleetList().length; }
+function fleetCap(){ let c=2; if(currentShipClass().id==='galleon') c+=1; if(hasRelic('marque')) c+=1; return c; }
+function fleetNextSlot(){ const used=new Set(fleetList().map(a=>a.slot)); let i=0; while(used.has(i)) i++; return i; }
+// world position of a formation slot, in the player's local frame (behind + alternating sides)
+function allySlotPos(slot, s){
+  const back=-(95 + (slot>>1)*70);
+  const side=((slot&1)?1:-1)*(78 + (slot>>1)*14);
+  const ca=Math.cos(s.a), sa=Math.sin(s.a);
+  return { x: s.x + ca*back - sa*side, y: s.y + sa*back + ca*side };
+}
+// spawn a live escort from a fleet descriptor {cls,slot} at its formation slot
+function spawnAlly(desc){
+  const c=NAVY_CLASSES.find(n=>n.cls===desc.cls)||NAVY_CLASSES[1];
+  const s=G.ship, mi=G.mapIndex;
+  const pos = s ? allySlotPos(desc.slot||0, s) : {x:(G.world?G.world.spawn.x:0),y:(G.world?G.world.spawn.y:0)};
+  const hpm=c.hp+mi*40;
+  const a=makeShip({x:pos.x,y:pos.y,a:s?s.a:-Math.PI/2, type:'ally',faction:'ally',cls:c.cls,
+    hp:hpm,maxhp:hpm,r:c.r, maxspeed:c.spd+mi*5, turn:c.turn,
+    fireRate:c.fireRate+mi*0.05, dmg:c.dmg+mi*4, cannons:c.cannons, range:c.range+mi*15,
+    shipL:c.L, beam:c.beam, masts:c.masts, sailC:c.sail, tint:shade(c.tint,0.10),
+    ai:'escort', slot:desc.slot||0});
+  G.entities.push(a); return a;
+}
+// rebuild the live escort fleet for the current map from the persistent descriptors
+function spawnFleet(){ for(const d of (G.fleet||[])) spawnAlly(d); }
+// convert a just-boarded navy ship in place into an escort
+function captureAsAlly(e){
+  e._boarding=false; e.type='ally'; e.faction='ally'; e.ai='escort';
+  e.dead=false; e.sink=0; e.deathT=0; delete e.glideDur;
+  e.hp=Math.max(e.hp||0, e.maxhp*0.55);          // patched up to at least half
+  e.slot=fleetNextSlot(); e.tint=shade(e.tint||'#88b0d0',0.10);
+  e.combatT=0; e.reload=0;
+  G.fleet=G.fleet||[]; G.fleet.push({cls:e.cls, slot:e.slot});
+  if(typeof updateRelicHUD==='function') updateRelicHUD();
+}
+function updateAlly(e,dt,s,dp){
+  // nearest hostile worth engaging
+  let foe=null, fd=1e9;
+  for(const o of G.entities){
+    if(o.dead || o.type==='fort') continue;
+    if(o.faction!=='enemy') continue;            // escorts fight real threats, not neutral merchants
+    const d=dist(e.x,e.y,o.x,o.y); if(d<fd){ fd=d; foe=o; }
+  }
+  const engaging = foe && fd < e.range*1.25 && dp < 1500;
+  if(engaging){
+    // close to broadside range, then circle — same instinct as the navy
+    const desired = fd>e.range*0.7 ? angTo(e.x,e.y,foe.x,foe.y) : angTo(e.x,e.y,foe.x,foe.y)+Math.PI/2;
+    steer(e,desired,dt); e.speed=lerp(e.speed,e.maxspeed,dt*1.5);
+    tryFire(e,dt,foe); e.combatT=4;
+  } else {
+    // hold formation behind the flagship; match her pace, close any gap
+    const slot=allySlotPos(e.slot||0, s), d2=dist(e.x,e.y,slot.x,slot.y);
+    if(d2>46){ steer(e, angTo(e.x,e.y,slot.x,slot.y), dt);
+      e.speed=lerp(e.speed, Math.min(e.maxspeed, (s.speed||0)+45+d2*0.5), dt*2.2); }
+    else { steer(e, s.a, dt); e.speed=lerp(e.speed, (s.speed||0)*0.92, dt*2); }
+  }
+  e.combatT=Math.max(0,(e.combatT||0)-dt);
+  if(!engaging && e.combatT<=0 && e.hp<e.maxhp){ e.hp=Math.min(e.maxhp, e.hp+e.maxhp*0.05*dt); }  // slow self-repair
 }
 /* Start-screen ship picker — choose a hull before a New Voyage. Locked hulls show how
    to earn them. Styled to match the warm parchment/oak menu. */
@@ -2826,9 +2894,16 @@ function buildClassPicker(){
 function updateRelicHUD(){
   const bar=el('relicbar'); if(!bar) return;
   const list=G.relics||[];
-  if(!list.length || G.state==='shore'){ bar.style.display='none'; bar.innerHTML=''; return; }
+  const fleet=(typeof fleetCount==='function')?fleetCount():0;
+  if((!list.length && !fleet) || G.state==='shore'){ bar.style.display='none'; bar.innerHTML=''; return; }
   bar.style.display='flex';
   bar.innerHTML='';
+  if(fleet>0){
+    const f=document.createElement('div');
+    f.textContent='⛵'+fleet; f.title='Fleet escorts: '+fleet+'/'+fleetCap();
+    f.style.cssText='font-size:13px;font-weight:800;color:#bfe6c8;padding-right:4px;border-right:1px solid rgba(255,255,255,.25);margin-right:2px';
+    bar.appendChild(f);
+  }
   for(const id of list){
     const R=RELIC_BY_ID[id]; if(!R)continue;
     const d=document.createElement('div');
@@ -2912,6 +2987,7 @@ function populate(){
   G.ship=makeShip({x:G.world.spawn.x,y:G.world.spawn.y,a:-Math.PI/2});
   recalcPlayer(); G.ship.hp=G.ship.maxhp;
   G.entities.push(G.ship);
+  spawnFleet();   // captured escorts sail into the new sea alongside you
 
   const farFromSpawn=(x,y,m=600)=>dist(x,y,G.world.spawn.x,G.world.spawn.y)>m;
   const inWater=(x,y)=>{
@@ -3220,6 +3296,9 @@ function updateEntities(dt){
     }
     else if(e.type==='fort'){
       updateFort(e,dt,s,dp);
+    }
+    else if(e.type==='ally'){
+      updateAlly(e,dt,s,dp);
     }
     // integrate — static structures (forts) don't move or get pushed by islands
     if(!e.isStatic){
@@ -3550,7 +3629,7 @@ function fireCannonFrom(px,py,perpAng,from,target,dmg,ballR,flame){
   const sp=460, td=target?dist(px,py,target.x,target.y):from.range;
   G.cannonballs.push({x:px,y:py,                 // originate exactly at the cannon muzzle
     vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,
-    life:Math.min(td/sp+0.3,1.8), dmg, friendly:from===G.ship, owner:from, h:0, vh:80,
+    life:Math.min(td/sp+0.3,1.8), dmg, friendly:(from===G.ship||from.faction==='ally'), owner:from, h:0, vh:80,
     r:(flame?3.8:(ballR||3.2)), fire:!!flame});
 }
 function updateCannonballs(dt){
@@ -3637,8 +3716,8 @@ function updateCannonballs(dt){
       } else
       for(const e of G.entities){ if(e.dead)continue;
         if(e.type==='fort')continue;   // handled above
-        if(b.friendly && (e.type==='player'))continue;
-        if(!b.friendly && e.type!=='player')continue;
+        if(b.friendly && (e.type==='player'||e.type==='ally'))continue;   // no friendly fire on your fleet
+        if(!b.friendly && e.type!=='player' && e.type!=='ally')continue;  // enemy fire can hit escorts
         if(b.owner===e)continue;
         if(dist(b.x,b.y,e.x,e.y)<e.r+b.r){ dealDamage(e,b.dmg,b.owner); b.life=0; splash(b.x,b.y,'#ffe0a0');
           if(e.type==='player')sfx.hitShip(); else sfx.hitWood();
@@ -3707,6 +3786,14 @@ function dealDamage(e,amt,by){
 function killEntity(e,by){
   e.dead=true; e.sink=0; e.deathT=0;
   if(e===G.ship){ e.speed=0; sfx.sink(); gameOver(); return; }
+  // an escort lost: she sinks like any ship, drops from the fleet, no plunder
+  if(e.type==='ally'){
+    G.fleet=(G.fleet||[]).filter(d=>d.slot!==e.slot);
+    e.glideDur=rnd(0.4,0.6); e.sinkRate=0.5; e.spinDir=Math.random()<0.5?-1:1;
+    spawnDeathExplosion(e); haptic('warning'); toast('⚓ An escort was lost!',2400);
+    if(typeof updateRelicHUD==='function') updateRelicHUD();
+    return;
+  }
   // Boats die in three beats: coast to a halt, blow apart (fire/smoke/flying debris),
   // then slip slowly under. Monsters/forts/bosses keep their own death handling.
   if(e.type==='cargo'||e.type==='navy'){
@@ -5268,14 +5355,23 @@ function resolveBoarding(sh, won){
   const e=sh.enemy;
   if(e) e._boarding=false; if(G.ship) G.ship._boarding=false;
   if(won && e && !e.dead){
-    const lootMul=(G.ship&&G.ship.loot)||1;
-    const bonus = e.type==='cargo' ? Math.floor((e.cargo||0)*lootMul) : Math.floor((e.bounty||100)*lootMul);
     const deck  = Math.round(sh.earnedGold||0);   // loot grabbed on deck + the captain's purse
-    killEntity(e, G.ship);                        // normal sink + base reward + stats + removal
-    G.gold+=bonus+deck; G.stats.goldEarned=(G.stats.goldEarned||0)+bonus+deck;
-    G.stats.boardingsWon=(G.stats.boardingsWon||0)+1;
-    updateHUD(); checkAchievements&&checkAchievements();
-    toast('🏴‍☠️ Plundered her — DOUBLE loot! +'+bonus+'g'+(deck?' +'+deck+'g from her deck':''),2900);
+    // CAPTURE: a navy ship with room in your fleet is pressed into service instead of sunk.
+    if(e.type==='navy' && fleetCount()<fleetCap()){
+      captureAsAlly(e);
+      if(deck){ G.gold+=deck; G.stats.goldEarned=(G.stats.goldEarned||0)+deck; }
+      G.stats.boardingsWon=(G.stats.boardingsWon||0)+1; G.stats.shipsCaptured=(G.stats.shipsCaptured||0)+1;
+      updateHUD(); checkAchievements&&checkAchievements();
+      toast('🏴 Pressed her into your fleet! ('+fleetCount()+'/'+fleetCap()+')'+(deck?'  +'+deck+'g':''),3200);
+    } else {
+      const lootMul=(G.ship&&G.ship.loot)||1;
+      const bonus = e.type==='cargo' ? Math.floor((e.cargo||0)*lootMul) : Math.floor((e.bounty||100)*lootMul);
+      killEntity(e, G.ship);                        // normal sink + base reward + stats + removal
+      G.gold+=bonus+deck; G.stats.goldEarned=(G.stats.goldEarned||0)+bonus+deck;
+      G.stats.boardingsWon=(G.stats.boardingsWon||0)+1;
+      updateHUD(); checkAchievements&&checkAchievements();
+      toast('🏴‍☠️ Plundered her — DOUBLE loot! +'+bonus+'g'+(deck?' +'+deck+'g from her deck':''),2900);
+    }
   } else {
     if(G.ship){ const dmg=Math.round(G.ship.maxhp*0.12); G.ship.hp=Math.max(1,G.ship.hp-dmg); G.ship.combatT=6; G._shakeBudget=(G._shakeBudget||0)+4; }
     if(e){ e._boardCd=G.t+12; }                  // brief cooldown so the prompt doesn't instantly re-fire
@@ -7322,6 +7418,7 @@ function drawHull(e,z){
   if(e.type==='cargo'){body=e.tint;bodyDk=shade(e.tint,-0.3);sailC=e.sailC||'#f0e2c4';}
   else if(e.type==='navy'){ body=shade(e.tint,-0.32); bodyDk=shade(e.tint,-0.5); sailC=e.sailC||'#dde6f2'; accent='#cf3a3f';
     if(e.spectral){ body='#3e4e58'; bodyDk='#2a363e'; sailC='#46555e'; accent='#5ac896'; } }
+  else if(e.type==='ally'){ body=shade(e.tint||'#7da6c8',-0.26); bodyDk=shade(e.tint||'#7da6c8',-0.46); sailC=e.sailC||'#eef5ff'; accent='#3f9e6a'; }
   else if(e.type==='boss' && e.mk==='ghost'){ body='#2e3a44'; bodyDk='#1c252b'; sailC='#3a4a55'; accent='#5ac896'; }
   else if(e.type==='boss' && e.mk==='manowar'){ body='#23202b'; bodyDk='#131119'; sailC='#2a2630'; accent='#e8c34a'; }
   else if(e.type==='boss' && e.mk==='wraith'){ body='#9a8a72'; bodyDk='#5e5040'; sailC='#6f8a52'; accent='#ff7e5a'; }  // Coral Colossus: bleached wreck + kelp sails
@@ -7332,9 +7429,9 @@ function drawHull(e,z){
   // shape factors: player uses upgrades; navy uses its class profile
   const u = e.type==='player' ? G.upgrades : {hull:0,sails:0,cannons:0,crew:0,hold:0,chain:0,plating:0};
   const L = e.type==='player' ? (1 + u.hull*0.16)*(e.classL||1)
-          : (e.type==='navy'||e.type==='boss'||e.type==='cargo') ? (e.shipL||1)
+          : (e.type==='navy'||e.type==='boss'||e.type==='cargo'||e.type==='ally') ? (e.shipL||1)
           : 1;
-  const B = (e.type==='navy'||e.type==='boss'||e.type==='cargo') ? (e.beam||1) : 1;     // beam (width) factor
+  const B = (e.type==='navy'||e.type==='boss'||e.type==='cargo'||e.type==='ally') ? (e.beam||1) : 1;     // beam (width) factor
   const noseY=-r*1.35*L, sternY=r*1.2*L;            // bow up (-y), stern down (+y)
 
   // hull (rounded boat shape, pointing up = -y), lengthened by L, widened by B
@@ -7361,7 +7458,7 @@ function drawHull(e,z){
 
   // ---- NAVY gun ports: a row of dark squares with cannon muzzles down each side ----
   const shipBossGuns = (e.type==='boss' && (e.mk==='manowar'||e.mk==='wraith'||e.mk==='drowned'));
-  if(e.type==='navy' || shipBossGuns){
+  if(e.type==='navy' || e.type==='ally' || shipBossGuns){
     const guns=shipBossGuns ? (e.cannons||7) : (e.cannons||3);
     const gz = shipBossGuns ? 1.4 : 1;                  // bigger, meaner muzzles on bosses
     const yTop=noseY+r*0.7, yBot=sternY-r*0.6;
@@ -7520,8 +7617,8 @@ function drawHull(e,z){
         for(let q=0;q<3;q++){const yy=my-r*0.42+q*r*0.16;ctx.beginPath();ctx.moveTo(-r*0.16,yy);ctx.lineTo(r*0.16,yy);ctx.stroke();} }
       if(m===0) drawSailEmblem(my, r, z, sailC);   // sail emblem flies on the bow-most sail
     }
-  } else if(e.type==='navy' || (e.type==='boss'&&(e.mk==='ghost'||e.mk==='wraith'||e.mk==='drowned'||e.mk==='manowar'))){
-    // navy / ghost ship: class-driven mast count, sails sized to the beam
+  } else if(e.type==='navy' || e.type==='ally' || (e.type==='boss'&&(e.mk==='ghost'||e.mk==='wraith'||e.mk==='drowned'||e.mk==='manowar'))){
+    // navy / escort / ghost ship: class-driven mast count, sails sized to the beam
     const masts=e.masts||3;
     const sailW=B*1.0;
     for(let m=0;m<masts;m++){
@@ -7542,7 +7639,7 @@ function drawHull(e,z){
   ctx.save();
   ctx.translate(0,noseY+r*0.35);
   const fw=Math.sin(G.t*5+e.bob)*0.12;
-  ctx.fillStyle = e.type==='player'?(currentCosmetic('flag').col||'#222'):(e.type==='navy'?'#cf3a3f':'#5e3620');
+  ctx.fillStyle = e.type==='player'?(currentCosmetic('flag').col||'#222'):(e.type==='navy'?'#cf3a3f':e.type==='ally'?'#3f9e6a':'#5e3620');
   ctx.beginPath();ctx.moveTo(0,0);ctx.lineTo(r*0.55,r*0.1+fw*r);ctx.lineTo(0,r*0.32);ctx.fill();
   if(e.type==='player'){ // skull dot
     ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(r*0.22,r*0.16,r*0.07,0,TAU);ctx.fill();}
@@ -8326,6 +8423,42 @@ function buildShop(){
     row.appendChild(btn);wrap.appendChild(row);
   }
   buildCharmShop(wrap);
+  buildFleetShop(wrap);
+}
+/* Fleet roster at the Cove: see your escorts, repair them, or dismiss one to free a slot. */
+function buildFleetShop(wrap){
+  const fleet=(typeof fleetList==='function')?fleetList():[];
+  const cap=fleetCap();
+  const hdr=document.createElement('div');
+  hdr.style.cssText='margin:12px 2px 4px;font-weight:800;color:var(--cream);font-size:14px;border-top:2px solid var(--gold-dk);padding-top:10px';
+  hdr.innerHTML=`⛵ Fleet <span style="font-weight:600;opacity:.75;font-size:12px">— ${fleet.length}/${cap} escorts · capture warships by boarding</span>`;
+  wrap.appendChild(hdr);
+  if(!fleet.length){
+    const none=document.createElement('div');
+    none.style.cssText='margin:2px;font-size:12px;color:var(--cream);opacity:.7';
+    none.textContent='No escorts yet. Cripple a warship, board her, and she joins your fleet.';
+    wrap.appendChild(none); return;
+  }
+  const NAMES={sloop:'Sloop',cutter:'Cutter',frigate:'Frigate',galleon:'Galleon',manowar:'Man-o-War'};
+  for(const a of fleet){
+    const hpPct=Math.round(100*a.hp/a.maxhp), hurt=a.hp<a.maxhp-1;
+    const row=document.createElement('div'); row.className='uprow';
+    row.innerHTML=`<div class="upic" style="background:#3f6e8c">⛵</div>
+      <div class="upinfo"><b>${NAMES[a.cls]||'Escort'}</b><small>Hull ${hpPct}%</small>
+      <span class="uplvl" style="color:#7fd0a0">in your fleet</span></div>`;
+    const btns=document.createElement('div'); btns.style.cssText='display:flex;flex-direction:column;gap:4px';
+    if(hurt){ const cost=Math.ceil((a.maxhp-a.hp)*0.5);
+      const rb=document.createElement('button'); rb.className='upbuy'; rb.innerHTML=`${cost}🪙<br>repair`;
+      rb.disabled=G.gold<cost;
+      rb.onclick=()=>{ if(G.gold<cost)return; G.gold-=cost; a.hp=a.maxhp; updateHUD(); sfx.upgrade&&sfx.upgrade(); buildShop(); saveGame(); };
+      btns.appendChild(rb); }
+    const db=document.createElement('button'); db.className='upbuy'; db.style.background='#7a3030'; db.textContent='✕';
+    db.title='Dismiss this escort';
+    db.onclick=()=>{ G.fleet=(G.fleet||[]).filter(d=>d.slot!==a.slot); a.dead=true; a.sink=1.7;
+      updateRelicHUD(); buildShop(); saveGame(); sfx.click&&sfx.click(); };
+    btns.appendChild(db);
+    row.appendChild(btns); wrap.appendChild(row);
+  }
 }
 /* The Cove also peddles CHARMS (relics): a rotating handful you can buy with gold.
    Limited equip slots force a real choice; bought charms last the whole voyage. */
@@ -8633,7 +8766,7 @@ function newVoyage(){
   resetRun(); G.comboBest=0;
   G.stats.voyages=(G.stats.voyages||0)+1;
   G.upgrades={hull:0,sails:0,cannons:0,crew:0,hold:0,hotshot:0,spread:0,ballast:0,chain:0,plating:0,boarding:0};
-  G.relics=[]; G._charmStock=null;                      // fresh voyage → no charms, new cove stock
+  G.relics=[]; G._charmStock=null; G.fleet=[];           // fresh voyage → no charms, new stock, empty fleet
   if(!shipClassUnlocked(currentShipClass())) G.shipClass='brig';   // guard a locked pick
   el('ov-start').classList.remove('show');
   startMap(0);
@@ -8654,6 +8787,7 @@ function continueGame(){
   G.upgrades=Object.assign({hull:0,sails:0,cannons:0,crew:0,hold:0,hotshot:0,spread:0,ballast:0,chain:0,plating:0,boarding:0}, d.upgrades||{});
   G.shipClass=(d.shipClass && SHIPCLASS_BY_ID[d.shipClass])?d.shipClass:'brig';
   G.relics=Array.isArray(d.relics)?d.relics.filter(id=>RELIC_BY_ID[id]):[];
+  G.fleet=Array.isArray(d.fleet)?d.fleet.filter(x=>x&&NAVY_CLASSES.some(n=>n.cls===x.cls)).map(x=>({cls:x.cls,slot:x.slot|0})):[];
   el('ov-start').classList.remove('show');
   startMap(Math.min(d.mapIndex||0, MAPS.length-1), d);
 }
@@ -8725,7 +8859,7 @@ function startEndless(){
   resetRun(); G.comboBest=0;
   // a generous fixed loadout so endless is about survival, not grinding upgrades
   G.upgrades={hull:3,sails:3,cannons:3,crew:3,hold:3,hotshot:1,spread:1,ballast:1,chain:1,plating:1,boarding:3};
-  G.relics=[]; G._charmStock=null;                 // your chosen hull carries in; charms start fresh
+  G.relics=[]; G._charmStock=null; G.fleet=[];     // your chosen hull carries in; charms & fleet start fresh
   G.mapIndex=MAPS.length-1;
   el('ov-start').classList.remove('show');
   startMap(MAPS.length-1);
