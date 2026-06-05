@@ -192,7 +192,7 @@
   /* bottom-left: minimap anchored to the viewport bottom, HP bar directly above it.
      The minimap is a <canvas>, which some webviews mis-position with fixed+bottom,
      so we anchor a WRAPPER DIV (reliable) and let the canvas fill it statically. */
-  #botleft{position:fixed;left:10px;bottom:0;--mini:96px;pointer-events:none;z-index:12;}
+  #botleft{position:fixed;left:10px;bottom:0;--mini:120px;pointer-events:none;z-index:12;}
   #minimapwrap{position:fixed;left:10px;bottom:calc(16px + env(safe-area-inset-bottom));
     width:var(--mini);height:var(--mini);border-radius:16px;pointer-events:auto;z-index:12;
     border:3px solid var(--gold);box-shadow:var(--shadow-soft);background:#1c2a47;overflow:hidden;
@@ -680,7 +680,7 @@ resize();
 /* Build/version string shown in-app (start screen + dev readout) so it's obvious which
    build is actually running — App Store/TestFlight propagation lags the repo by hours/days.
    Keep this in lockstep with ios MARKETING_VERSION when bumping. */
-const GAME_BUILD='1.0.22';
+const GAME_BUILD='1.0.23';
 /* ---------- math ---------- */
 const TAU=Math.PI*2;
 const rnd=(a=1,b)=>b===undefined?Math.random()*a:a+Math.random()*(b-a);
@@ -8828,51 +8828,49 @@ function drawMinimap(){
   const exp=_miniExpanded;       // popped out → room for rich, game-themed icons
   x.textAlign='center'; x.textBaseline='middle';
   const glyph=(t,gx,gy,px)=>{ x.font='700 '+px+'px sans-serif'; x.fillText(t,gx,gy); };
-  // water bg with soft rounded clip
+  // distinct marker shapes so symbols read apart at a glance, not a field of dots
+  const tri=(cx,cy,r)=>{ x.beginPath();x.moveTo(cx,cy-r);x.lineTo(cx+r*0.9,cy+r*0.8);x.lineTo(cx-r*0.9,cy+r*0.8);x.closePath();x.fill(); };
+  const dia=(cx,cy,r)=>{ x.beginPath();x.moveTo(cx,cy-r);x.lineTo(cx+r,cy);x.lineTo(cx,cy+r);x.lineTo(cx-r,cy);x.closePath();x.fill(); };
+  // FOG OF WAR: unexplored sea is darker; a soft halo marks the waters you've charted.
   x.clearRect(0,0,N,N);
-  x.fillStyle='#2f6f93'; x.fillRect(0,0,N,N);
-  // islands
+  x.fillStyle='#1d435c'; x.fillRect(0,0,N,N);
+  const radar = exp ? S*2 : Math.max(1500, S*0.16);   // how far live ships/forts reveal
+  { const pr=radar*sc, g=x.createRadialGradient(s.x*sc,s.y*sc,pr*0.15,s.x*sc,s.y*sc,pr);
+    g.addColorStop(0,'rgba(74,134,166,0.55)'); g.addColorStop(1,'rgba(74,134,166,0)');
+    x.fillStyle=g; x.beginPath();x.arc(s.x*sc,s.y*sc,pr,0,TAU);x.fill(); }
+  // ISLANDS — only the ones you've DISCOVERED, so the chart fills in as you sail
   for(const is of G.world.islands){
-    const known=G.discovered.has(is.id);
-    x.fillStyle = known ? (is.hasCove?'#ffce5c':'#7ec96b') : 'rgba(150,180,190,0.35)';
-    x.beginPath();x.arc(is.x*sc,is.y*sc,Math.max(2.5*k,is.r*sc*0.9),0,TAU);x.fill();
-    if(known && is.hasCove){ x.fillStyle='#5e3620'; glyph('⚓',is.x*sc,is.y*sc,9*k); }      // port
-    else if(known && exp && is.explorable){ glyph('🌴',is.x*sc,is.y*sc,12*k); }            // explorable isle
+    if(!G.discovered.has(is.id)) continue;
+    x.fillStyle = is.hasCove?'#ffce5c':'#7ec96b';
+    x.beginPath();x.arc(is.x*sc,is.y*sc,Math.max(3*k,is.r*sc*0.9),0,TAU);x.fill();
+    if(is.hasCove){ x.fillStyle='#5e3620'; glyph('⚓',is.x*sc,is.y*sc,9*k); }               // ⚓ = port
+    else if(exp && is.explorable){ x.fillStyle='#2e6b2a'; glyph('▲',is.x*sc,is.y*sc,9*k); } // explorable isle
   }
-  // shore forts
-  for(const e of G.entities){ if(e.dead||e.type!=='fort')continue;
-    if(exp) glyph('🏰',e.x*sc,e.y*sc,14*k);
-    else { x.fillStyle='#c0703a';x.fillRect(e.x*sc-2,e.y*sc-2,4,4); } }
-  // floating pickups: treasure gems, bounty crates, shanty bottles
-  for(const f of G.floaters){ if(f.collected)continue;
-    if(f.type==='treasure'){
-      if(exp) glyph('💎',f.x*sc,f.y*sc,12*k);
-      else { x.fillStyle='#ffd34d';x.beginPath();x.arc(f.x*sc,f.y*sc,2.6,0,TAU);x.fill();
-        x.strokeStyle='#a8780f';x.lineWidth=0.8;x.stroke(); }
-    } else if(f.type==='bounty'){
-      if(exp) glyph('📦',f.x*sc,f.y*sc,12*k);
-      else { x.fillStyle='#ffae42';x.beginPath();x.arc(f.x*sc,f.y*sc,2.4,0,TAU);x.fill(); }
-    } else if(f.type==='bottle' && exp){ glyph('🍾',f.x*sc,f.y*sc,11*k); }
-  }
-  // revealed treasure caches — X marks (compact) / treasure glyphs (popped out)
+  // revealed treasure caches — a bold X (compact) / glyph (popped out)
   for(const is of G.world.islands){
     const ca=is.cache; if(!ca||ca.state==='hidden'||ca.state==='looted')continue;
     const cx=ca.digX*sc, cy=ca.digY*sc;
     if(exp){ glyph(ca.big?'💰':'🗺️',cx,cy,(ca.big?15:12)*k); }
-    else { const r=ca.big?3.4:2.6;
-      x.strokeStyle=ca.big?'#ff5b4d':'#7a3a1a'; x.lineWidth=ca.big?2:1.5; x.lineCap='round';
+    else { const r=(ca.big?4:3)*k;
+      x.strokeStyle=ca.big?'#ff5b4d':'#caa15a'; x.lineWidth=(ca.big?2.4:1.8)*k; x.lineCap='round';
       x.beginPath();x.moveTo(cx-r,cy-r);x.lineTo(cx+r,cy+r);x.moveTo(cx+r,cy-r);x.lineTo(cx-r,cy+r);x.stroke(); }
   }
-  // moving threats & merchants — coloured dots (read better than emoji for live ships),
-  // upsized with a thin outline when the chart is popped out
+  // objectives that are always worth showing: dug-up treasure (gold ◆), bounty crates (□)
+  for(const f of G.floaters){ if(f.collected)continue;
+    if(f.type==='treasure'){ x.fillStyle='#ffd34d'; dia(f.x*sc,f.y*sc,3.6*k); x.strokeStyle='#a8780f';x.lineWidth=k;x.stroke(); }
+    else if(f.type==='bounty'){ x.fillStyle='#ffae42'; x.fillRect(f.x*sc-2.6*k,f.y*sc-2.6*k,5.2*k,5.2*k); }
+    else if(f.type==='bottle' && exp){ glyph('🍾',f.x*sc,f.y*sc,11*k); }
+  }
+  // LIVE SHIPS & FORTS — only within radar (nearby), each a DISTINCT shape per kind:
+  //   red ▲ navy · green ▲ your fleet · tan □ cargo · purple ● monster · orange ◆ fort
   for(const e of G.entities){ if(e.dead)continue;
-    let col=null, ring=null;
-    if(e.type==='navy'){ col=e.guardian?'#ff3b3b':'#ff6b6b'; }
-    else if(e.type==='cargo'){ col='#e9d3a0'; }
-    else if(e.type==='monster'){ col='#c98ae0'; }
-    else continue;
-    x.fillStyle=col; x.beginPath();x.arc(e.x*sc,e.y*sc,2*k,0,TAU);x.fill();
-    if(exp){ x.strokeStyle='rgba(0,0,0,.35)';x.lineWidth=k;x.stroke(); }
+    if(dist(e.x,e.y,s.x,s.y)>radar) continue;
+    const ex=e.x*sc, ey=e.y*sc;
+    if(e.type==='navy'){ x.fillStyle=e.guardian?'#ff2f2f':'#ff7a7a'; tri(ex,ey,3.4*k); }
+    else if(e.type==='ally'){ x.fillStyle='#5fcf86'; tri(ex,ey,3.2*k); }
+    else if(e.type==='cargo'){ x.fillStyle='#ecd9a6'; x.fillRect(ex-2.6*k,ey-2.6*k,5.2*k,5.2*k); }
+    else if(e.type==='monster'){ x.fillStyle='#c98ae0'; x.beginPath();x.arc(ex,ey,3*k,0,TAU);x.fill(); }
+    else if(e.type==='fort'){ x.fillStyle='#f0903a'; dia(ex,ey,4*k); }
   }
   // corner boss arenas — show each with its state so they're findable
   if(G.world.corners){
