@@ -685,7 +685,7 @@ resize();
 /* Build/version string shown in-app (start screen + dev readout) so it's obvious which
    build is actually running — App Store/TestFlight propagation lags the repo by hours/days.
    Keep this in lockstep with ios MARKETING_VERSION when bumping. */
-const GAME_BUILD='1.0.34';
+const GAME_BUILD='1.0.35';
 /* ---------- math ---------- */
 const TAU=Math.PI*2;
 const rnd=(a=1,b)=>b===undefined?Math.random()*a:a+Math.random()*(b-a);
@@ -782,6 +782,7 @@ function saveGame(){
       cosmetics:G.cosmetics, gullsCaught:G.gullsCaught|0,
       cursedUnlocked:!!G.cursedUnlocked, cursedCleared:!!G.cursedCleared,
       endlessBest:G.endlessBest|0, tutorialDone:!!G.tutorialDone, settings:G.settings,
+      fog:fogToString(),   // per-sea map discovery (fog of war)
     };
     localStorage.setItem(SAVE_KEY, JSON.stringify(data));
   }catch(e){ /* storage blocked — fail quietly */ }
@@ -8814,6 +8815,7 @@ function loop(now){
     updateDebris(G.dt);   // flying hull wreckage arcs up and splashes back down
     updateEncounters(G.dt); // drifting event curiosities — sail in to open a choice card
     updateSailingWind(G.dt);   // directional wind (shown as a wavy arrow on the minimap)
+    if(!G.dungeon) revealFog(G.ship.x, G.ship.y);   // chart the sea as you sail it
     tutUpdate(G.dt);        // first-voyage coach progression
     updateCritters(G.dt);
     updateOctopi(G.dt);   // Davy Jones' latched octopuses drain the hull
@@ -9106,6 +9108,36 @@ function collapseMinimap(){
   if(c && c.width!==168){ c.width=168; c.height=168; }
 }
 { const _mw=el('minimapwrap'); if(_mw) _mw.addEventListener('click',toggleMinimap); }
+/* ================= FOG OF WAR (per-sea map discovery) =================
+   A coarse grid marks where you've sailed; the minimap renders the REAL map in explored
+   areas and a dark veil over the rest, filling in as you sail (wide radius, no grind).
+   Persisted per-sea in the save. */
+const FOGN=56;
+function initFog(restoreStr){
+  G.fog=new Uint8Array(FOGN*FOGN);
+  if(!G._fogCanvas){ const cc=document.createElement('canvas'); cc.width=FOGN; cc.height=FOGN; G._fogCanvas=cc; }
+  const fx=G._fogCanvas.getContext('2d'); G._fogCtx=fx;
+  fx.clearRect(0,0,FOGN,FOGN); fx.fillStyle='rgba(6,14,22,0.9)'; fx.fillRect(0,0,FOGN,FOGN);
+  if(restoreStr){ try{ const bin=atob(restoreStr);
+    for(let i=0;i<G.fog.length&&i<bin.length;i++){ if(bin.charCodeAt(i)){ G.fog[i]=1; fx.clearRect(i%FOGN,(i/FOGN)|0,1,1); } } }catch(e){} }
+}
+function revealFog(wx0,wy0){
+  if(!G.fog||!G.world||!G._fogCtx) return;
+  const S=G.world.size, cell=S/FOGN, R=Math.max(1000,S*0.15), cR=R/cell;   // WIDE reveal — not a grind
+  const ccx=wx0/cell, ccy=wy0/cell, fx=G._fogCtx;
+  const x0=Math.max(0,Math.floor(ccx-cR)),x1=Math.min(FOGN-1,Math.ceil(ccx+cR));
+  const y0=Math.max(0,Math.floor(ccy-cR)),y1=Math.min(FOGN-1,Math.ceil(ccy+cR));
+  for(let cy=y0;cy<=y1;cy++)for(let cx=x0;cx<=x1;cx++){ const idx=cy*FOGN+cx; if(G.fog[idx])continue;
+    const dx=cx+0.5-ccx, dy=cy+0.5-ccy; if(dx*dx+dy*dy<=cR*cR){ G.fog[idx]=1; fx.clearRect(cx,cy,1,1); } }
+  if(G.world.islands) for(const is of G.world.islands){ if(!is.rock && !G.discovered.has(is.id) && dist(wx0,wy0,is.x,is.y)<R) G.discovered.add(is.id); }
+}
+function fogExplored(wx0,wy0){
+  if(!G.fog||!G.world) return true;
+  const cell=G.world.size/FOGN, cx=Math.floor(wx0/cell), cy=Math.floor(wy0/cell);
+  if(cx<0||cy<0||cx>=FOGN||cy>=FOGN) return false;
+  return !!G.fog[cy*FOGN+cx];
+}
+function fogToString(){ if(!G.fog) return ''; let s=''; for(let i=0;i<G.fog.length;i++) s+=String.fromCharCode(G.fog[i]?1:0); try{ return btoa(s); }catch(e){ return ''; } }
 function drawMinimap(){
   const c=el('minimap'); if(!c)return;
   const x=c.getContext('2d'), N=c.width, S=G.world.size, sc=N/S;
@@ -9113,18 +9145,14 @@ function drawMinimap(){
   const k=N/168, exp=_miniExpanded;
   x.textAlign='center'; x.textBaseline='middle';
   const glyph=(t,gx,gy,px)=>{ x.font='700 '+px+'px sans-serif'; x.fillText(t,gx,gy); };
-  // ---- the chart IS the sea: real water colour + real island silhouettes ----
+  // a little ship silhouette (real-map marker, not a circle/triangle), pointing along heading
+  const boat=(cx,cy,ang,r,col)=>{ x.save();x.translate(cx,cy);x.rotate((ang||0)+Math.PI/2);x.fillStyle=col;
+    x.beginPath();x.moveTo(0,-r);x.quadraticCurveTo(r*0.62,-r*0.12,r*0.5,r*0.78);x.lineTo(-r*0.5,r*0.78);x.quadraticCurveTo(-r*0.62,-r*0.12,0,-r);x.closePath();x.fill();x.restore(); };
   const tint=(G.world.def&&G.world.def.tint)||'#2f6f93';
   x.clearRect(0,0,N,N);
-  x.fillStyle=shade(tint,-0.12); x.fillRect(0,0,N,N);
-  // PLAYER-CENTRED: translate the chart so your ship sits dead-centre and the world
-  // scrolls under it (the arrow is always at the middle).
+  x.fillStyle=shade(tint,-0.04); x.fillRect(0,0,N,N);
+  // PLAYER-CENTRED: world scrolls under your ship (always dead-centre)
   x.save(); x.translate(N/2 - s.x*sc, N/2 - s.y*sc);
-  const radar = exp ? S*2 : Math.max(1700, S*0.18);
-  { const pr=radar*sc, g=x.createRadialGradient(s.x*sc,s.y*sc,pr*0.2,s.x*sc,s.y*sc,pr);   // charted waters glow brighter
-    g.addColorStop(0,shade(tint,0.12)); g.addColorStop(1,'rgba(0,0,0,0)');
-    x.fillStyle=g; x.beginPath();x.arc(s.x*sc,s.y*sc,pr,0,TAU);x.fill(); }
-  // trace an island's ACTUAL outline onto the minimap (same shape math as islandPath)
   const miniIsle=(is,scale)=>{
     const cx=is.x*sc, cy=is.y*sc, r=is.r*scale*sc;
     if(!is.pts||!is.offs){ x.beginPath();x.arc(cx,cy,r,0,TAU);x.closePath(); return; }
@@ -9136,47 +9164,46 @@ function drawMinimap(){
       else { const a0=((i-1)/is.pts)*TAU, r0=r*is.offs[(i-1)%is.pts], rmid=Math.min(r0,rr)*0.99, M=pt((a0+a)/2,rmid); x.quadraticCurveTo(M[0],M[1],P[0],P[1]); } }
     x.closePath();
   };
-  // ISLANDS as real landmasses — only DISCOVERED ones, so the chart fills in as you sail
+  // real landmasses (discovered) — the static chart, drawn UNDER the fog veil
   for(const is of G.world.islands){
     if(is.rock || !G.discovered.has(is.id)) continue;
     const rpx=is.r*sc;
     if(rpx<2.8){ x.fillStyle=is.hasCove?'#ffce5c':'#7ece6a'; x.beginPath();x.arc(is.x*sc,is.y*sc,Math.max(2,2.4*k),0,TAU);x.fill(); continue; }
-    miniIsle(is,1.14); x.fillStyle='#ead7a4'; x.fill();                                   // sand rim
-    miniIsle(is,0.84); x.fillStyle=is.explorable?'#5fb152':'#7ece6a'; x.fill();           // grass body
-    if(is.hasCove){ x.fillStyle='#caa23f'; x.beginPath();x.arc(is.x*sc,is.y*sc,Math.max(2.4*k,rpx*0.42),0,TAU);x.fill();
-      if(exp){ x.fillStyle='#3a2410'; glyph('⚓',is.x*sc,is.y*sc,8*k); } }
+    miniIsle(is,1.14); x.fillStyle='#ead7a4'; x.fill();
+    miniIsle(is,0.84); x.fillStyle=is.explorable?'#5fb152':'#7ece6a'; x.fill();
+    if(is.hasCove){ x.fillStyle='#caa23f'; x.beginPath();x.arc(is.x*sc,is.y*sc,Math.max(2.4*k,rpx*0.42),0,TAU);x.fill(); }
   }
-  // revealed buried-treasure caches — a bold X
+  // FOG VEIL — darken everything you haven't sailed near (smoothed = soft edges)
+  if(G._fogCanvas && G.fog){ x.imageSmoothingEnabled=true; x.drawImage(G._fogCanvas,0,0,FOGN,FOGN, 0,0, S*sc, S*sc); }
+  // ---- markers, on TOP of the veil and only where you've EXPLORED ----
   for(const is of G.world.islands){ const ca=is.cache; if(!ca||ca.state==='hidden'||ca.state==='looted')continue;
+    if(!fogExplored(ca.digX,ca.digY))continue;
     const cx=ca.digX*sc, cy=ca.digY*sc, r=(ca.big?3.6:2.8)*k;
     x.strokeStyle=ca.big?'#ff5b4d':'#7a4a1a'; x.lineWidth=(ca.big?2.2:1.6)*k; x.lineCap='round';
     x.beginPath();x.moveTo(cx-r,cy-r);x.lineTo(cx+r,cy+r);x.moveTo(cx+r,cy-r);x.lineTo(cx-r,cy+r);x.stroke(); }
-  // floating objectives: treasure (gold), bounty (amber)
-  for(const f of G.floaters){ if(f.collected)continue;
-    if(f.type==='treasure'){ x.fillStyle='#ffd34d'; x.beginPath();x.arc(f.x*sc,f.y*sc,2.8*k,0,TAU);x.fill(); x.strokeStyle='#a8780f';x.lineWidth=k;x.stroke(); }
-    else if(f.type==='bounty'){ x.fillStyle='#ffae42'; x.beginPath();x.arc(f.x*sc,f.y*sc,2.5*k,0,TAU);x.fill(); } }
-  // live ships — ONE clean colour each (red foe · green fleet · orange fort), within radar
-  for(const e of G.entities){ if(e.dead)continue; if(dist(e.x,e.y,s.x,s.y)>radar)continue;
-    if(e.type==='navy'||e.type==='monster'){ x.fillStyle=e.guardian?'#ff2f2f':'#ff6b6b'; x.beginPath();x.arc(e.x*sc,e.y*sc,2.5*k,0,TAU);x.fill(); }
-    else if(e.type==='ally'){ x.fillStyle='#5fcf86'; x.beginPath();x.arc(e.x*sc,e.y*sc,2.3*k,0,TAU);x.fill(); }
-    else if(e.type==='fort'){ x.fillStyle='#f0903a'; x.fillRect(e.x*sc-2.4*k,e.y*sc-2.4*k,4.8*k,4.8*k); } }
-  // corner-boss arenas — the readable landmark markers
+  for(const f of G.floaters){ if(f.collected||!fogExplored(f.x,f.y))continue;
+    if(f.type==='treasure'){ x.save();x.translate(f.x*sc,f.y*sc);x.rotate(0.78);x.fillStyle='#ffd34d';x.fillRect(-2.4*k,-2.4*k,4.8*k,4.8*k);x.restore(); }
+    else if(f.type==='bounty'){ x.save();x.translate(f.x*sc,f.y*sc);x.rotate(0.78);x.fillStyle='#ffae42';x.fillRect(-2.2*k,-2.2*k,4.4*k,4.4*k);x.restore(); } }
+  // live ships & forts — little ship silhouettes (real-map style), explored areas only
+  for(const e of G.entities){ if(e.dead||!fogExplored(e.x,e.y))continue;
+    if(e.type==='navy'){ boat(e.x*sc,e.y*sc,e.a,4*k,e.guardian?'#ff2f2f':'#ff6b6b'); }
+    else if(e.type==='ally'){ boat(e.x*sc,e.y*sc,e.a,3.6*k,'#5fcf86'); }
+    else if(e.type==='cargo'){ boat(e.x*sc,e.y*sc,e.a,3.6*k,'#ecd9a6'); }
+    else if(e.type==='monster'){ x.save();x.translate(e.x*sc,e.y*sc);x.rotate(e.a||0);x.fillStyle='#c98ae0';x.beginPath();x.ellipse(0,0,2.4*k,3.8*k,0,0,TAU);x.fill();x.restore(); }
+    else if(e.type==='fort'){ x.fillStyle='#f0903a'; x.fillRect(e.x*sc-3*k,e.y*sc-3*k,6*k,6*k); x.fillStyle='#3a2410'; x.fillRect(e.x*sc-3*k,e.y*sc-3*k,6*k,1.6*k); } }
+  // corner-boss arenas (landmark beacons — visible through fog so they're findable)
   if(G.world.corners){ for(const cn of G.world.corners){ const cx=cn.x*sc, cy=cn.y*sc;
     if(cn.cleared){ x.fillStyle='rgba(120,200,120,0.5)'; x.beginPath();x.arc(cx,cy,3.6*k,0,TAU);x.fill(); }
     else if(cn.locked){ x.fillStyle='rgba(120,120,140,0.7)'; x.beginPath();x.arc(cx,cy,4.2*k,0,TAU);x.fill(); if(exp){x.fillStyle='#e8e8f0';glyph('🔒',cx,cy,6*k);} }
     else { const pulse=0.6+Math.sin(G.t*3+cn.x)*0.4; x.fillStyle=cn.themed?`rgba(190,40,60,${pulse})`:`rgba(150,90,190,${pulse})`;
       x.beginPath();x.arc(cx,cy,5*k,0,TAU);x.fill(); x.strokeStyle='#fff';x.lineWidth=1.1*k;x.stroke();
       x.fillStyle='#fff'; glyph(cn.themed?'☠':'⚓',cx,cy,(exp?9:6)*k); } } }
-  // active boss — pulsing red ping
   const boss=G.entities.find(e=>e.type==='boss'&&!e.dead);
   if(boss){ const pulse=0.5+0.5*Math.sin(G.t*4);
     x.fillStyle='rgba(255,40,40,'+(0.22+0.2*pulse)+')'; x.beginPath();x.arc(boss.x*sc,boss.y*sc,7*k,0,TAU);x.fill();
-    x.fillStyle='#ff3b3b'; x.beginPath();x.arc(boss.x*sc,boss.y*sc,3*k,0,TAU);x.fill(); x.strokeStyle='#fff';x.lineWidth=k;x.stroke(); }
-  // player arrow (points the way the ship faces)
-  x.save();x.translate(s.x*sc,s.y*sc);x.rotate(s.a+Math.PI/2);
-  x.fillStyle='#fff';x.strokeStyle='#23344f';x.lineWidth=1.6*k;
-  x.beginPath();x.moveTo(0,-6.5*k);x.lineTo(4.8*k,5.5*k);x.lineTo(0,2.8*k);x.lineTo(-4.8*k,5.5*k);x.closePath();
-  x.fill();x.stroke();x.restore();
+    boat(boss.x*sc,boss.y*sc,boss.a,4.2*k,'#ff3b3b'); }
+  // YOU — a bright ship at dead-centre, pointing your heading
+  boat(s.x*sc,s.y*sc,s.a,5*k,'#fff3cf');
   x.restore();   // end player-centred world transform
   // WIND — a clean straight compass arrow in the chart's top-right corner (points downwind)
   if(G.wind){
@@ -9318,6 +9345,7 @@ function startMap(idx, restore){
   // restore the minimap reveal for this sea (persists across deaths; empty on a new voyage)
   G.mapIndex=idx; G.world=genWorld(idx);
   G.discovered=new Set((restore && restore.discovered) || []);
+  initFog(restore && restore.fog);   // fog-of-war veil (restored per-sea if continuing)
   G.stats.deepestSea=Math.max(G.stats.deepestSea||0, idx+1);   // deepest sea reached
   if(!G.runStatsBase) G.runStatsBase=runSnap();                 // baseline for a continued run
   populate();
