@@ -685,7 +685,7 @@ resize();
 /* Build/version string shown in-app (start screen + dev readout) so it's obvious which
    build is actually running — App Store/TestFlight propagation lags the repo by hours/days.
    Keep this in lockstep with ios MARKETING_VERSION when bumping. */
-const GAME_BUILD='1.0.35';
+const GAME_BUILD='1.0.36';
 /* ---------- math ---------- */
 const TAU=Math.PI*2;
 const rnd=(a=1,b)=>b===undefined?Math.random()*a:a+Math.random()*(b-a);
@@ -10819,6 +10819,9 @@ function updateMusic(){
   if(G.state==='shore') want='shore';
   else if(G.state==='play' && G.entities && G.entities.some(e=>e.type==='boss'&&!e.dead)) want='boss';
   if(want!==_themeLoopId){ if(want) playTheme(want); else stopTheme(); }
+  // whaling is a focused hunt — keep ONE track: stop any looping shanty so it doesn't
+  // overlap the shore theme (the ambient bed is already paused outside play).
+  if(G.shore && G.shore.whaling && _nowPlaying && typeof stopShanty==='function'){ stopShanty(); _nowPlaying=null; }
   updateAmbientBed(want);
   // ---- DYNAMIC LAYERS: a tense drum ostinato during open-sea skirmishes, and a
   // heartbeat when the hull is failing. Both ride the music bus / respect mute. ----
@@ -10872,7 +10875,8 @@ function heartBeat(){
 let _ambientStarted=false;
 function updateAmbientBed(theme){
   const a=el('ambient'); if(!a) return;
-  const playWhen = !SND.muted && theme===null &&
+  const storm = G.weather && G.weather.state==='storm';   // during a storm, only thunder — no calm ocean bed
+  const playWhen = !SND.muted && theme===null && !storm &&
     (G.state==='play' || G.state==='menu' || G.state==='shop' || G.state==='end');
   if(playWhen){
     a.volume=0.32;
