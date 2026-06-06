@@ -685,7 +685,7 @@ resize();
 /* Build/version string shown in-app (start screen + dev readout) so it's obvious which
    build is actually running — App Store/TestFlight propagation lags the repo by hours/days.
    Keep this in lockstep with ios MARKETING_VERSION when bumping. */
-const GAME_BUILD='1.0.37';
+const GAME_BUILD='1.0.38';
 /* ---------- math ---------- */
 const TAU=Math.PI*2;
 const rnd=(a=1,b)=>b===undefined?Math.random()*a:a+Math.random()*(b-a);
@@ -5277,7 +5277,7 @@ function drawShore(){
     ctx.fillStyle=frac>0.5?'#6ad06a':frac>0.25?'#e6b53a':'#d65a4a';
     roundRect(bx,by,bw*frac,8,4);ctx.fill();
     ctx.fillStyle='#cfe8f4';ctx.font=`bold ${11}px 'Baloo 2',sans-serif`;ctx.textAlign='center';ctx.textBaseline='alphabetic';
-    ctx.fillText('⚔ Landing Party',W/2,by-6);
+    ctx.fillText('Landing Party',W/2,by-6);
     // collectibles + carried plunder readout — decide whether to keep searching or leave.
     // (plunder only banks when you make it back to the boat, hence "carrying".)
     const got=sh.gotCount||0, tot=sh.loot.length;
@@ -5549,7 +5549,7 @@ function drawWhaling(sh){
   ctx.fillStyle='#1a2740';roundRect(hbx,hby,hbw,6,3);ctx.fill();
   const hpf=clamp(bt.hp/bt.maxhp,0,1);
   ctx.fillStyle=hpf>0.5?'#6fae7e':hpf>0.25?'#e6a52e':'#d65a4a';roundRect(hbx,hby,hbw*hpf,6,3);ctx.fill();
-  ctx.fillStyle='#bcdcea';ctx.font="700 9px 'Baloo 2'";ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('⛵ HULL',hbx-26*1,hby+3);
+  ctx.fillStyle='#bcdcea';ctx.font="700 9px 'Baloo 2'";ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('HULL',hbx-26*1,hby+3);
   ctx.fillStyle='#ffe9c4';ctx.font="800 13px 'Baloo 2'";ctx.textAlign='center';ctx.textBaseline='middle';
   const hint = sh.phase!=='hunt' ? '🐋 Hauling in the catch…' : (wh.charging?'⚠ It charges — brace!':(wh.sub>0.4?'🌊 Diving — wait for it to surface!':'🐋 Drag back & release to harpoon!'));
   ctx.fillText(hint, W/2, hby+22);
@@ -5904,7 +5904,7 @@ function drawBoardHud(sh){
   ctx.save();
   ctx.fillStyle='#fff';ctx.font='800 14px "Baloo 2"';ctx.textAlign='center';
   ctx.shadowColor='rgba(0,0,0,0.5)';ctx.shadowBlur=4;
-  ctx.fillText('⚔️ Boarding Party', cx, by-8);
+  ctx.fillText('Boarding Party', cx, by-8);
   ctx.shadowBlur=0;
   ctx.fillStyle='rgba(0,0,0,0.4)';roundRect(cx-cw/2,by,cw,14,7);ctx.fill();
   const frac=clamp(sh.partyHp/sh.partyMaxHp,0,1);
@@ -8701,7 +8701,7 @@ function render(){
     roundRect(bx,by,bw,34,8); ctx.fill();
     ctx.globalAlpha=1;
     ctx.fillStyle='#fff'; ctx.font="bold 14px 'Baloo 2',sans-serif"; ctx.textAlign='center'; ctx.textBaseline='middle';
-    ctx.fillText((cn.themed?'☠ ':'⚓ ')+'Sail closer to engage the guardian', W/2, by+17);
+    ctx.fillText('Sail closer to engage the guardian', W/2, by+17);
     ctx.restore();
   }
 
@@ -9622,8 +9622,147 @@ var UI_ICONS={
   cannon:'<path d="M12 1.5l2.4 5.6 4.9-3.1-2 5.4 6 .2-5 3.4 4.2 4.3-5.8-1.4.6 6-3.3-5-3.3 5 .6-6-5.8 1.4 4.2-4.3-5-3.4 6-.2-2-5.4 4.9 3.1z" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="2.6" fill="#fff3c4" stroke="none"/>',
   coin:'<circle cx="12" cy="12" r="7.6"/><circle cx="12" cy="12" r="3.9"/>',
   log:'<rect x="3.4" y="8.4" width="13.6" height="7.2" rx="3.6"/><ellipse cx="17" cy="12" rx="2.7" ry="3.6"/><circle cx="17" cy="12" r="1.05"/>',
+  skull:'<circle cx="12" cy="9.5" r="6"/><circle cx="9.6" cy="9.2" r="1.3" fill="currentColor" stroke="none"/><circle cx="14.4" cy="9.2" r="1.3" fill="currentColor" stroke="none"/><path d="M12 12.5v2M8.5 15.5h7M9.2 15.5v2.6M12 15.5v3M14.8 15.5v2.6"/>',
+  anchor:'<circle cx="12" cy="4.4" r="2"/><path d="M12 6.4V21M5 12H19M12 21c-3.7 0-7-2.6-7-7M12 21c3.7 0 7-2.6 7-7"/>',
+  sail:'<path d="M12 3v12"/><path d="M12 4.4l5.6 9.6H12z" fill="currentColor" stroke="none"/><path d="M4 16.5h16l-2.3 4.3H6.3z"/>',
+  ship:'<path d="M3 15.5h18l-2.6 5.5H5.6z"/><path d="M7 15.5V8h8v7.5M11 4v4"/>',
+  swords:'<path d="M4.5 4.5L13 13M19.5 4.5L11 13"/><path d="M3 7.6l3-3M21 7.6l-3-3M13 13l3.6 3.6-2 2M11 13l-3.6 3.6 2 2"/>',
+  gem:'<path d="M6 4h12l3 5-9 11L3 9z"/><path d="M3 9h18M9 4L6 9l6 11 6-11-3-5"/>',
+  whale:'<path d="M3 13c0-3.4 3.5-6 8-6 4.5 0 8 2.4 8 5.7 0 .9.7 1.6 1.6 1.6.6 0 1.2-.3 1.5-.9-.2 2.3-2 3.9-4.1 3.9H8c-3 0-5-2-5-4.3z"/><path d="M6 16.2c-.6 1-1.8 1.5-3 1.4M9.5 11.4h.01"/>',
+  octopus:'<path d="M12 3.2c3.3 0 6 2.7 6 6v1.8c0 1.1.9 2 2 2M12 3.2c-3.3 0-6 2.7-6 6v1.8c0 1.1-.9 2-2 2"/><path d="M8 13c0 2-1 3.2-3 3.7M16 13c0 2 1 3.2 3 3.7M10 14c-.3 2.4-1.3 3.7-3 4.2M14 14c.3 2.4 1.3 3.7 3 4.2M12 14v5.2"/><circle cx="10" cy="8.6" r="1" fill="currentColor" stroke="none"/><circle cx="14" cy="8.6" r="1" fill="currentColor" stroke="none"/>',
+  shark:'<path d="M3 16.5c4.5 0 6.5-1 8.5-4.2C13 10 14.6 8.3 17.5 8.3c-1 2-1 3.2 0 4.4-1 2.2-3.2 3.8-7 3.8H3z"/><path d="M11.5 8.5L12.5 4l2 4.4M5.5 16.5l-1 2.8"/>',
+  trophy:'<path d="M7 4h10v4a5 5 0 0 1-10 0z"/><path d="M7 6H4.5v1A3.5 3.5 0 0 0 8 10.5M17 6h2.5v1A3.5 3.5 0 0 1 16 10.5"/><path d="M12 13v3M9 20h6M9.5 20c0-1.5 1-2.5 2.5-2.5s2.5 1 2.5 2.5"/>',
+  warn:'<path d="M12 3.5L2.5 20h19z"/><path d="M12 9.5v5M12 17.2h.01"/>',
+  wave:'<path d="M2 9.5c2 0 2 1.8 4 1.8s2-1.8 4-1.8 2 1.8 4 1.8 2-1.8 4-1.8 2 1.8 4 1.8M2 14.5c2 0 2 1.8 4 1.8s2-1.8 4-1.8 2 1.8 4 1.8 2-1.8 4-1.8 2 1.8 4 1.8"/>',
+  fire:'<path d="M12 2.5c3 4 5 6 5 9.6a5 5 0 0 1-10 0c0-1.9.8-3.1 2-4.1 0 1.2.6 2 1.5 2.4-.7-2.4.8-4.4 1.5-7.9z"/>',
+  isle:'<path d="M3 19c2.6 0 3.6-1.2 6-1.2s3.6 1.2 6 1.2 3.6-1.2 6-1.2"/><path d="M12 17.8V9"/><path d="M12 9c-2-1.6-4.2-1.1-5.2 0 1.6-.4 3.1 0 5.2 1.1M12 9c2-1.6 4.2-1.1 5.2 0-1.6-.4-3.1 0-5.2 1.1M12 9c0-2.1 1-3.7 2.6-4.2-1 .9-1.3 2.1-1 3.6"/>',
+  lock:'<rect x="5" y="10.5" width="14" height="9.5" rx="2"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/><circle cx="12" cy="15" r="1.4" fill="currentColor" stroke="none"/>',
+  lantern:'<rect x="8" y="7" width="8" height="10.5" rx="1.6"/><path d="M9.6 7V5.2h4.8V7M12 2.8v2.4M9 17.5h6l1 2.5H8z"/><path d="M12 9.5v6" stroke-width="2.4"/>',
+  charm:'<path d="M12 20.5C8 17.5 4 14 4 9.3 4 6.4 6 5 8.1 5c1.6 0 3 1 3.9 2.4C12.9 6 14.3 5 15.9 5 18 5 20 6.4 20 9.3c0 4.7-4 8.2-8 11.2z"/><circle cx="12" cy="11" r="2"/>',
+  bottle:'<path d="M10 3.2h4v2.8l1.4 2.8V19a2 2 0 0 1-2 2h-2.8a2 2 0 0 1-2-2V8.8L10 6z"/><path d="M8.6 13h6.8"/>',
+  fort:'<path d="M4 21V9l2.5 1.2V7h2.3v3.2L12 7l3.2 3.2V7h2.3v3.2L20 9v12z"/><path d="M4 21h16M10 21v-4.2h4V21"/>',
+  shield:'<path d="M12 3l7 2.8v5.2c0 4.6-3 8-7 10-4-2-7-5.4-7-10V5.8z"/><path d="M9.3 11.6l2 2 3.6-4.2"/>',
+  target:'<circle cx="12" cy="12" r="8.4"/><circle cx="12" cy="12" r="4.4"/><circle cx="12" cy="12" r="1" fill="currentColor" stroke="none"/>',
+  crate:'<rect x="4" y="6" width="16" height="13" rx="1"/><path d="M4 10h16M4 15h16M9 6v13M15 6v13"/>',
+  feather:'<path d="M19 5C13 5 8 8.2 6 14.3L4.5 18.8M19 5c1 6.2-2.2 11.2-8 12.3M18 5c-3 1-6 3.2-8 6.2M9 14.3h5M11 11.2h4.5"/>',
+  drop:'<path d="M12 3c3.6 5 6 8.2 6 11.2a6 6 0 0 1-12 0C6 11.2 8.4 8 12 3z"/>',
+  shuffle:'<path d="M3 7h3.5c2 0 3 1 5.2 5s3.2 5 5.3 5H21M3 17h3.5c2 0 3-1 5.2-5"/><path d="M17.5 4l3.5 3-3.5 3M17.5 14l3.5 3-3.5 3"/>',
+  refresh:'<path d="M20 12a8 8 0 1 1-2.3-5.6"/><path d="M20.5 3.5v4h-4"/>',
+  up:'<path d="M12 19.5V5.5M6 11.5l6-6 6 6"/>',
+  down:'<path d="M12 4.5v14M6 12.5l6 6 6-6"/>',
+  plus:'<path d="M12 5v14M5 12h14"/>',
+  minus:'<path d="M5 12h14"/>',
+  hook:'<circle cx="12" cy="3.3" r="1.4"/><path d="M12 4.7v8a4 4 0 0 1-8 0M4 15.3v2.5"/>',
+  medal:'<path d="M8.5 3.5h7l-2 6h-3z"/><circle cx="12" cy="15" r="5"/><path d="M12 12.5l.9 1.8 2 .3-1.5 1.4.4 2-1.8-1-1.8 1 .4-2L9.1 14.6l2-.3z" fill="currentColor" stroke="none"/>',
+  storm:'<path d="M7 14.5a4 4 0 0 1 .6-8 5 5 0 0 1 9.6 1.6A3.6 3.6 0 0 1 17 14.5"/><path d="M13 12.5l-3 4.2h3l-2 4.3"/>',
+  sun:'<circle cx="12" cy="12" r="4.4"/><path d="M12 2.2v2.6M12 19.2v2.6M2.2 12h2.6M19.2 12h2.6M5 5l1.8 1.8M17.2 17.2L19 19M19 5l-1.8 1.8M6.8 17.2L5 19"/>',
+  bolt:'<path d="M13 2L4 14h6l-1 8 9-12h-6z" fill="currentColor" stroke="none"/>',
+  ghost:'<path d="M5 20.5v-9.2a7 7 0 0 1 14 0v9.2l-2.3-2-2.3 2-2.4-2-2.3 2L7.3 18.5z"/><circle cx="9.6" cy="10.2" r="1.1" fill="currentColor" stroke="none"/><circle cx="14.4" cy="10.2" r="1.1" fill="currentColor" stroke="none"/>',
+  eel:'<path d="M3.5 17c2 0 2-2 4-2s2 2 4 2 2-2 4-2c2.2 0 3.5-1.6 3.5-3.7S20.5 8 18.5 8s-2.2 1-2.2 1"/><circle cx="18.8" cy="6.4" r="0.9" fill="currentColor" stroke="none"/>',
+  crab:'<circle cx="12" cy="13.5" r="4"/><path d="M8 13c-2.2 0-3.2-1-4.2-2.6M16 13c2.2 0 3.2-1 4.2-2.6M8 14.6c-2 .5-3 1.6-3.6 3.2M16 14.6c2 .5 3 1.6 3.6 3.2M9.5 10L7.5 7M14.5 10L16.5 7"/><circle cx="7.3" cy="6.2" r="0.9"/><circle cx="16.7" cy="6.2" r="0.9"/>',
+  bow:'<path d="M5 4a16 16 0 0 1 0 16"/><path d="M5 4l14.5 14.5M16 18.5h4v-4"/>',
+  question:'<circle cx="12" cy="12" r="9"/><path d="M9.2 9.4a2.9 2.9 0 0 1 5.6 1c0 1.9-2.8 2-2.8 3.6"/><circle cx="12" cy="17" r="1" fill="currentColor" stroke="none"/>',
+  dice:'<rect x="4" y="4" width="16" height="16" rx="3"/><circle cx="8.5" cy="8.5" r="1.2" fill="currentColor" stroke="none"/><circle cx="15.5" cy="8.5" r="1.2" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="8.5" cy="15.5" r="1.2" fill="currentColor" stroke="none"/><circle cx="15.5" cy="15.5" r="1.2" fill="currentColor" stroke="none"/>',
+  crown:'<path d="M3 8l3.5 9h11L21 8l-4.7 3.6L12 5 7.7 11.6z"/><path d="M5.5 19.5h13"/>',
+  paw:'<ellipse cx="12" cy="15.5" rx="3.6" ry="3.2"/><circle cx="6.6" cy="11.4" r="1.6"/><circle cx="9.6" cy="7.8" r="1.6"/><circle cx="14.4" cy="7.8" r="1.6"/><circle cx="17.4" cy="11.4" r="1.6"/>',
+  bird:'<path d="M3 7c3 0 5 2 9 2 3 0 5-1 5-3 0 4.2-1.3 9-7.2 9C5.8 15 3 12 3 7z"/><path d="M16 8l4.2-2-2 3.2"/>',
+  gear:'<circle cx="12" cy="12" r="3"/><path d="M12 2.4v3M12 18.6v3M2.4 12h3M18.6 12h3M5 5l2.1 2.1M16.9 16.9l2.1 2.1M19 5l-2.1 2.1M7.1 16.9L5 19"/>',
+  tools:'<path d="M15.6 6.4a3.6 3.6 0 0 0-4.5 4.5L4 18l2 2 7.1-7.1a3.6 3.6 0 0 0 4.5-4.5l-2.2 2.2-2-2z"/>',
+  scroll:'<path d="M6 4h10a2 2 0 0 1 2 2v11a3 3 0 0 0 3 3H8a3 3 0 0 1-3-3V6"/><path d="M6 4a2 2 0 0 0-2 2v2h3M9 9h6M9 12h6M9 15h4"/>',
+  ribbon:'<circle cx="12" cy="12" r="2"/><path d="M12 12L5 7.5v9zM12 12l7 4.5v-9z" fill="currentColor" stroke="none"/>',
+  bomb:'<circle cx="11" cy="15" r="6"/><path d="M15 9l2.2-2.2M16.5 6.5l1.2 1.2 2-2-1.2-1.2zM18.5 4.3c.8-.8 1.8-.8 1.8-.8"/>',
+  fish:'<path d="M3 12c3-4.2 8.2-5.2 12-3 1.6.8 3.2 2 4.2 3-1 1-2.6 2.2-4.2 3-3.8 2.2-9 1.2-12-3z"/><path d="M19.2 9l2-2v10l-2-2M9 12h.01"/>',
+  wind:'<path d="M3 8h11a2.5 2.5 0 1 0-2.5-2.5M3 12h15a3 3 0 1 1-3 3M3 16h8a2 2 0 1 1-2 2"/>',
+  heart:'<path d="M12 20S4 14.5 4 8.8A4.3 4.3 0 0 1 12 6a4.3 4.3 0 0 1 8 2.8C20 14.5 12 20 12 20z"/>',
+  pin:'<path d="M12 21s7-7 7-12a7 7 0 0 0-14 0c0 5 7 12 7 12z"/><circle cx="12" cy="9" r="2.5"/>',
+  door:'<path d="M5 21V4a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v17M4 21h16M14 12h.01"/>',
+  no:'<circle cx="12" cy="12" r="8.4"/><path d="M6.1 6.1l11.8 11.8"/>',
+  check:'<circle cx="12" cy="12" r="8.4"/><path d="M7.8 12.4l2.6 2.6 5.2-5.6"/>',
+  snow:'<path d="M12 2v20M3.3 7l17.4 10M20.7 7L3.3 17"/><path d="M9.5 4.2L12 5.7l2.5-1.5M9.5 19.8L12 18.3l2.5 1.5M3.6 10.5l.4 2.9 2.6 1M20.4 10.5l-.4 2.9-2.6 1M6.6 9.6l-2.6 1-.4 2.9M17.4 9.6l2.6 1 .4 2.9"/>',
+  leaf:'<path d="M5 19c0-8 6-14 14-14 0 8-6 14-14 14z"/><path d="M5 19C9 15 13 11 17 8"/>',
+  moon:'<path d="M20 14.5A8 8 0 1 1 9.5 4 6.5 6.5 0 0 0 20 14.5z"/>',
+  clock:'<circle cx="12" cy="12" r="8.4"/><path d="M12 7.4V12l3.2 2"/>',
+  compass:'<circle cx="12" cy="12" r="8.4"/><path d="M15.6 8.4l-2.2 5.2-5.2 2.2 2.2-5.2z" fill="currentColor" stroke="none"/>',
+  barrel:'<ellipse cx="12" cy="5.4" rx="6" ry="2"/><path d="M6 5.4v13.2c0 1.1 2.7 2 6 2s6-.9 6-2V5.4"/><path d="M4.6 12h14.8"/>',
 };
-function svgIcon(name,sz){ return '<svg viewBox="0 0 24 24" width="'+(sz||22)+'" height="'+(sz||22)+'" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">'+((UI_ICONS&&UI_ICONS[name])||'')+'</svg>'; }
+/* ================================================================
+   DE-EMOJI ENGINE — one map (emoji → icon name) + a DOM walker that swaps
+   every emoji in any menu for an inline SVG (mapped → icon, unmapped → stripped),
+   plus a MutationObserver so freshly-built menus are caught automatically.
+   ================================================================ */
+var EMOJI_ICON={
+  '☠':'skull','💀':'skull','⚓':'anchor','⛵':'sail','🚣':'sail','🚢':'ship','🛳':'ship',
+  '⚔':'swords','🏹':'bow','🪙':'coin','💰':'coin','🪵':'log','🛢':'barrel',
+  '🐋':'whale','🐬':'whale','🐟':'fish','🐙':'octopus','🦑':'octopus','🦈':'shark','🐍':'eel','🦀':'crab',
+  '🏆':'trophy','🎖':'medal','🏅':'medal','🥉':'medal','👑':'crown',
+  '🗺':'map','🧭':'compass','📍':'pin','🏴':'flag','🏝':'isle','🏰':'fort',
+  '⚠':'warn','🔥':'fire','🧨':'bomb','💣':'bomb','💥':'cannon',
+  '🎵':'note','🎶':'note','♩':'note','🌊':'wave','🪸':'wave','💨':'wind','🌬':'wind',
+  '🔒':'lock','🕯':'lantern','🪬':'charm','🍾':'bottle','🛡':'shield','🎯':'target','💎':'gem',
+  '🎀':'ribbon','📖':'book','📒':'book','📜':'scroll','📋':'scroll','⚙':'gear','☸':'wheel',
+  '🛠':'tools','🔧':'tools','🐗':'paw','🐒':'paw','🐾':'paw','🦅':'bird',
+  '📦':'crate','🪶':'feather','🩸':'drop','❤':'heart','🔀':'shuffle','🔄':'refresh',
+  '⬆':'up','⬇':'down','➕':'plus','➖':'minus','🪝':'hook',
+  '🌀':'storm','🌪':'storm','🌩':'storm','☀':'sun','⚡':'bolt','❄':'snow',
+  '👻':'ghost','🎲':'dice','🌑':'moon','🍃':'leaf','🍀':'leaf','🌋':'fire',
+  '❔':'question','❓':'question','✅':'check','🚫':'no','🔊':'speaker','🚪':'door','⏱':'clock'
+};
+/* typographic glyphs that render identically everywhere — keep as text, never strip */
+var KEEP_GLYPH='→←↩↪✓✔✕✖★☆✦✧•·—–';
+var RX_EMOJI=/[\u{1F000}-\u{1FAFF}\u{2500}-\u{27BF}\u{2300}-\u{23FF}\u{2B00}-\u{2BFF}\u{2460}-\u{24FF}\u{2190}-\u{21FF}\u{2638}\u{2669}\u{FE0F}\u{20E3}\u{2934}\u{2935}]/u;
+function svgIcon(name,sz){ var s=(sz==null?22:sz); var dim=(typeof s==='number')?(s+''):s; return '<svg viewBox="0 0 24 24" width="'+dim+'" height="'+dim+'" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" style="overflow:visible">'+((UI_ICONS&&UI_ICONS[name])||'')+'</svg>'; }
+var _iconizing=false, _iconSched=false;
+function iconizeEl(root){
+  if(!root || !root.ownerDocument && root.nodeType!==9 && root.nodeType!==1) return;
+  var doc=root.ownerDocument||document;
+  var walker=doc.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
+  var hits=[], n;
+  while(n=walker.nextNode()){ if(RX_EMOJI.test(n.nodeValue)) hits.push(n); }
+  for(var h=0;h<hits.length;h++){
+    var node=hits[h];
+    // never touch text inside our own icon spans or <svg>
+    if(node.parentNode && node.parentNode.closest && node.parentNode.closest('.ico,svg')) continue;
+    var frag=doc.createDocumentFragment(), buf='';
+    var flush=function(){ if(buf){ frag.appendChild(doc.createTextNode(buf)); buf=''; } };
+    var chars=Array.from(node.nodeValue);
+    for(var i=0;i<chars.length;i++){
+      var ch=chars[i];
+      if(EMOJI_ICON[ch]){ flush(); var sp=doc.createElement('span'); sp.className='ico'; sp.innerHTML=svgIcon(EMOJI_ICON[ch],'1em'); frag.appendChild(sp); }
+      else if(KEEP_GLYPH.indexOf(ch)>=0){ buf+=ch; }
+      else if(RX_EMOJI.test(ch)){ /* unmapped emoji / variation selector -> drop */ }
+      else { buf+=ch; }
+    }
+    flush();
+    if(node.parentNode){ node.parentNode.replaceChild(frag,node); }
+  }
+}
+function scheduleIconize(){ if(_iconSched) return; _iconSched=true; requestAnimationFrame(function(){ _iconSched=false; _iconizing=true; try{ iconizeEl(document.body); }catch(e){} _iconizing=false; }); }
+(function(){
+  try{
+    var st=document.createElement('style');
+    st.textContent='.ico{display:inline-flex;align-items:center;justify-content:center;vertical-align:-0.14em;width:1em;height:1em;line-height:1}.ico svg{width:1em;height:1em;display:block}';
+    document.head.appendChild(st);
+    var startObs=function(){
+      try{ iconizeEl(document.body); }catch(e){}
+      if(window.MutationObserver){
+        var obs=new MutationObserver(function(muts){
+          if(_iconizing) return;
+          for(var i=0;i<muts.length;i++){
+            var m=muts[i];
+            if(m.type==='characterData'){ if(RX_EMOJI.test(m.target.nodeValue)){ scheduleIconize(); return; } continue; }
+            for(var j=0;j<m.addedNodes.length;j++){
+              var a=m.addedNodes[j];
+              if(a.nodeType===1 && RX_EMOJI.test(a.textContent)){ scheduleIconize(); return; }
+              if(a.nodeType===3 && RX_EMOJI.test(a.nodeValue)){ scheduleIconize(); return; }
+            }
+          }
+        });
+        obs.observe(document.body,{childList:true,subtree:true,characterData:true});
+      }
+    };
+    if(document.body) startObs(); else document.addEventListener('DOMContentLoaded',startObs);
+  }catch(e){}
+})();
 function applyHudIcons(){
   const set=(id,name)=>{ const b=el(id); if(b) b.innerHTML=svgIcon(name); };
   set('btn-voyage','map'); set('btn-cruise','wheel'); set('btn-trim','flag');
@@ -10303,7 +10442,41 @@ function buildDevMenu(){
     };
     sbox.appendChild(copyBtn);
   }
+  buildIconGallery();
   refreshDevDiag();
+}
+/* ---- Icon Gallery: every custom icon rendered with its name, so broken ones
+   can be called out by name. Also dumps the full icon list + emoji→icon map to
+   the dev console. ---- */
+function buildIconGallery(){
+  let box=el('devicons');
+  if(!box){
+    const host=el('devbtns'); if(!host) return;
+    const wrap=document.createElement('div');
+    const h=document.createElement('div'); h.textContent='ICON GALLERY';
+    h.style.cssText='font:800 11px/1 system-ui;color:#1d6a8c;text-align:left;margin:14px 2px 5px;text-transform:uppercase;letter-spacing:.6px;';
+    wrap.appendChild(h);
+    box=document.createElement('div'); box.id='devicons';
+    box.style.cssText='display:grid;grid-template-columns:repeat(4,1fr);gap:6px;';
+    wrap.appendChild(box);
+    host.parentNode.insertBefore(wrap, host.nextSibling);
+  }
+  box.innerHTML='';
+  const names=Object.keys(UI_ICONS).sort();
+  names.forEach(name=>{
+    const cell=document.createElement('div');
+    cell.style.cssText='display:flex;flex-direction:column;align-items:center;gap:3px;padding:7px 2px;border:2px solid #2b6f96;border-radius:9px;background:#13283c;color:#cfeaf6;';
+    const ic=document.createElement('div'); ic.style.cssText='color:#ffe7a8;'; ic.innerHTML=svgIcon(name,26);
+    const lbl=document.createElement('div'); lbl.textContent=name; lbl.style.cssText='font:700 9px/1 monospace;color:#bfe0f0;text-align:center;word-break:break-all;';
+    cell.appendChild(ic); cell.appendChild(lbl);
+    box.appendChild(cell);
+  });
+  // console report
+  const mapLines=Object.keys(EMOJI_ICON).map(e=>e+'  ->  '+EMOJI_ICON[e]).join('\n');
+  console.log('%c=== LEAVE HER JOHNNY · ICON SET ('+names.length+' icons) ===','font-weight:bold');
+  console.log('ICONS: '+names.join(', '));
+  console.log('EMOJI → ICON MAP ('+Object.keys(EMOJI_ICON).length+'):\n'+mapLines);
+  console.log('KEPT AS TEXT: '+KEEP_GLYPH.split('').join(' '));
 }
 function refreshDevDiag(){
   const d=el('devdiag'); if(!d)return;
