@@ -105,14 +105,14 @@
   #btn-cruise.on{color:#3a2410;}   /* dark wheel on the gold 'autopilot on' state */
   #btn-mute:active,#btn-voyage:active,#btn-songbook:active,#btn-logbook:active,#btn-cruise:active,#btn-trim:active,#btn-settings:active{transform:scale(.92);}
   /* ---- Settings & accessibility ---- */
-  .setrow{display:flex;align-items:center;gap:10px;padding:10px 4px;border-bottom:1px solid rgba(255,255,255,0.08);text-align:left;}
-  .setrow .setlbl{flex:1;font-weight:700;color:var(--cream);font-size:14px;}
+  .setrow{display:flex;align-items:center;gap:10px;padding:10px 4px;border-bottom:1px solid rgba(0,0,0,0.10);text-align:left;}
+  .setrow .setlbl{flex:1;font-weight:700;color:#3a2c4a;font-size:14px;}
   .setrow .setlbl small{display:block;font-weight:500;font-size:11px;opacity:.65;}
   .settoggle{min-width:64px;padding:8px 12px;border-radius:999px;border:2px solid var(--gold-dk);
-    font-weight:800;font-size:13px;cursor:pointer;background:#3a2a1c;color:#cdbfa6;}
+    font-weight:800;font-size:13px;cursor:pointer;background:#3a2a1c;color:#6e5a3e;}
   .settoggle.on{background:#2b6f96;color:#fff;border-color:#6fc6e6;}
   .setseg{display:flex;gap:4px;}
-  .setseg button{padding:7px 10px;border-radius:9px;border:2px solid var(--gold-dk);background:#3a2a1c;color:#cdbfa6;font-weight:700;font-size:12px;cursor:pointer;}
+  .setseg button{padding:7px 10px;border-radius:9px;border:2px solid var(--gold-dk);background:#3a2a1c;color:#6e5a3e;font-weight:700;font-size:12px;cursor:pointer;}
   .setseg button.on{background:#2b6f96;color:#fff;border-color:#6fc6e6;}
   .setrow input[type=range]{width:130px;accent-color:#2b6f96;}
   /* accessibility: larger HUD text + higher-contrast panels */
@@ -693,7 +693,7 @@ resize();
 /* Build/version string shown in-app (start screen + dev readout) so it's obvious which
    build is actually running — App Store/TestFlight propagation lags the repo by hours/days.
    Keep this in lockstep with ios MARKETING_VERSION when bumping. */
-const GAME_BUILD='1.0.29';
+const GAME_BUILD='1.0.30';
 /* ---------- math ---------- */
 const TAU=Math.PI*2;
 const rnd=(a=1,b)=>b===undefined?Math.random()*a:a+Math.random()*(b-a);
@@ -8865,12 +8865,12 @@ function buildFleetShop(wrap){
   const fleet=(typeof fleetList==='function')?fleetList():[];
   const cap=fleetCap();
   const hdr=document.createElement('div');
-  hdr.style.cssText='margin:12px 2px 4px;font-weight:800;color:var(--cream);font-size:14px;border-top:2px solid var(--gold-dk);padding-top:10px';
+  hdr.style.cssText='margin:12px 2px 4px;font-weight:800;color:#3a2c4a;font-size:14px;border-top:2px solid var(--gold-dk);padding-top:10px';
   hdr.innerHTML=`⛵ Fleet <span style="font-weight:600;opacity:.75;font-size:12px">— ${fleet.length}/${cap} escorts · capture warships by boarding</span>`;
   wrap.appendChild(hdr);
   if(!fleet.length){
     const none=document.createElement('div');
-    none.style.cssText='margin:2px;font-size:12px;color:var(--cream);opacity:.7';
+    none.style.cssText='margin:2px;font-size:12px;color:#3a2c4a;opacity:.7';
     none.textContent='No escorts yet. Cripple a warship, board her, and she joins your fleet.';
     wrap.appendChild(none); return;
   }
@@ -8907,7 +8907,7 @@ function buildCharmShop(wrap){
     G._charmStock=pool.slice(0,6);
   }
   const hdr=document.createElement('div');
-  hdr.style.cssText='margin:12px 2px 4px;font-weight:800;color:var(--cream);font-size:14px;border-top:2px solid var(--gold-dk);padding-top:10px';
+  hdr.style.cssText='margin:12px 2px 4px;font-weight:800;color:#3a2c4a;font-size:14px;border-top:2px solid var(--gold-dk);padding-top:10px';
   hdr.innerHTML=`🪬 Charms <span style="font-weight:600;opacity:.75;font-size:12px">— ${(G.relics||[]).length}/${relicSlots()} slots</span>`;
   wrap.appendChild(hdr);
   // show the rotating stock plus any charm you already own (so it can be sold to free a slot)
@@ -9755,15 +9755,15 @@ function buildShipPage(body){
   body.appendChild(head);
 
   // ---- effective combat stats with % gained from upgrades+charms ----
-  const sec=(t)=>{ const h=document.createElement('div'); h.style.cssText='font-weight:800;color:var(--cream);font-size:13px;letter-spacing:.4px;margin:6px 2px 6px'; h.textContent=t; body.appendChild(h); };
+  const sec=(t)=>{ const h=document.createElement('div'); h.style.cssText='font-weight:800;color:#3a2c4a;font-size:13px;letter-spacing:.4px;margin:6px 2px 6px'; h.textContent=t; body.appendChild(h); };
   sec('⚙️ COMBAT STATS');
   const statRow=(icon,name,curStr,pct)=>{
     const r=document.createElement('div');
     r.style.cssText='display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:10px;background:rgba(255,247,226,0.06);margin-bottom:4px';
-    const up = pct>0 ? `<b style="color:#5fcf86">+${pct}%</b>` : (pct<0?`<b style="color:#e08a6a">${pct}%</b>`:'<span style="opacity:.5">—</span>');
+    const up = pct>0 ? `<b style="color:#2e9e5e">+${pct}%</b>` : (pct<0?`<b style="color:#c0563a">${pct}%</b>`:'<span style="opacity:.5">—</span>');
     r.innerHTML=`<span style="font-size:17px;width:22px;text-align:center">${icon}</span>
-      <span style="flex:1;color:var(--cream);font-weight:600">${name}</span>
-      <b style="color:#fff;width:78px;text-align:right">${curStr}</b>
+      <span style="flex:1;color:#3a2c4a;font-weight:600">${name}</span>
+      <b style="color:#2a2030;width:78px;text-align:right">${curStr}</b>
       <span style="width:58px;text-align:right;font-size:12px">${up}</span>`;
     body.appendChild(r);
   };
@@ -9791,7 +9791,7 @@ function buildShipPage(body){
     sec('✦ PERKS');
     for(const [ic,nm,val] of perks){
       const r=document.createElement('div');
-      r.style.cssText='display:flex;align-items:center;gap:8px;padding:5px 10px;font-size:13px;color:var(--cream)';
+      r.style.cssText='display:flex;align-items:center;gap:8px;padding:5px 10px;font-size:13px;color:#3a2c4a';
       r.innerHTML=`<span style="width:22px;text-align:center">${ic}</span><span style="flex:1">${nm}</span><b>${val}</b>`;
       body.appendChild(r);
     }
@@ -9804,26 +9804,26 @@ function buildShipPage(body){
     const r=document.createElement('div');
     r.style.cssText='display:flex;align-items:center;gap:9px;padding:6px 10px;border-radius:10px;margin-bottom:3px;'
       +(has?'background:rgba(232,179,74,0.16);border:1px solid rgba(232,179,74,0.4)':'opacity:.5');
-    let pips=''; for(let i=1;i<=u.max;i++) pips+=`<i style="display:inline-block;width:6px;height:6px;border-radius:50%;margin-left:2px;background:${i<=lvl?'#e8b34a':'rgba(255,255,255,0.18)'}"></i>`;
+    let pips=''; for(let i=1;i<=u.max;i++) pips+=`<i style="display:inline-block;width:6px;height:6px;border-radius:50%;margin-left:2px;background:${i<=lvl?'#e8b34a':'rgba(70,52,34,0.3)'}"></i>`;
     r.innerHTML=`<span style="font-size:17px;width:22px;text-align:center">${u.emoji}</span>
-      <div style="flex:1;text-align:left"><b style="color:var(--cream)">${u.name}</b>
-        <div style="font-size:11px;color:#cdbfa6">${u.desc}</div></div>
-      <div style="text-align:right"><div style="font-size:11px;color:var(--cream);font-weight:700">Lv ${lvl}/${u.max}</div><div>${pips}</div></div>`;
+      <div style="flex:1;text-align:left"><b style="color:#3a2c4a">${u.name}</b>
+        <div style="font-size:11px;color:#6e5a3e">${u.desc}</div></div>
+      <div style="text-align:right"><div style="font-size:11px;color:#3a2c4a;font-weight:700">Lv ${lvl}/${u.max}</div><div>${pips}</div></div>`;
     body.appendChild(r);
   }
 
   // ---- charms fitted ----
   sec('🪬 CHARMS ('+(G.relics||[]).length+'/'+relicSlots()+')');
   if(!(G.relics||[]).length){
-    const n=document.createElement('div'); n.style.cssText='font-size:12px;color:var(--cream);opacity:.7;padding:2px 10px';
+    const n=document.createElement('div'); n.style.cssText='font-size:12px;color:#3a2c4a;opacity:.7;padding:2px 10px';
     n.textContent='None fitted. Buy them at the Cove or find them in treasure.'; body.appendChild(n);
   } else for(const id of G.relics){
     const R=RELIC_BY_ID[id]; if(!R)continue;
     const r=document.createElement('div');
     r.style.cssText='display:flex;align-items:center;gap:9px;padding:6px 10px;border-radius:10px;margin-bottom:3px;background:rgba(255,247,226,0.06)';
     r.innerHTML=`<span style="font-size:17px;width:22px;text-align:center">${R.icon}</span>
-      <div style="flex:1;text-align:left"><b style="color:var(--cream)">${R.name}</b>
-        <div style="font-size:11px;color:#cdbfa6">${R.desc}</div></div>
+      <div style="flex:1;text-align:left"><b style="color:#3a2c4a">${R.name}</b>
+        <div style="font-size:11px;color:#6e5a3e">${R.desc}</div></div>
       <span style="font-size:11px;color:${RARITY_COL[R.rarity]};font-weight:700">${R.rarity}</span>`;
     body.appendChild(r);
   }
