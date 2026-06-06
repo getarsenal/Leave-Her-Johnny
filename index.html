@@ -685,7 +685,7 @@ resize();
 /* Build/version string shown in-app (start screen + dev readout) so it's obvious which
    build is actually running — App Store/TestFlight propagation lags the repo by hours/days.
    Keep this in lockstep with ios MARKETING_VERSION when bumping. */
-const GAME_BUILD='1.0.38';
+const GAME_BUILD='1.0.39';
 /* ---------- math ---------- */
 const TAU=Math.PI*2;
 const rnd=(a=1,b)=>b===undefined?Math.random()*a:a+Math.random()*(b-a);
@@ -2543,8 +2543,7 @@ function drawIsland(is){
     ctx.fillStyle=is.home?'rgba(79,158,87,0.95)':'rgba(44,62,99,0.95)';
     ctx.beginPath();ctx.arc(dx,dy-30*z+bob,13*z,0,TAU);ctx.fill();
     ctx.strokeStyle='#ffce5c';ctx.lineWidth=2*z;ctx.stroke();
-    ctx.fillStyle='#ffce5c';ctx.font=`${15*z}px serif`;ctx.textAlign='center';ctx.textBaseline='middle';
-    ctx.fillText('⚓',dx,dy-29*z+bob);
+    drawVecIcon('anchor',dx,dy-30*z+bob,16*z,'#ffce5c');
   }
 }
 
@@ -3243,11 +3242,9 @@ function drawEncounters(){
     ctx.globalAlpha=1;
     // shadow + marker
     ctx.fillStyle='rgba(10,40,60,0.25)';ctx.beginPath();ctx.ellipse(sx,wy(c.y)+10*z,12*z,6*z,0,0,TAU);ctx.fill();
-    ctx.font=(24*z)+'px serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
-    ctx.fillText((ev&&ev.emoji)||'❓', sx, sy);
-    // a little "?" tag so it reads as interactive
-    ctx.font=('bold '+(12*z)+'px sans-serif'); ctx.fillStyle='#fff7df';
-    ctx.fillText('❔', sx+14*z, sy-14*z);
+    drawVecIcon(emojiToIcon(ev&&ev.emoji)||'question', sx, sy, 24*z, '#fff7df');
+    // a little "?" badge so it reads as interactive
+    drawVecIcon('question', sx+14*z, sy-14*z, 13*z, '#fff7df');
   }
 }
 /* Start-screen ship picker — choose a hull before a New Voyage. Locked hulls show how
@@ -5458,7 +5455,7 @@ function drawWhaling(sh){
       ctx.fillStyle='#5e3620';ctx.beginPath();ctx.ellipse(mx,my,12*z,22*z,0,0,TAU);ctx.fill();
       ctx.fillStyle='#7c4a2d';ctx.beginPath();ctx.ellipse(mx,my,8*z,17*z,0,0,TAU);ctx.fill();
       ctx.fillStyle='#fff7e8';ctx.beginPath();ctx.ellipse(mx,my-3*z,7*z,12*z,0,0,TAU);ctx.fill();
-      if(sh.phase==='return'){ ctx.fillStyle='#ffce5c';ctx.font='bold '+(12*z)+"px 'Baloo 2'";ctx.textAlign='center';ctx.fillText('⚓ Home',mx,my-30*z); }
+      if(sh.phase==='return'){ ctx.fillStyle='#ffce5c';ctx.font='bold '+(12*z)+"px 'Baloo 2'";ctx.textAlign='center';ctx.fillText('Home',mx,my-30*z); drawVecIcon('anchor',mx-22*z,my-33.5*z,11*z,'#ffce5c'); }
     } }
   // ---- the whale ----
   const subA = 1-(wh.sub||0)*0.75;     // fades as it dives
@@ -6067,7 +6064,7 @@ function drawShoreMinimap(sh){
   // boat / landing point — your way back (anchor marker, gently pulsing)
   { const [bx,by2]=wp(sh.dinghyX,sh.dinghyY); const pl=1+Math.sin(G.t*4)*0.15;
     ctx.fillStyle='#6b4a2c'; ctx.beginPath(); ctx.ellipse(bx,by2,4.5*pl,3*pl,0,0,TAU); ctx.fill();
-    ctx.fillStyle='#ffe6a6'; ctx.font='bold 7px sans-serif'; ctx.fillText('⚓',bx,by2-5); }
+    drawVecIcon('anchor',bx,by2-6,9,'#ffe6a6'); }
   // the shore party
   { const [px,py]=wp(sh.px,sh.py);
     ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(px,py,3,0,TAU); ctx.fill();
@@ -6130,7 +6127,7 @@ function drawCacheMarkers(){
     ctx.strokeStyle=c.big?'#d8423c':'#7a3a1a';ctx.lineWidth=(c.big?4:3)*z;ctx.lineCap='round';
     const r=7*z;
     ctx.beginPath();ctx.moveTo(sx-r,sy-r);ctx.lineTo(sx+r,sy+r);ctx.moveTo(sx+r,sy-r);ctx.lineTo(sx-r,sy+r);ctx.stroke();
-    if(c.big){ ctx.fillStyle='#ffce5c';ctx.font=`${11*z}px serif`;ctx.textAlign='center';ctx.fillText('★',sx,sy-12*z); }
+    if(c.big){ drawVecIcon('star',sx,sy-12*z,12*z,'#ffce5c'); }
   }
 }
 function drawLandingParty(){
@@ -8734,13 +8731,13 @@ function drawIndicators(){
   if(G.world.corners && G.treasureFound>=G.treasureTotal){
     for(const cn of G.world.corners){
       if(cn.cleared || cn.locked || cn.spawned) continue;   // skip done/locked/active
-      marks.push({x:cn.x,y:cn.y,c:cn.themed?'#ff5b6e':'#b06adf',ic:cn.themed?'☠':'⚓'});
+      marks.push({x:cn.x,y:cn.y,c:cn.themed?'#ff5b6e':'#b06adf',ic:cn.themed?'skull':'anchor'});
     }
   }
   // nearest treasure
   let nt=null,nd=1e9;
   for(const f of G.floaters){if(f.type==='treasure'){const d=dist(s.x,s.y,f.x,f.y);if(d<nd){nd=d;nt=f;}}}
-  if(nt)marks.push({x:nt.x,y:nt.y,c:'#ffce5c',ic:'💎'});
+  if(nt)marks.push({x:nt.x,y:nt.y,c:'#ffce5c',ic:'gem'});
   for(const m of marks){
     const sx=wx(m.x), sy=wy(m.y);
     if(sx>-20&&sx<W+20&&sy>-20&&sy<H+20)continue; // on screen, skip
@@ -8751,8 +8748,7 @@ function drawIndicators(){
     ctx.fillStyle=m.c;ctx.beginPath();ctx.arc(0,0,15,0,TAU);ctx.fill();
     ctx.rotate(a);ctx.fillStyle=m.c;ctx.beginPath();ctx.moveTo(16,0);ctx.lineTo(6,-7);ctx.lineTo(6,7);ctx.fill();
     ctx.restore();
-    ctx.fillStyle='#fff';ctx.font='14px serif';ctx.textAlign='center';ctx.textBaseline='middle';
-    ctx.fillText(m.ic,mx,my);
+    drawVecIcon(m.ic,mx,my,17,'#2a1410');
   }
 }
 
@@ -9684,6 +9680,7 @@ var UI_ICONS={
   clock:'<circle cx="12" cy="12" r="8.4"/><path d="M12 7.4V12l3.2 2"/>',
   compass:'<circle cx="12" cy="12" r="8.4"/><path d="M15.6 8.4l-2.2 5.2-5.2 2.2 2.2-5.2z" fill="currentColor" stroke="none"/>',
   barrel:'<ellipse cx="12" cy="5.4" rx="6" ry="2"/><path d="M6 5.4v13.2c0 1.1 2.7 2 6 2s6-.9 6-2V5.4"/><path d="M4.6 12h14.8"/>',
+  star:'<path d="M12 2.5l2.9 6.1 6.6.9-4.8 4.6 1.2 6.6L12 18.6 6.1 21.3l1.2-6.6-4.8-4.6 6.6-.9z"/>',
 };
 /* ================================================================
    DE-EMOJI ENGINE — one map (emoji → icon name) + a DOM walker that swaps
@@ -9763,6 +9760,30 @@ function scheduleIconize(){ if(_iconSched) return; _iconSched=true; requestAnima
     if(document.body) startObs(); else document.addEventListener('DOMContentLoaded',startObs);
   }catch(e){}
 })();
+/* ---- Canvas vector icons: rasterize an SVG icon (colored) into an offscreen
+   canvas once, then drawImage it onto the game canvas. Replaces every emoji that
+   used to be drawn with ctx.fillText, so the in-world markers are icons too. ---- */
+var _icoRaster={};
+function vecIcon(name,px,color){
+  var key=name+'|'+px+'|'+color;
+  var e=_icoRaster[key];
+  if(e) return e.ready?e.cv:null;
+  e={ready:false,cv:document.createElement('canvas')};
+  var hi=Math.max(2,Math.round(px*2));
+  e.cv.width=hi; e.cv.height=hi;
+  _icoRaster[key]=e;
+  var svg=svgIcon(name,hi).replace(/currentColor/g,color);
+  var img=new Image();
+  img.onload=function(){ try{ e.cv.getContext('2d').drawImage(img,0,0,hi,hi); e.ready=true; }catch(err){} };
+  img.src='data:image/svg+xml;charset=utf8,'+encodeURIComponent(svg);
+  return null;
+}
+function drawVecIcon(name,x,y,size,color){
+  var cv=vecIcon(name,Math.round(size),color||'#fff');
+  if(cv) ctx.drawImage(cv,x-size/2,y-size/2,size,size);
+}
+/* emoji string (may carry a variation selector) -> our icon name */
+function emojiToIcon(s){ if(!s) return null; var ch=Array.from(s)[0]; return (EMOJI_ICON&&EMOJI_ICON[ch])||null; }
 function applyHudIcons(){
   const set=(id,name)=>{ const b=el(id); if(b) b.innerHTML=svgIcon(name); };
   set('btn-voyage','map'); set('btn-cruise','wheel'); set('btn-trim','flag');
