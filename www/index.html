@@ -223,6 +223,8 @@
   /* Shore parties are a land excursion: the ship HP bar, world minimap and Fire button
      don't apply, so hide them. This also clears the bottom corners for the shore minimap. */
   body.shore-mode #botright, body.shore-mode #minimapwrap, body.shore-mode .hpwrap, body.shore-mode #relicbar, body.shore-mode #windcompass{display:none!important;}
+  /* in the Sea Cavern, hide the chart & weathervane (you navigate by lantern-light alone) */
+  body.cave-mode #minimapwrap, body.cave-mode #windcompass{display:none!important;}
   /* HUD weathervane: shows the wind direction; rim tints green with a tail-wind, red against */
   #windcompass{position:fixed;right:12px;top:calc(max(10px,env(safe-area-inset-top)) + 96px);
     width:44px;height:44px;border-radius:50%;pointer-events:none;z-index:11;color:#f3e6c8;
@@ -693,7 +695,7 @@ resize();
 /* Build/version string shown in-app (start screen + dev readout) so it's obvious which
    build is actually running — App Store/TestFlight propagation lags the repo by hours/days.
    Keep this in lockstep with ios MARKETING_VERSION when bumping. */
-const GAME_BUILD='1.0.30';
+const GAME_BUILD='1.0.31';
 /* ---------- math ---------- */
 const TAU=Math.PI*2;
 const rnd=(a=1,b)=>b===undefined?Math.random()*a:a+Math.random()*(b-a);
@@ -748,6 +750,9 @@ function hasSave(){
 function saveGame(){
   // only meaningful during play/shop — never overwrite with a blank menu state
   if(G.state!=='play' && G.state!=='shop')return;
+  // never persist the transient Sea Cavern (its empty corners would wipe the sea's
+  // progress); the sea was saved on entry and is rebuilt from that on exit.
+  if(G.dungeon)return;
   try{
     // record which caches are looted and which floating treasures are collected,
     // keyed by the current map, so cleared islands stay cleared on Continue.
@@ -949,6 +954,7 @@ const G = {
   reducedMotion:false, diffMul:1.0,   // derived from settings
   wind:null,                          // directional sailing wind {ang,str,...}: subtle speed help/hinder
   companion:null,                     // ship animal companion id (passive buff, run-scoped)
+  dungeon:false, caveEntrance:null,   // Sea Cavern (naval dungeon) state + its sea entrance
   entities:[], cannonballs:[], particles:[], floaters:[], wakes:[], debris:[], seagulls:[],
   upgrades:{hull:0,sails:0,cannons:0,crew:0,hold:0,hotshot:0,spread:0,ballast:0,chain:0,plating:0,boarding:0},
   // ---- ship cosmetics (unlocked by catching seagulls; persist forever) ----
@@ -2016,6 +2022,22 @@ function islandPath(is,scale){
 function drawIsland(is){
   const z=G.cam.zoom;
   const sx=wx(is.x), sy=wy(is.y), R=is.r*z;
+  // CAVERN ROCK: dark jagged stone (no beaches/palms) — used as the cave walls & pillars
+  if(is.rock){
+    if(sx<-R-40||sx>W+R+40||sy<-R-40||sy>H+R+40) return;
+    let r2=is.seed||1; const rr=()=>{r2=(r2*9301+49297)%233280;return r2/233280;};
+    ctx.save();
+    ctx.fillStyle='#0c161e';
+    ctx.beginPath();
+    const n=10;
+    for(let i=0;i<=n;i++){ const a=(i/n)*TAU; const rad=R*(0.78+rr()*0.34);
+      const x=sx+Math.cos(a)*rad, y=sy+Math.sin(a)*rad; if(i===0)ctx.moveTo(x,y); else ctx.lineTo(x,y); }
+    ctx.closePath(); ctx.fill();
+    // a faint top-light edge so the rock has form under the lanterns
+    ctx.strokeStyle='rgba(90,120,140,0.35)'; ctx.lineWidth=2*z; ctx.stroke();
+    ctx.restore();
+    return;
+  }
   // Generous cull margin: an island draws a halo past R AND a tall mountain sprite
   // that rises well above centre, so a tight 80px margin made big islands appear only
   // once nearly centred ("hidden until close"). Scale the margin with R (+ a flat pad)
@@ -3127,6 +3149,13 @@ const EVENTS=[
    ]},
 ];
 const EVENT_BY_ID={}; for(const e of EVENTS) EVENT_BY_ID[e.id]=e;
+// the choice card shown when you reach a Sea Cavern mouth
+const CAVE_EVENT={ id:'cavemouth', emoji:'🕯️', title:'A Sea Cavern',
+  text:'A black cave-mouth yawns at the waterline, breathing cold, briny air from the deep. Lurkers and treasure wait in the dark — and something far larger.',
+  choices:[
+    {label:'Sail into the dark', go:()=>{ enterDungeon(); }},
+    {label:'Not yet', go:()=>{ toast('You leave the dark mouth behind… for now.',1800); }},
+  ]};
 let _curEvent=null;
 function openEvent(ev){
   if(G.state!=='play') return;
@@ -3166,8 +3195,14 @@ function spawnEncounter(){
   }
 }
 function updateEncounters(dt){
-  if(!G.encounters||!G.encounters.length) return;
   const s=G.ship;
+  // Sea Cavern mouth: sailing into it offers descent (re-asks only after you leave & return)
+  if(G.caveEntrance && s && !G.dungeon){
+    const near = dist(G.caveEntrance.x,G.caveEntrance.y, s.x,s.y) < s.r+60;
+    if(near && !G._caveNear){ G._caveNear=true; openEvent(CAVE_EVENT); }
+    else if(!near && dist(G.caveEntrance.x,G.caveEntrance.y, s.x,s.y) > s.r+160){ G._caveNear=false; }
+  }
+  if(!G.encounters||!G.encounters.length) return;
   for(let i=G.encounters.length-1;i>=0;i--){
     const c=G.encounters[i]; c.bob+=dt*2; c.life-=dt;
     if(s && dist(c.x,c.y,s.x,s.y) < s.r+34){
@@ -3177,6 +3212,23 @@ function updateEncounters(dt){
     }
     if(c.life<=0) G.encounters.splice(i,1);
   }
+}
+function drawCaveEntrance(){
+  const c=G.caveEntrance; if(!c || G.dungeon) return;
+  const z=G.cam.zoom, sx=wx(c.x), sy=wy(c.y);
+  if(sx<-80||sx>W+80||sy<-80||sy>H+80) return;
+  const R=46*z, t=G.t;
+  // dark swirling pool
+  const g=ctx.createRadialGradient(sx,sy,2,sx,sy,R);
+  g.addColorStop(0,'#02060a'); g.addColorStop(0.6,'rgba(6,18,26,0.85)'); g.addColorStop(1,'rgba(10,30,42,0)');
+  ctx.fillStyle=g; ctx.beginPath();ctx.arc(sx,sy,R,0,TAU);ctx.fill();
+  // a couple of swirling arcs + a faint glow ring so it reads as an enterable mouth
+  ctx.save(); ctx.translate(sx,sy); ctx.rotate(t*0.6);
+  ctx.strokeStyle='rgba(120,150,170,0.5)'; ctx.lineWidth=2*z;
+  for(let i=0;i<3;i++){ ctx.beginPath(); ctx.arc(0,0,R*(0.35+i*0.2), i*2, i*2+3.4); ctx.stroke(); }
+  ctx.restore();
+  ctx.globalAlpha=0.4+0.25*Math.sin(t*2+c.ph); ctx.strokeStyle='#7fd0e0'; ctx.lineWidth=2*z;
+  ctx.beginPath();ctx.arc(sx,sy,R*0.9,0,TAU);ctx.stroke(); ctx.globalAlpha=1;
 }
 function drawEncounters(){
   if(!G.encounters||!G.encounters.length) return;
@@ -3413,6 +3465,19 @@ function populate(){
   G.convoyTimer=rnd(25,45);
   // catchable seagulls resting on the water (chase to catch → unlock a cosmetic)
   G.seagulls=[]; for(let i=0;i<4;i++) G.seagulls.push(makeSeagull());
+  // a Sea Cavern entrance hides in each proper sea (from Coral Run on): a dark cave-mouth
+  // in open water, away from spawn. Sail into it to descend.
+  G.caveEntrance=null; G._caveNear=false;
+  if(G.mapIndex>=1 && !G.endless){
+    const rngc=mulberry32((4242+G.mapIndex*97+(G.worldSeed>>>0))>>>0);
+    for(let tries=0;tries<24;tries++){
+      const x=rngc()*S, y=rngc()*S;
+      if(dist(x,y,G.world.spawn.x,G.world.spawn.y)<S*0.32) continue;
+      let onLand=false; for(const is of G.world.islands){ if(dist(x,y,is.x,is.y)<is.r+140){ onLand=true; break; } }
+      if(onLand) continue;
+      G.caveEntrance={x,y,ph:rngc()*TAU}; break;
+    }
+  }
   setObjective();
 }
 
@@ -3427,6 +3492,7 @@ function spawnAtEdge(){
   return {x:rnd(m,S-m), y:S-m};
 }
 function updateSpawns(dt){
+  if(G.dungeon) return;   // the Sea Cavern has a fixed, hand-placed cast — no respawns/convoys/encounters
   const S=G.world.size, s=G.ship;
   // --- navy respawn (don't let the seas go empty) ---
   G.navyRespawnTimer-=dt;
@@ -4222,6 +4288,8 @@ function killEntity(e,by){
   else if(e.type==='boss'){ G.bossDead=true; spawnLootBurst(e.x,e.y,500,20);
     bossDeath(e);   // dramatic multi-stage death animation
     G.stats.bossesDefeated++; seeKind(e.mk||(G.world.def&&G.world.def.boss));
+    // SEA CAVERN beast slain → reward + sail back out to the sea
+    if(e._caveBoss){ G.shake=22; if(sfx.bossDead)sfx.bossDead(); setTimeout(()=>exitDungeon(true), 2200); return; }
     // corner bosses: mark this corner cleared
     if(e._cornerRef){ e._cornerRef.cleared=true;
       const cleared=G.world.corners.filter(c=>c.cleared).length;
@@ -6740,6 +6808,95 @@ function celebrate(x,y,cols){
   for(let i=0;i<22;i++){ const a=(i/22)*TAU+rnd(-0.15,0.15), sp=rnd(70,180);
     G.particles.push({x,y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp-30,life:rnd(.6,1.0),max:1.0,c:cols[i%cols.length],r:rnd(2.5,5)}); }
 }
+/* ================================================================
+   🕯️ THE SEA CAVERN — a naval "dungeon": a drowned cavern you sail into, lit only by
+   your ship's lanterns. Pick through dark rock passages past lurkers to a beast in the
+   flooded chamber at the end; slay it for loot + a cavern cosmetic, then sail back out.
+   Reuses the normal play loop & combat; islands double as dark rock (collision for free).
+   ================================================================ */
+function genDungeon(){
+  const S=3600;
+  const def={name:'The Sea Cavern', size:S, boss:null, tint:'#0a1a26', cave:true, desc:'A drowned cavern, black as pitch.'};
+  const world={def, size:S, islands:[], clouds:[], wrecks:[], gems:[], hazards:[], corners:[], crystals:[]};
+  const rng=mulberry32(((G.worldSeed||1)^(Date.now()>>>4))>>>0);
+  const rk=(x,y,r)=>world.islands.push({id:'rock'+world.islands.length,x,y,r,stretch:1,rock:true,seed:rng()*999});
+  // perimeter wall of rock (a ring you can't sail past)
+  const N=30; for(let i=0;i<N;i++){ const a=(i/N)*TAU, rr=S*0.47; rk(S/2+Math.cos(a)*rr, S/2+Math.sin(a)*rr, 150+rng()*70); }
+  // interior pillars forming a rough winding path from entrance (bottom) to chamber (top)
+  for(let i=0;i<11;i++){ rk(S*(0.22+rng()*0.56), S*(0.28+rng()*0.46), 80+rng()*90); }
+  // glowing crystals — the only landmarks in the dark
+  for(let i=0;i<16;i++){ world.crystals.push({x:S*(0.14+rng()*0.72), y:S*(0.12+rng()*0.74), r:5+rng()*7,
+    c:['#5fc8e0','#9a7ff0','#5fd0a0','#e88fd0'][Math.floor(rng()*4)], ph:rng()*TAU}); }
+  world.spawn={x:S/2, y:S-360};   // you enter at the mouth (bottom)
+  world.bossPos={x:S/2, y:430};   // the beast waits in the far chamber (top)
+  return world;
+}
+function enterDungeon(){
+  if(G.dungeon || G.endless || !G.world) return;
+  saveGame();                                  // keep the sea so we can return to it intact
+  G._dungeonReturn={mapIndex:G.mapIndex};
+  G.dungeon=true;
+  G.world=genDungeon();
+  G.entities=[]; G.cannonballs=[]; G.particles=[]; G.floaters=[]; G.wakes=[]; G.debris=[];
+  G.encounters=[]; G.seagulls=[]; G.critters=[]; G.octopi=[]; G.mortars=[];
+  G.ship=makeShip({x:G.world.spawn.x,y:G.world.spawn.y,a:-Math.PI/2});
+  recalcPlayer(); G.ship.hp=G.ship.maxhp; G.entities.push(G.ship);
+  spawnFleet();
+  // a few lurkers along the passage
+  const S=G.world.size, cls=NAVY_CLASSES[Math.min(NAVY_CLASSES.length-1, 1+(G.mapIndex>>1))];
+  for(let i=0;i<4;i++){ const x=S*(0.28+Math.random()*0.44), y=S*(0.38+Math.random()*0.34);
+    G.entities.push(makeNavy(x,y,{x,y},cls)); }
+  // the beast in the chamber
+  const b=spawnBossOf('kraken', G.world.bossPos.x, G.world.bossPos.y, {scale:0.65+G.mapIndex*0.06, name:'The Cavern Horror'});
+  if(b){ b._caveBoss=true; G._caveBoss=b; }
+  G.bossDead=false; G.bossSpawned=true;
+  G.cam.x=G.ship.x; G.cam.y=G.ship.y; G.cam.zoom=H>W?1.05:1.2; G.wind=null;
+  ['ov-shop','ov-end','ov-start','ov-event'].forEach(i=>el(i).classList.remove('show'));
+  document.body.classList.add('cave-mode');
+  G.state='play'; setObjective(); updateHUD(); updateRelicHUD();
+  toast('🕯️ You slip into the dark mouth of the cavern…',3000); haptic('heavy');
+}
+function exitDungeon(victory){
+  if(!G.dungeon) return;
+  G.dungeon=false; G._caveBoss=null; document.body.classList.remove('cave-mode');
+  const idx=(G._dungeonReturn&&typeof G._dungeonReturn.mapIndex==='number')?G._dungeonReturn.mapIndex:(G.mapIndex||0);
+  if(victory){
+    const g=600+G.mapIndex*220; gainGold(g);
+    const un=(typeof unlockNextCosmetic==='function')?unlockNextCosmetic():null;
+    G.stats.cavernsCleared=(G.stats.cavernsCleared||0)+1; saveLifetime&&saveLifetime();
+    toast('🏆 The cavern is conquered! +'+g+'g'+(un?(' · Unlocked “'+un.name+'” trim'):''),4200); haptic('success');
+  } else { toast('🕯️ You flee the cavern into open water.',2600); }
+  startMap(idx, loadSavedData());               // rebuild the sea you came from
+}
+// the dark gloom pass + glowing crystals/beast (drawn over the cavern, pierced by light)
+function drawCaveDark(){
+  const s=G.ship; const sx=s?wx(s.x):W/2, sy=s?wy(s.y):H/2;
+  const R=Math.min(W,H)*0.46;
+  const g=ctx.createRadialGradient(sx,sy,R*0.22, sx,sy,R);
+  g.addColorStop(0,'rgba(3,8,13,0)'); g.addColorStop(0.66,'rgba(3,8,13,0.55)'); g.addColorStop(1,'rgba(1,4,7,0.97)');
+  ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+  // warm lantern halo on the boat
+  const wg=ctx.createRadialGradient(sx,sy,0, sx,sy,R*0.55);
+  wg.addColorStop(0,'rgba(255,180,90,0.14)'); wg.addColorStop(1,'rgba(255,180,90,0)');
+  ctx.fillStyle=wg; ctx.fillRect(0,0,W,H);
+  // glowing crystals pierce the gloom (drawn after the dark so they read as light sources)
+  const z=G.cam.zoom;
+  for(const c of (G.world.crystals||[])){
+    const cx=wx(c.x), cy=wy(c.y); if(cx<-30||cx>W+30||cy<-30||cy>H+30) continue;
+    const pul=0.6+Math.sin(G.t*2+c.ph)*0.4;
+    const rad=(c.r*3.2)*z*pul+6;
+    const gg=ctx.createRadialGradient(cx,cy,0,cx,cy,rad);
+    gg.addColorStop(0,c.c); gg.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.globalAlpha=0.5*pul; ctx.fillStyle=gg; ctx.beginPath();ctx.arc(cx,cy,rad,0,TAU);ctx.fill();
+    ctx.globalAlpha=1; ctx.fillStyle=c.c; ctx.beginPath();ctx.arc(cx,cy,c.r*z*0.5,0,TAU);ctx.fill();
+  }
+  // the beast's eyes glow in the deep
+  const b=G._caveBoss;
+  if(b && !b.dead){ const bx=wx(b.x), by=wy(b.y);
+    const bg=ctx.createRadialGradient(bx,by,0,bx,by,90*z);
+    bg.addColorStop(0,'rgba(120,40,160,0.4)'); bg.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.fillStyle=bg; ctx.beginPath();ctx.arc(bx,by,90*z,0,TAU);ctx.fill(); }
+}
 
 /* ---- SHIP DEATH: a glide-explode-sink sequence whose scale tracks the hull size.
    The fireball & smoke ride the normal particle field; flung hull debris lives in
@@ -8451,6 +8608,7 @@ function render(){
   for(const is of G.world.islands) drawIsland(is);
   drawFloaters();
   drawEncounters();     // drifting event curiosities (derelicts, rafts…)
+  drawCaveEntrance();   // the Sea Cavern mouth (a dark whirl in open water)
   drawCacheMarkers();   // revealed buried-treasure X marks on beaches
   drawCritters();       // ambient dolphins/fish on the water
   drawLandingParty();   // the dinghy + shore party
@@ -8494,9 +8652,13 @@ function render(){
   drawParticles();
   drawDebris();         // flung hull wreckage (arcs above the smoke, casts a shadow)
   drawDmgPops();        // floating damage numbers + combo pops
-  drawGulls();          // seagulls gliding in the sky
-  drawClouds();         // clouds ABOVE everything
-  drawWeather();        // storm overlay: rain, darkening, lightning (cosmetic)
+  if(!(G.world.def&&G.world.def.cave)){
+    drawGulls();          // seagulls gliding in the sky
+    drawClouds();         // clouds ABOVE everything
+    drawWeather();        // storm overlay: rain, darkening, lightning (cosmetic)
+  } else {
+    drawCaveDark();       // 🕯️ Sea Cavern: near-black gloom pierced only by your lanterns
+  }
 
   // edge-of-world vignette toward deep blue — cached per viewport (only changes on resize)
   if(!G._vigG || G._vigG.w!==W || G._vigG.h!==H){
@@ -8774,6 +8936,7 @@ function showBottlePop(songName){
 }
 function setObjective(){
   const def=G.world.def;
+  if(G.dungeon){ G.objective='🕯️ Into the dark — find & slay the cavern beast'; el('objective').textContent=G.objective; return; }
   if(G.endless){ G.objective='🌊 Open Seas'; el('objective').textContent=G.objective; return; }
   // On the later seas (level 2+), show a compact breakdown of ALL objectives at once:
   // treasure chests + corner guardians + big islands explored vs unexplored. The
@@ -9163,6 +9326,7 @@ function runSnap(){ const s=G.stats||{}; const f={};
   return f; }
 function resetRun(){ G.runGold=0; G.runKills=0; G.combo=0; G.comboBest=0; G.runStatsBase=runSnap(); }
 function startMap(idx, restore){
+  G.dungeon=false; document.body.classList.remove('cave-mode'); G._caveBoss=null;  // any path into a sea leaves the cavern
   // restore the minimap reveal for this sea (persists across deaths; empty on a new voyage)
   G.mapIndex=idx; G.world=genWorld(idx);
   G.discovered=new Set((restore && restore.discovered) || []);
@@ -9932,6 +10096,8 @@ const DEV_SECTIONS=[
   ['🎲 Events', [
     ['❔ Drop Encounter', ()=>{ G.encounters=[]; spawnEncounter(); closeDev(); devToast('Encounter dropped ahead'); }],
     ['🎲 Random Event Now', ()=>{ const ev=EVENTS[rndi(0,EVENTS.length-1)]; closeDev(); openEvent(ev); }],
+    ['🕯️ Enter Sea Cavern', ()=>{ closeDev(); if(!G.dungeon) enterDungeon(); }],
+    ['🚪 Exit Cavern', ()=>{ closeDev(); if(G.dungeon) exitDungeon(false); }],
   ]],
   ['🌊 Spawn & World', [
     ['⚔️ Spawn Boss', ()=>{ G.bossSpawned=false; G.bossDead=false; if(G.world&&G.world.def&&!G.world.def.boss){ G.world.def.boss='kraken'; } spawnBoss(); closeDev(); }],
