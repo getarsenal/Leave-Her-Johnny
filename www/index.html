@@ -693,7 +693,7 @@ resize();
 /* Build/version string shown in-app (start screen + dev readout) so it's obvious which
    build is actually running — App Store/TestFlight propagation lags the repo by hours/days.
    Keep this in lockstep with ios MARKETING_VERSION when bumping. */
-const GAME_BUILD='1.0.28';
+const GAME_BUILD='1.0.29';
 /* ---------- math ---------- */
 const TAU=Math.PI*2;
 const rnd=(a=1,b)=>b===undefined?Math.random()*a:a+Math.random()*(b-a);
@@ -910,7 +910,9 @@ function loadLifetime(d){
   G.tutorialDone = (d.tutorialDone!==undefined) ? !!d.tutorialDone
                    : ((G.stats.navySunk||0)>0 || (G.stats.voyages||0)>1);
   if(d.settings && typeof d.settings==='object') G.settings=Object.assign(G.settings, d.settings);
-  applySettings();
+  // NOTE: do NOT call applySettings() here — loadLifetime runs during top-level eval (the
+  // menu-init code calls it), before SND/UI_ICONS consts exist; touching audio/icons then
+  // throws a TDZ error that aborts boot. applySettings() is called from boot() & on load.
 }
 function clearSave(){ try{ localStorage.removeItem(SAVE_KEY); }catch(e){} }
 // --- per-map collected-gem tracking (persists across deaths) ---
@@ -9385,7 +9387,8 @@ el('endlessbtn').onclick=startEndless;
 // reveal Continue on the menu only if there's a save to resume
 if(hasSave()) el('continuebtn').style.display='';
 // show the all-time best run on the menu if there is one
-(function(){ const d=loadSavedData(); const best=(d&&d.bestRun)|0;
+// (wrapped: this runs during eval, so a throw here must NOT abort the script before boot)
+try{ (function(){ const d=loadSavedData(); const best=(d&&d.bestRun)|0;
   if(d){ loadLifetime(d); G._savedMaxMap=(typeof d.maxMapCleared==='number')?d.maxMapCleared:-1;
          if(d.shipClass && SHIPCLASS_BY_ID[d.shipClass]) G.shipClass=d.shipClass; }
   buildClassPicker();   // populate the ship chooser (reflects unlocks from saved progress)
@@ -9395,7 +9398,7 @@ if(hasSave()) el('continuebtn').style.display='';
   const eb=(d&&d.endlessBest)|0; const cleared=d&&(typeof d.maxMapCleared==='number')&&d.maxMapCleared>=4;
   if(cleared || eb>0){ el('endlessbtn').style.display='';
     if(eb>0){ el('endlessbestval').textContent=eb; el('endlessbest').style.display=''; G.endlessBest=eb; } }
-})();
+})(); }catch(e){ console.error('menu-init',e); }
 // save when the player leaves/backgrounds the app (covers mobile swipe-away),
 // and recover the victory prompt on return so a backgrounded boss-kill can't strand you
 document.addEventListener('visibilitychange',()=>{
@@ -9422,7 +9425,7 @@ el('btn-mute').onclick=toggleMute;
    stock emoji on the HUD controls (and onward through the de-emoji sweep). Inherit
    button color via currentColor so on/off states recolor cleanly.
    ================================================================ */
-const UI_ICONS={
+var UI_ICONS={
   wheel:'<circle cx="12" cy="12" r="6.3"/><circle cx="12" cy="12" r="1.8"/><path d="M12 1.6V5.7M12 18.3V22.4M1.6 12H5.7M18.3 12H22.4M4.6 4.6l2.9 2.9M16.5 16.5l2.9 2.9M19.4 4.6l-2.9 2.9M7.5 16.5l-2.9 2.9"/>',
   map:'<path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z"/><path d="M9 4v14M15 6v14"/>',
   flag:'<path d="M6 3v18"/><path d="M6 4l12 3-12 4z" fill="currentColor" stroke="none"/>',
@@ -9433,7 +9436,7 @@ const UI_ICONS={
   speakerMute:'<path d="M4 9h3l4-3.5v13L7 15H4z" fill="currentColor" stroke="none"/><path d="M14.5 9.5l5 5M19.5 9.5l-5 5"/>',
   cannon:'<circle cx="6.8" cy="15.5" r="2.3"/><path d="M9 13.8l8-4.6 2.1 3.6-8 4.6z" fill="currentColor" stroke="none"/><circle cx="18" cy="7.4" r="1.9" fill="currentColor" stroke="none"/>',
 };
-function svgIcon(name,sz){ return '<svg viewBox="0 0 24 24" width="'+(sz||22)+'" height="'+(sz||22)+'" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">'+(UI_ICONS[name]||'')+'</svg>'; }
+function svgIcon(name,sz){ return '<svg viewBox="0 0 24 24" width="'+(sz||22)+'" height="'+(sz||22)+'" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">'+((UI_ICONS&&UI_ICONS[name])||'')+'</svg>'; }
 function applyHudIcons(){
   const set=(id,name)=>{ const b=el(id); if(b) b.innerHTML=svgIcon(name); };
   set('btn-voyage','map'); set('btn-cruise','wheel'); set('btn-trim','flag');
@@ -10972,11 +10975,10 @@ function buildSettings(){
 
 
 function boot(){
-  // Guard against a double boot: the fonts-ready path AND the 2.5s failsafe can both
-  // fire on a slow cold load, which previously started TWO render loops (doubled
-  // updates/input → erratic feel). Run exactly once.
   if(G._booted) return; G._booted=true;
-  // measure the top safe-area inset (notch) so canvas-drawn HUD can clear it
+  // Reveal-first + isolate every risky step, so a single failure can NEVER strand the
+  // app on the loader (a TDZ/throw used to abort the whole boot and freeze the splash).
+  try{ el('loader').style.display='none'; }catch(e){}
   try{
     const probe=document.createElement('div');
     probe.style.cssText='position:fixed;top:env(safe-area-inset-top);visibility:hidden;';
@@ -10984,17 +10986,17 @@ function boot(){
     window.__safeTop=parseFloat(getComputedStyle(probe).top)||0;
     probe.remove();
   }catch(e){ window.__safeTop=0; }
-  // load rock sprites for explorable-island mountains (decoded once, drawn many times)
-  loadRockSprites();
-  // hydrate the lifetime/retention layer up-front so the menu Logbook is populated
-  loadLifetime(loadSavedData());
-  rollDaily();
-  el('loader').style.display='none';
-  // build the idle world behind the menu for ambiance
-  G.world=genWorld(0); G.cam.x=G.world.spawn.x;G.cam.y=G.world.spawn.y;G.cam.zoom=H>W?0.9:1.05;
-  G.ship=makeShip({x:G.world.spawn.x,y:G.world.spawn.y});G.entities=[G.ship];
+  try{ loadRockSprites(); }catch(e){ console.error('boot loadRockSprites',e); }
+  try{ loadLifetime(loadSavedData()); }catch(e){ console.error('boot loadLifetime',e); }
+  try{ applySettings(); }catch(e){ console.error('boot applySettings',e); }   // safe here: all consts defined
+  try{ rollDaily(); }catch(e){ console.error('boot rollDaily',e); }
+  try{
+    G.world=genWorld(0); G.cam.x=G.world.spawn.x;G.cam.y=G.world.spawn.y;G.cam.zoom=H>W?0.9:1.05;
+    G.ship=makeShip({x:G.world.spawn.x,y:G.world.spawn.y});G.entities=[G.ship];
+  }catch(e){ console.error('boot world',e); }
   requestAnimationFrame(loop);
-  runSplash();
+  try{ runSplash(); }catch(e){ console.error('boot runSplash',e);
+    try{ const sp=el('splash'); if(sp){sp.classList.add('hidden');sp.style.display='none';} el('ov-start').classList.add('show'); }catch(e2){} }
 }
 
 function runSplash(){
@@ -11043,6 +11045,12 @@ function runSplash(){
 if(document.fonts&&document.fonts.ready){document.fonts.ready.then(()=>setTimeout(boot,150));}
 else setTimeout(boot,400);
 setTimeout(()=>{if(el('loader').style.display!=='none')boot();},2500); // failsafe
+// HARD failsafe: no matter what, never leave the player stranded on the loader/splash.
+setTimeout(()=>{ try{
+  const ld=el('loader'); if(ld) ld.style.display='none';
+  const sp=el('splash'); if(sp){ sp.classList.add('hidden'); sp.style.display='none'; }
+  const ov=el('ov-start'); if(ov && !ov.classList.contains('show') && G.state==='menu') ov.classList.add('show');
+}catch(e){} }, 5000);
 </script>
 </body>
 </html>
