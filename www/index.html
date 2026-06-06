@@ -123,10 +123,10 @@
   body.high-contrast .hpbar{outline:2px solid rgba(0,0,0,0.6);}
   /* Ship's Trim (cosmetics) menu */
   #ov-trim .trimsec{margin:9px 0;text-align:left;}
-  #ov-trim .trimlabel{font:700 12px/1 'Baloo 2',sans-serif;color:#8fc4dd;text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px;}
+  #ov-trim .trimlabel{font:700 12px/1 'Baloo 2',sans-serif;color:#1d6a8c;text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px;}
   #ov-trim .trimrow{display:flex;flex-wrap:wrap;gap:6px;}
   #ov-trim .trimchip{font-family:'Baloo 2';font-weight:700;font-size:13px;padding:6px 12px;border-radius:999px;cursor:pointer;
-    background:rgba(255,255,255,.07);border:2px solid rgba(255,255,255,.2);color:#e9eef2;transition:all .12s;}
+    background:#fbf1de;border:2px solid #caa97a;color:#5e3a18;transition:all .12s;}
   #ov-trim .trimchip.sel{background:linear-gradient(180deg,#ffd76a,#e6a52e);color:#3a2c12;border-color:#fff3c4;}
   #ov-trim .trimchip.locked{opacity:.5;cursor:default;}
   /* travel-speed toggle lit up when engaged */
@@ -636,7 +636,7 @@
         max-height:160px;overflow:auto;"></div>
       <div id="devbtns" style="margin:8px 0;"></div>
       <div id="devspawn" style="margin:6px 0;"></div>
-      <div style="font:700 11px/1 system-ui;color:#8fc4dd;text-align:left;margin:10px 0 4px;text-transform:uppercase;letter-spacing:.5px;">🎵 Shanty Player <span style="opacity:.6;font-weight:500;text-transform:none;">— tap to play, tap again to stop</span></div>
+      <div style="font:700 11px/1 system-ui;color:#1d6a8c;text-align:left;margin:10px 0 4px;text-transform:uppercase;letter-spacing:.5px;">🎵 Shanty Player <span style="opacity:.6;font-weight:500;text-transform:none;">— tap to play, tap again to stop</span></div>
       <div id="devsongs" style="display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin:0 0 8px;max-height:140px;overflow:auto;"></div>
       <button class="bigbtn" id="devclose">Back to Sea</button>
     </div>
@@ -684,7 +684,7 @@ resize();
 /* Build/version string shown in-app (start screen + dev readout) so it's obvious which
    build is actually running — App Store/TestFlight propagation lags the repo by hours/days.
    Keep this in lockstep with ios MARKETING_VERSION when bumping. */
-const GAME_BUILD='1.0.32';
+const GAME_BUILD='1.0.33';
 /* ---------- math ---------- */
 const TAU=Math.PI*2;
 const rnd=(a=1,b)=>b===undefined?Math.random()*a:a+Math.random()*(b-a);
@@ -2014,16 +2014,9 @@ function drawIsland(is){
   // CAVERN ROCK: dark jagged stone (no beaches/palms) — used as the cave walls & pillars
   if(is.rock){
     if(sx<-R-40||sx>W+R+40||sy<-R-40||sy>H+R+40) return;
-    let r2=is.seed||1; const rr=()=>{r2=(r2*9301+49297)%233280;return r2/233280;};
     ctx.save();
-    ctx.fillStyle='#0c161e';
-    ctx.beginPath();
-    const n=10;
-    for(let i=0;i<=n;i++){ const a=(i/n)*TAU; const rad=R*(0.78+rr()*0.34);
-      const x=sx+Math.cos(a)*rad, y=sy+Math.sin(a)*rad; if(i===0)ctx.moveTo(x,y); else ctx.lineTo(x,y); }
-    ctx.closePath(); ctx.fill();
-    // a faint top-light edge so the rock has form under the lanterns
-    ctx.strokeStyle='rgba(90,120,140,0.35)'; ctx.lineWidth=2*z; ctx.stroke();
+    islandPath(is,1.0); ctx.fillStyle='#0c161e'; ctx.fill();           // matches collision shape
+    islandPath(is,1.0); ctx.strokeStyle='rgba(90,120,140,0.35)'; ctx.lineWidth=2*z; ctx.stroke();
     ctx.restore();
     return;
   }
@@ -3037,10 +3030,16 @@ function updateAlly(e,dt,s,dp){
   }
   const engaging = foe && fd < e.range*1.25 && dp < 1500;
   if(engaging){
-    // close to broadside range, then circle — same instinct as the navy
-    const desired = fd>e.range*0.7 ? angTo(e.x,e.y,foe.x,foe.y) : angTo(e.x,e.y,foe.x,foe.y)+Math.PI/2;
-    steer(e,desired,dt); e.speed=lerp(e.speed,e.maxspeed,dt*1.5);
-    tryFire(e,dt,foe); e.combatT=4;
+    // close in, then circle to keep guns bearing — same instinct as the navy
+    const desired = fd>e.range*0.85 ? angTo(e.x,e.y,foe.x,foe.y) : angTo(e.x,e.y,foe.x,foe.y)+Math.PI/2;
+    steer(e,desired,dt); e.speed=lerp(e.speed,e.maxspeed,dt*1.4); e.combatT=4;
+    // fire a broadside on cooldown whenever a foe is in range. fireBroadside aims to the
+    // best side (with aim-assist), so escorts reliably shoot instead of waiting for a
+    // perfect abeam line (which they rarely achieved → "fleet doesn't shoot").
+    e.reload=(e.reload||0)-dt;
+    if(e.reload<=0 && fd<e.range){ e.reload=1/Math.max(0.35,(e.fireRate||0.6));
+      fireBroadside(e,foe,e.dmg);
+      if(G.ship && dist(e.x,e.y,G.ship.x,G.ship.y)<700 && typeof sfx!=='undefined' && sfx.cannon) sfx.cannon(); }
   } else {
     // hold formation behind the flagship; match her pace, close any gap
     const slot=allySlotPos(e.slot||0, s), d2=dist(e.x,e.y,slot.x,slot.y);
@@ -6796,7 +6795,8 @@ function genDungeon(){
   const def={name:'The Sea Cavern', size:S, boss:null, tint:'#0a1a26', cave:true, desc:'A drowned cavern, black as pitch.'};
   const world={def, size:S, islands:[], clouds:[], wrecks:[], gems:[], hazards:[], corners:[], crystals:[]};
   const rng=mulberry32(((G.worldSeed||1)^(Date.now()>>>4))>>>0);
-  const rk=(x,y,r)=>world.islands.push({id:'rock'+world.islands.length,x,y,r,stretch:1,rock:true,seed:rng()*999});
+  const rk=(x,y,r)=>{ const pts=10, offs=[]; for(let i=0;i<pts;i++) offs.push(0.8+rng()*0.4);
+    world.islands.push({id:'rock'+world.islands.length,x,y,r,pts,offs,rot:rng()*TAU,stretch:0.8+rng()*0.5,shape:'round',rock:true,seed:rng()*999}); };
   // perimeter wall of rock (a ring you can't sail past)
   const N=30; for(let i=0;i<N;i++){ const a=(i/N)*TAU, rr=S*0.47; rk(S/2+Math.cos(a)*rr, S/2+Math.sin(a)*rr, 150+rng()*70); }
   // interior pillars forming a rough winding path from entrance (bottom) to chamber (top)
@@ -9100,6 +9100,9 @@ function drawMinimap(){
   const tint=(G.world.def&&G.world.def.tint)||'#2f6f93';
   x.clearRect(0,0,N,N);
   x.fillStyle=shade(tint,-0.12); x.fillRect(0,0,N,N);
+  // PLAYER-CENTRED: translate the chart so your ship sits dead-centre and the world
+  // scrolls under it (the arrow is always at the middle).
+  x.save(); x.translate(N/2 - s.x*sc, N/2 - s.y*sc);
   const radar = exp ? S*2 : Math.max(1700, S*0.18);
   { const pr=radar*sc, g=x.createRadialGradient(s.x*sc,s.y*sc,pr*0.2,s.x*sc,s.y*sc,pr);   // charted waters glow brighter
     g.addColorStop(0,shade(tint,0.12)); g.addColorStop(1,'rgba(0,0,0,0)');
@@ -9157,6 +9160,7 @@ function drawMinimap(){
   x.fillStyle='#fff';x.strokeStyle='#23344f';x.lineWidth=1.6*k;
   x.beginPath();x.moveTo(0,-6.5*k);x.lineTo(4.8*k,5.5*k);x.lineTo(0,2.8*k);x.lineTo(-4.8*k,5.5*k);x.closePath();
   x.fill();x.stroke();x.restore();
+  x.restore();   // end player-centred world transform
   // WIND — a light wavy arrow in the chart's top-right corner (points downwind)
   if(G.wind){
     const cx=N-15*k, cy=15*k, len=10*k;
@@ -9566,7 +9570,7 @@ var UI_ICONS={
   sliders:'<path d="M4 7h16M4 12h16M4 17h16"/><circle cx="9" cy="7" r="2.1" fill="currentColor" stroke="none"/><circle cx="15" cy="12" r="2.1" fill="currentColor" stroke="none"/><circle cx="8" cy="17" r="2.1" fill="currentColor" stroke="none"/>',
   speaker:'<path d="M4 9h3l4-3.5v13L7 15H4z" fill="currentColor" stroke="none"/><path d="M14.5 9.2C15.8 11 15.8 13 14.5 14.8M16.8 7C19 10 19 14 16.8 17"/>',
   speakerMute:'<path d="M4 9h3l4-3.5v13L7 15H4z" fill="currentColor" stroke="none"/><path d="M14.5 9.5l5 5M19.5 9.5l-5 5"/>',
-  cannon:'<circle cx="6.8" cy="15.5" r="2.3"/><path d="M9 13.8l8-4.6 2.1 3.6-8 4.6z" fill="currentColor" stroke="none"/><circle cx="18" cy="7.4" r="1.9" fill="currentColor" stroke="none"/>',
+  cannon:'<path d="M12 1.5l2.4 5.6 4.9-3.1-2 5.4 6 .2-5 3.4 4.2 4.3-5.8-1.4.6 6-3.3-5-3.3 5 .6-6-5.8 1.4 4.2-4.3-5-3.4 6-.2-2-5.4 4.9 3.1z" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="2.6" fill="#fff3c4" stroke="none"/>',
 };
 function svgIcon(name,sz){ return '<svg viewBox="0 0 24 24" width="'+(sz||22)+'" height="'+(sz||22)+'" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">'+((UI_ICONS&&UI_ICONS[name])||'')+'</svg>'; }
 function applyHudIcons(){
@@ -10120,7 +10124,7 @@ function devPicker(parent,label,opts,onGo,goLabel){
   const row=document.createElement('div');
   row.style.cssText='display:flex;gap:6px;align-items:center;width:100%;margin:3px 0;';
   const lbl=document.createElement('span'); lbl.textContent=label;
-  lbl.style.cssText='font:700 11px/1 system-ui;color:#9fd0e6;min-width:58px;text-align:left;';
+  lbl.style.cssText='font:700 11px/1 system-ui;color:#2b6f96;min-width:58px;text-align:left;';
   const sel=document.createElement('select');
   sel.style.cssText='flex:1;font:600 12px/1 system-ui;padding:6px;border-radius:8px;background:#16304a;color:#cfeaf6;border:2px solid #2b6f96;';
   opts.forEach((o,i)=>{ const op=document.createElement('option'); op.value=i; op.textContent=o.label; sel.appendChild(op); });
@@ -10131,7 +10135,7 @@ function devPicker(parent,label,opts,onGo,goLabel){
 }
 function buildDevSpawners(){
   const sp=el('devspawn'); if(!sp)return; sp.innerHTML='';
-  const head=t=>{ const h=document.createElement('div'); h.textContent=t; h.style.cssText='font:800 11px/1 system-ui;color:#8fc4dd;text-align:left;margin:11px 2px 5px;text-transform:uppercase;letter-spacing:.6px;'; sp.appendChild(h); };
+  const head=t=>{ const h=document.createElement('div'); h.textContent=t; h.style.cssText='font:800 11px/1 system-ui;color:#1d6a8c;text-align:left;margin:11px 2px 5px;text-transform:uppercase;letter-spacing:.6px;'; sp.appendChild(h); };
   head('🚢 Ship & build (live)');
   devPicker(sp,'Class',SHIPCLASSES.map(c=>({label:c.icon+' '+c.name,v:c.id})),o=>{ G.shipClass=o.v; recalcPlayer(); if(G.ship)G.ship.hp=G.ship.maxhp; updateHUD(); refreshDevDiag(); devToast('Hull → '+o.v); },'Set');
   devPicker(sp,'Charm',RELICS.map(r=>({label:r.icon+' '+r.name,v:r.id})),o=>{ if(!hasRelic(o.v)){ G.relics.push(o.v); recalcPlayer(); updateRelicHUD&&updateRelicHUD(); updateHUD(); refreshDevDiag(); devToast('Charm: '+o.v); } else devToast('Already fitted'); },'Grant');
@@ -10139,7 +10143,7 @@ function buildDevSpawners(){
   devPicker(sp,'Event',EVENTS.map(e=>({label:e.emoji+' '+e.title,v:e.id})),o=>{ const ev=EVENT_BY_ID[o.v]; closeDev(); openEvent(ev); },'Run');
   devPicker(sp,'Pet',[{label:'— none —',v:''}].concat(COMPANIONS.map(c=>({label:c.name+' ('+c.perk+')',v:c.id}))),o=>{ G.companion=o.v||null; recalcPlayer(); updateHUD(); refreshDevDiag(); devToast(o.v?('Companion: '+o.v):'Companion cleared'); },'Set');
   { const row=document.createElement('div'); row.style.cssText='display:flex;gap:6px;align-items:center;width:100%;margin:4px 0;';
-    const lbl=document.createElement('span'); lbl.textContent='Difficulty'; lbl.style.cssText='font:700 11px/1 system-ui;color:#9fd0e6;min-width:58px;text-align:left;'; row.appendChild(lbl);
+    const lbl=document.createElement('span'); lbl.textContent='Difficulty'; lbl.style.cssText='font:700 11px/1 system-ui;color:#2b6f96;min-width:58px;text-align:left;'; row.appendChild(lbl);
     [['relaxed','Relaxed'],['normal','Normal'],['hard','Hard']].forEach(([id,nm])=>{ const b=document.createElement('button'); b.textContent=nm;
       const on=(G.settings.difficulty===id);
       b.style.cssText='flex:1;font:700 11px/1 system-ui;padding:7px 4px;border-radius:8px;cursor:pointer;border:2px solid '+(on?'#6fc6e6':'#2b6f96')+';background:'+(on?'#2b6f96':'#16304a')+';color:'+(on?'#fff':'#bfe0f0')+';';
@@ -10157,7 +10161,7 @@ function buildDevSpawners(){
   for(const k in UP){
     const row=document.createElement('div'); row.style.cssText='display:flex;gap:6px;align-items:center;width:100%;margin:2px 0;';
     const lbl=document.createElement('span'); lbl.textContent=UP[k].emoji+' '+UP[k].name;
-    lbl.style.cssText='font:700 11px/1 system-ui;color:#cfeaf6;flex:1;text-align:left;';
+    lbl.style.cssText='font:700 11px/1 system-ui;color:#2b6f96;flex:1;text-align:left;';
     const val=document.createElement('span'); val.style.cssText='font:700 11px/1 monospace;color:#ffe7a8;min-width:40px;text-align:center;';
     const refresh=()=>{ val.textContent=(G.upgrades[k]||0)+'/'+UP[k].max; };
     const mk=(txt,fn)=>{ const b=document.createElement('button'); b.textContent=txt;
@@ -10174,7 +10178,7 @@ function buildDevMenu(){
   // each section = a header + a tidy 2-column grid of equal-width buttons
   for(const [title,items] of DEV_SECTIONS){
     const h=document.createElement('div'); h.textContent=title;
-    h.style.cssText='font:800 11px/1 system-ui;color:#8fc4dd;text-align:left;margin:11px 2px 5px;text-transform:uppercase;letter-spacing:.6px;';
+    h.style.cssText='font:800 11px/1 system-ui;color:#1d6a8c;text-align:left;margin:11px 2px 5px;text-transform:uppercase;letter-spacing:.6px;';
     box.appendChild(h);
     const grid=document.createElement('div');
     grid.style.cssText='display:grid;grid-template-columns:1fr 1fr;gap:6px;';
@@ -10227,7 +10231,7 @@ function buildDevMenu(){
       };
       const bpmLbl=document.createElement('span');
       bpmLbl.textContent=bpm+'♩';
-      bpmLbl.style.cssText='font:700 11px/1 monospace;color:#9fd0e6;min-width:38px;text-align:center;';
+      bpmLbl.style.cssText='font:700 11px/1 monospace;color:#2b6f96;min-width:38px;text-align:center;';
       row.appendChild(b);
       row.appendChild(mkTempoBtn('−',-4));
       row.appendChild(bpmLbl);
