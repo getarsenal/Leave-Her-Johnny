@@ -685,7 +685,7 @@ resize();
 /* Build/version string shown in-app (start screen + dev readout) so it's obvious which
    build is actually running — App Store/TestFlight propagation lags the repo by hours/days.
    Keep this in lockstep with ios MARKETING_VERSION when bumping. */
-const GAME_BUILD='1.0.40';
+const GAME_BUILD='1.0.41';
 /* ---------- math ---------- */
 const TAU=Math.PI*2;
 const rnd=(a=1,b)=>b===undefined?Math.random()*a:a+Math.random()*(b-a);
@@ -9690,6 +9690,11 @@ var UI_ICONS={
   compass:'<circle cx="12" cy="12" r="8.4"/><path d="M15.6 8.4l-2.2 5.2-5.2 2.2 2.2-5.2z" fill="currentColor" stroke="none"/>',
   barrel:'<ellipse cx="12" cy="5.4" rx="6" ry="2"/><path d="M6 5.4v13.2c0 1.1 2.7 2 6 2s6-.9 6-2V5.4"/><path d="M4.6 12h14.8"/>',
   star:'<path d="M12 2.5l2.9 6.1 6.6.9-4.8 4.6 1.2 6.6L12 18.6 6.1 21.3l1.2-6.6-4.8-4.6 6.6-.9z"/>',
+  chain:'<path d="M9.5 13.5a3.2 3.2 0 0 1 0-4.2l2-2a3.2 3.2 0 0 1 4.5 4.5l-1 1"/><path d="M14.5 10.5a3.2 3.2 0 0 1 0 4.2l-2 2a3.2 3.2 0 0 1-4.5-4.5l1-1"/>',
+  ruler:'<rect x="2.6" y="8.4" width="18.8" height="7.2" rx="1.4"/><path d="M6.6 8.4v3M10 8.4v4M13.4 8.4v3M16.8 8.4v4"/>',
+  haptics:'<rect x="8.4" y="4.8" width="7.2" height="14.4" rx="1.8"/><path d="M5 9v6M2.8 10.6v2.8M19 9v6M21.2 10.6v2.8M12 16.6h.01"/>',
+  text:'<path d="M3 18l4-11 4 11M4.5 14h5"/><circle cx="17" cy="15" r="3.2"/><path d="M20.2 11.9v6.3"/>',
+  contrast:'<circle cx="12" cy="12" r="8.5"/><path d="M12 3.5a8.5 8.5 0 0 1 0 17z" fill="currentColor" stroke="none"/>',
 };
 /* ================================================================
    DE-EMOJI ENGINE — one map (emoji → icon name) + a DOM walker that swaps
@@ -9711,13 +9716,32 @@ var EMOJI_ICON={
   '⬆':'up','⬇':'down','➕':'plus','➖':'minus','🪝':'hook',
   '🌀':'storm','🌪':'storm','🌩':'storm','☀':'sun','⚡':'bolt','❄':'snow',
   '👻':'ghost','🎲':'dice','🌑':'moon','🍃':'leaf','🍀':'leaf','🌋':'fire',
-  '❔':'question','❓':'question','✅':'check','🚫':'no','🔊':'speaker','🚪':'door','⏱':'clock'
+  '❔':'question','❓':'question','✅':'check','🚫':'no','🔊':'speaker','🚪':'door','⏱':'clock',
+  '🔗':'chain','📏':'ruler','📳':'haptics','🔤':'text','◐':'contrast','💂':'shield'
 };
 /* typographic glyphs that render identically everywhere — keep as text, never strip */
 var KEEP_GLYPH='→←↩↪✓✔✕✖★☆✦✧•·—–';
 var RX_EMOJI=/[\u{1F000}-\u{1FAFF}\u{2500}-\u{27BF}\u{2300}-\u{23FF}\u{2B00}-\u{2BFF}\u{2460}-\u{24FF}\u{2190}-\u{21FF}\u{2638}\u{2669}\u{FE0F}\u{20E3}\u{2934}\u{2935}]/u;
 function svgIcon(name,sz){ var s=(sz==null?22:sz); var dim=(typeof s==='number')?(s+''):s; return '<svg viewBox="0 0 24 24" width="'+dim+'" height="'+dim+'" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" style="overflow:visible">'+((UI_ICONS&&UI_ICONS[name])||'')+'</svg>'; }
 var _iconizing=false, _iconSched=false;
+/* Pick a stroke color for an icon by reading the nearest solid background it sits on:
+   warm gold on dark surfaces, ink on light ones. This guarantees contrast in every
+   menu (dark navy pills AND cream cards) instead of inheriting a color that can vanish. */
+function iconContrastColor(elm){
+  try{
+    var n=elm.parentElement;
+    while(n && n!==document.documentElement){
+      var bg=getComputedStyle(n).backgroundColor;
+      var m=bg && bg.match(/[\d.]+/g);
+      if(m && m.length>=3 && (m.length<4 || parseFloat(m[3])>0.25)){
+        var lum=0.299*+m[0]+0.587*+m[1]+0.114*+m[2];
+        return lum<145 ? '#ffd98a' : '#3a2c4a';
+      }
+      n=n.parentElement;
+    }
+  }catch(e){}
+  return null;
+}
 function iconizeEl(root){
   if(!root || !root.ownerDocument && root.nodeType!==9 && root.nodeType!==1) return;
   var doc=root.ownerDocument||document;
@@ -9728,18 +9752,21 @@ function iconizeEl(root){
     var node=hits[h];
     // never touch our own icon spans/<svg>, form controls, or raw script/style text
     if(node.parentNode && node.parentNode.closest && node.parentNode.closest('.ico,svg,option,select,textarea,input,script,style')) continue;
-    var frag=doc.createDocumentFragment(), buf='';
+    var frag=doc.createDocumentFragment(), buf='', spans=[];
     var flush=function(){ if(buf){ frag.appendChild(doc.createTextNode(buf)); buf=''; } };
     var chars=Array.from(node.nodeValue);
     for(var i=0;i<chars.length;i++){
       var ch=chars[i];
-      if(EMOJI_ICON[ch]){ flush(); var sp=doc.createElement('span'); sp.className='ico'; sp.innerHTML=svgIcon(EMOJI_ICON[ch],'1em'); frag.appendChild(sp); }
+      if(EMOJI_ICON[ch]){ flush(); var sp=doc.createElement('span'); sp.className='ico'; sp.innerHTML=svgIcon(EMOJI_ICON[ch],'1em'); frag.appendChild(sp); spans.push(sp); }
       else if(KEEP_GLYPH.indexOf(ch)>=0){ buf+=ch; }
       else if(RX_EMOJI.test(ch)){ /* unmapped emoji / variation selector -> drop */ }
       else { buf+=ch; }
     }
     flush();
-    if(node.parentNode){ node.parentNode.replaceChild(frag,node); }
+    if(node.parentNode){ node.parentNode.replaceChild(frag,node);
+      // now attached → set a contrasting color so icons never disappear into their pill
+      for(var s=0;s<spans.length;s++){ var col=iconContrastColor(spans[s]); if(col) spans[s].style.color=col; }
+    }
   }
 }
 function scheduleIconize(){ if(_iconSched) return; _iconSched=true; requestAnimationFrame(function(){ _iconSched=false; _iconizing=true; try{ iconizeEl(document.body); }catch(e){} _iconizing=false; }); }
