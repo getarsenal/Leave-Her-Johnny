@@ -691,7 +691,7 @@ resize();
 /* Build/version string shown in-app (start screen + dev readout) so it's obvious which
    build is actually running — App Store/TestFlight propagation lags the repo by hours/days.
    Keep this in lockstep with ios MARKETING_VERSION when bumping. */
-const GAME_BUILD='1.0.42';
+const GAME_BUILD='1.0.43';
 /* ---------- math ---------- */
 const TAU=Math.PI*2;
 const rnd=(a=1,b)=>b===undefined?Math.random()*a:a+Math.random()*(b-a);
@@ -8928,7 +8928,17 @@ function stripEmoji(s){ return String(s)
   .replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2300}-\u{23FF}\u{2B00}-\u{2BFF}\u{2190}-\u{21FF}\u{2460}-\u{24FF}\u{FE0F}\u{20E3}\u{2934}\u{2935}]/gu,'')
   .replace(/\s{2,}/g,' ').trim(); }
 function toast(msg,ms=1600){
-  const t=el('toast');t.textContent=stripEmoji(msg);t.classList.add('show');
+  const t=el('toast');t.textContent=stripEmoji(msg);
+  // sit just below whichever top cluster (left stack / right buttons) is taller, so
+  // the toast can NEVER overlap the HUD no matter how many charms/fleet/combo rows show
+  try{
+    let below=84;
+    const tl=el('topleft'), tr=el('topright');
+    if(tl) below=Math.max(below, tl.getBoundingClientRect().bottom);
+    if(tr) below=Math.max(below, tr.getBoundingClientRect().bottom);
+    t.style.top=(below+10)+'px';
+  }catch(e){}
+  t.classList.add('show');
   clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),ms);
 }
 // "Shanty Found" — a wet scrap of paper drifting in a bottle (auto-dismisses)
