@@ -685,7 +685,7 @@ resize();
 /* Build/version string shown in-app (start screen + dev readout) so it's obvious which
    build is actually running — App Store/TestFlight propagation lags the repo by hours/days.
    Keep this in lockstep with ios MARKETING_VERSION when bumping. */
-const GAME_BUILD='1.0.39';
+const GAME_BUILD='1.0.40';
 /* ---------- math ---------- */
 const TAU=Math.PI*2;
 const rnd=(a=1,b)=>b===undefined?Math.random()*a:a+Math.random()*(b-a);
@@ -8885,7 +8885,16 @@ function updateHUD(){
   document.body.classList.toggle('shore-mode', G.state==='shore');
   el('s-gold').textContent=Math.floor(G.gold);
   el('s-wood').textContent=Math.floor(G.wood);
-  if(G.endless){ const o=el('objective'); if(o) o.textContent='🌊 Open Seas · Threat '+(1+Math.floor(G.threat||0))+' · '+(G.endlessScore|0); }
+  if(G.endless){ const o=el('objective'); if(o){
+    // Build the label ONCE with a real icon + number spans; per-frame we touch only
+    // the numbers (no emoji in textContent ⇒ the de-emoji observer never fires here,
+    // which previously thrashed a full-DOM walk every frame in Open Seas).
+    if(o._endless!==1 || !o.querySelector('.ot')){ o._endless=1; o._t=o._s=null;
+      o.innerHTML='<span class="ico">'+svgIcon('wave','1em')+'</span> Open Seas · Threat <span class="ot"></span> · <span class="os"></span>'; }
+    const t=1+Math.floor(G.threat||0), sc=G.endlessScore|0;
+    if(o._t!==t){ o._t=t; const e=o.querySelector('.ot'); if(e) e.textContent=t; }
+    if(o._s!==sc){ o._s=sc; const e=o.querySelector('.os'); if(e) e.textContent=sc; }
+  } }
   const s=G.ship; if(s)el('hpfill').style.width=clamp(s.hp/s.maxhp*100,0,100)+'%';
   // combo meter
   const cm=el('combometer');
@@ -9717,8 +9726,8 @@ function iconizeEl(root){
   while(n=walker.nextNode()){ if(RX_EMOJI.test(n.nodeValue)) hits.push(n); }
   for(var h=0;h<hits.length;h++){
     var node=hits[h];
-    // never touch text inside our own icon spans or <svg>
-    if(node.parentNode && node.parentNode.closest && node.parentNode.closest('.ico,svg')) continue;
+    // never touch our own icon spans/<svg>, form controls, or raw script/style text
+    if(node.parentNode && node.parentNode.closest && node.parentNode.closest('.ico,svg,option,select,textarea,input,script,style')) continue;
     var frag=doc.createDocumentFragment(), buf='';
     var flush=function(){ if(buf){ frag.appendChild(doc.createTextNode(buf)); buf=''; } };
     var chars=Array.from(node.nodeValue);
@@ -10236,16 +10245,29 @@ function checkDaily(){
 }
 
 /* ================= DEV MENU =================
-   Open by triple-tapping the map-name pill. Provides event triggers and a
-   live diagnostic readout (useful for debugging / sharing state). */
+   HIDDEN for release: dev mode is unlocked by 7 rapid taps on the tiny build-version
+   badge on the TITLE screen (players won't stumble on it). Once unlocked this session,
+   the map-name pill's 5-tap shortcut re-enables for quick mid-play access. */
+let _devUnlocked=false;
 let _devTaps=0,_devTapT=0;
 function devTapHandler(){
+  if(!_devUnlocked) return;                    // gated: must unlock from the title badge first
   const now=performance.now();
   if(now-_devTapT>600)_devTaps=0;
   _devTapT=now; _devTaps++;
-  if(_devTaps>=5){ _devTaps=0; openDev(); }   // 5 quick taps (harder to open by accident)
+  if(_devTaps>=5){ _devTaps=0; openDev(); }
 }
-function openDev(){ G.state='shop'; buildDevMenu(); el('ov-dev').classList.add('show'); }
+let _devUnTaps=0,_devUnT=0;
+function devUnlockHandler(){
+  const now=performance.now();
+  if(now-_devUnT>600)_devUnTaps=0;
+  _devUnT=now; _devUnTaps++;
+  if(_devUnTaps>=7){ _devUnTaps=0; _devUnlocked=true;
+    if(typeof toast==='function') toast('Dev mode unlocked',1400);
+    openDev();
+  }
+}
+function openDev(){ _devUnlocked=true; G.state='shop'; buildDevMenu(); el('ov-dev').classList.add('show'); }
 function closeDev(){ el('ov-dev').classList.remove('show'); if(G.state==='shop')G.state='play'; }
 
 // Dev actions grouped into labelled sections, each rendered as a clean 2-column grid.
@@ -10546,8 +10568,14 @@ function devSpawnFort(tierArg){
   closeDev();
 }
 el('devclose').onclick=closeDev;
+// map-name pill = quick mid-play opener, but only AFTER dev mode is unlocked this session
 el('mapname').addEventListener('click',devTapHandler);
 el('mapname').addEventListener('touchstart',e=>{e.stopPropagation();devTapHandler();},{passive:true});
+// hidden unlock: 7 rapid taps on the title-screen build badge
+(function(){ const bb=el('buildbadge'); if(!bb) return;
+  bb.addEventListener('click',devUnlockHandler);
+  bb.addEventListener('touchstart',e=>{e.stopPropagation();devUnlockHandler();},{passive:true});
+})();
 
 /* Direct touch handlers so HUD buttons respond instantly even while a
    second finger is dragging the steering joystick on the canvas.
