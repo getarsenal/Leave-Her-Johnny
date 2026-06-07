@@ -73,11 +73,16 @@
     box-shadow:var(--shadow-soft), inset 0 2px 0 rgba(255,255,255,0.12);}
 
   /* top-left resources */
-  #topbar{top:max(10px,env(safe-area-inset-top));left:10px;display:flex;gap:8px;
-    position:absolute;pointer-events:none;}
-  /* charm strip — sits just under the gold/wood readout, top-left */
-  #relicbar{position:absolute;left:12px;top:calc(max(10px,env(safe-area-inset-top)) + 44px);
-    display:none;gap:5px;align-items:center;padding:3px 8px;pointer-events:none;
+  /* TOP-LEFT STACK — gold/wood, objective, charms/fleet, combo all flow in one
+     vertical column so they can NEVER overlap. Width is reserved so it never reaches
+     the top-right button cluster. */
+  #topleft{position:absolute;top:max(10px,env(safe-area-inset-top));left:10px;
+    display:flex;flex-direction:column;align-items:flex-start;gap:6px;
+    max-width:calc(100vw - 160px);pointer-events:none;z-index:9;}
+  #topbar{display:flex;gap:8px;pointer-events:none;}
+  /* charm/fleet strip — flows just under the objective in the top-left column */
+  #relicbar{display:none;gap:5px;align-items:center;flex-wrap:wrap;max-width:100%;
+    padding:3px 8px;pointer-events:none;
     background:linear-gradient(180deg,rgba(34,24,14,.82),rgba(24,17,10,.82));
     border:2px solid var(--gold-dk);border-radius:999px;box-shadow:var(--shadow-soft);}
   .stat{display:flex;align-items:center;gap:6px;padding:6px 12px 6px 8px;
@@ -425,12 +430,11 @@
   #pp-leave{background:linear-gradient(180deg,#d8c4a0,#b89d72);color:#4a3a22;box-shadow:0 4px 0 #8a724a;}
 
   /* objective banner */
-  #objective{position:absolute;top:max(56px,calc(env(safe-area-inset-top) + 46px));
-    left:10px;background:rgba(44,62,99,.85);
-    border:2px solid var(--gold-dk);border-radius:12px;padding:5px 16px;font-family:'Baloo 2';
-    font-weight:600;font-size:13px;color:var(--gold);z-index:9;box-shadow:var(--shadow-soft);
-    text-align:left;white-space:nowrap;max-width:min(62vw,300px);overflow:hidden;text-overflow:ellipsis;}
-  #combometer{position:absolute;top:max(86px,calc(env(safe-area-inset-top) + 76px));left:10px;
+  #objective{position:static;max-width:100%;background:rgba(44,62,99,.92);
+    border:2px solid var(--gold-dk);border-radius:12px;padding:5px 14px;font-family:'Baloo 2';
+    font-weight:600;font-size:13px;color:var(--gold);box-shadow:var(--shadow-soft);
+    text-align:left;line-height:1.25;pointer-events:none;}
+  #combometer{position:static;
     display:none;align-items:center;gap:8px;padding:5px 12px;border-radius:12px;
     background:linear-gradient(180deg,#ff9a3c,#f4641e);border:2px solid #ffd964;
     box-shadow:0 6px 16px rgba(244,100,30,.4);z-index:9;font-family:'Baloo 2';
@@ -483,11 +487,15 @@
 
   <!-- HUD -->
   <div id="hud">
-    <div id="topbar">
-      <div class="stat gold"><div class="ic">⬤</div><span id="s-gold">0</span></div>
-      <div class="stat wood"><div class="ic">🪵</div><span id="s-wood">0</span></div>
+    <div id="topleft">
+      <div id="topbar">
+        <div class="stat gold"><div class="ic">⬤</div><span id="s-gold">0</span></div>
+        <div class="stat wood"><div class="ic">🪵</div><span id="s-wood">0</span></div>
+      </div>
+      <div id="objective">Find the hidden treasure</div>
+      <div id="relicbar"></div>
+      <div id="combometer"><span id="combonum">x2</span><span id="combomult">+30%</span><i id="combobar"></i></div>
     </div>
-    <div id="relicbar"></div>
     <div id="topright">
       <div id="mapname">The Shallows</div>
       <div class="trbtns">
@@ -500,8 +508,6 @@
         <button id="btn-mute">🔊</button>
       </div>
     </div>
-    <div id="objective">Find the hidden treasure</div>
-    <div id="combometer"><span id="combonum">x2</span><span id="combomult">+30%</span><i id="combobar"></i></div>
 
     <div id="botleft">
       <div class="hpwrap">
@@ -685,7 +691,7 @@ resize();
 /* Build/version string shown in-app (start screen + dev readout) so it's obvious which
    build is actually running — App Store/TestFlight propagation lags the repo by hours/days.
    Keep this in lockstep with ios MARKETING_VERSION when bumping. */
-const GAME_BUILD='1.0.41';
+const GAME_BUILD='1.0.42';
 /* ---------- math ---------- */
 const TAU=Math.PI*2;
 const rnd=(a=1,b)=>b===undefined?Math.random()*a:a+Math.random()*(b-a);
