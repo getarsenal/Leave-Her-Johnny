@@ -527,7 +527,7 @@
         <button id="btn-trim" title="Ship's Trim">🎀</button>
         <button id="btn-songbook" title="Songbook">🎵</button>
         <button id="btn-logbook" title="Captain's Logbook">📖</button>
-        <button id="btn-settings" title="Settings">⚙️</button>
+        <button id="btn-settings" title="Pause">⚙️</button>
         <button id="btn-mute">🔊</button>
       </div>
     </div>
@@ -593,7 +593,8 @@
 
   <div class="overlay" id="ov-settings">
     <div class="card">
-      <h2>⚙️ Settings</h2>
+      <h2 id="settings-title">Settings</h2>
+      <button class="bigbtn gold" id="settings-resume" style="display:none;margin-bottom:4px">▶ Resume</button>
       <div id="settingsbody" style="margin-top:6px"></div>
       <button class="bigbtn" id="settingsclose">Back</button>
     </div>
@@ -715,7 +716,7 @@ resize();
 /* Build/version string shown in-app (start screen + dev readout) so it's obvious which
    build is actually running — App Store/TestFlight propagation lags the repo by hours/days.
    Keep this in lockstep with ios MARKETING_VERSION when bumping. */
-const GAME_BUILD='1.0.44';
+const GAME_BUILD='1.0.45';
 /* ---------- math ---------- */
 const TAU=Math.PI*2;
 const rnd=(a=1,b)=>b===undefined?Math.random()*a:a+Math.random()*(b-a);
@@ -3395,7 +3396,7 @@ const NAVY_CLASSES = [
   {cls:'cutter',   r:25, hp:97, spd:106, turn:2.0, cannons:3, fireRate:0.75, dmg:17, range:320, bounty:55, tint:'#aebfd6', weight:3, L:1.1, beam:0.95, masts:2, sail:'#e6edf6'},
   {cls:'frigate',  r:30, hp:139, spd:90,  turn:1.6, cannons:4, fireRate:0.65, dmg:24, range:360, bounty:100,tint:'#8fa6c4', weight:3, L:1.3, beam:1.0,  masts:2, sail:'#dde6f2'},
   {cls:'galleon',  r:35, hp:190, spd:74,  turn:1.25,cannons:6, fireRate:0.55, dmg:30, range:400, bounty:170,tint:'#6f86a8', weight:2, L:1.5, beam:1.12, masts:3, sail:'#d2deee'},
-  {cls:'manowar',  r:42, hp:273, spd:64,  turn:1.0, cannons:8, fireRate:0.5,  dmg:38, range:450, bounty:300,tint:'#566f94', weight:1, L:1.7, beam:1.2,  masts:3, sail:'#c8d6ea'},
+  {cls:'manowar',  r:42, hp:600, spd:64,  turn:1.0, cannons:8, fireRate:0.5,  dmg:38, range:450, bounty:300,tint:'#566f94', weight:1, L:1.7, beam:1.2,  masts:3, sail:'#c8d6ea'},
 ];
 function pickNavyClass(rngf){
   const r=rngf||Math.random;
@@ -9791,6 +9792,8 @@ var UI_ICONS={
   haptics:'<rect x="8.4" y="4.8" width="7.2" height="14.4" rx="1.8"/><path d="M5 9v6M2.8 10.6v2.8M19 9v6M21.2 10.6v2.8M12 16.6h.01"/>',
   text:'<path d="M3 18l4-11 4 11M4.5 14h5"/><circle cx="17" cy="15" r="3.2"/><path d="M20.2 11.9v6.3"/>',
   contrast:'<circle cx="12" cy="12" r="8.5"/><path d="M12 3.5a8.5 8.5 0 0 1 0 17z" fill="currentColor" stroke="none"/>',
+  pause:'<rect x="6.5" y="5" width="3.6" height="14" rx="1.3" fill="currentColor" stroke="none"/><rect x="13.9" y="5" width="3.6" height="14" rx="1.3" fill="currentColor" stroke="none"/>',
+  play:'<path d="M7 5.2l11 6.8-11 6.8z" fill="currentColor" stroke="none"/>',
 };
 /* ================================================================
    DE-EMOJI ENGINE — one map (emoji → icon name) + a DOM walker that swaps
@@ -9813,7 +9816,8 @@ var EMOJI_ICON={
   '🌀':'storm','🌪':'storm','🌩':'storm','☀':'sun','⚡':'bolt','❄':'snow',
   '👻':'ghost','🎲':'dice','🌑':'moon','🍃':'leaf','🍀':'leaf','🌋':'fire',
   '❔':'question','❓':'question','✅':'check','🚫':'no','🔊':'speaker','🚪':'door','⏱':'clock',
-  '🔗':'chain','📏':'ruler','📳':'haptics','🔤':'text','◐':'contrast','💂':'shield'
+  '🔗':'chain','📏':'ruler','📳':'haptics','🔤':'text','◐':'contrast','💂':'shield',
+  '▶':'play','⏸':'pause'
 };
 /* typographic glyphs that render identically everywhere — keep as text, never strip */
 var KEEP_GLYPH='→←↩↪✓✔✕✖★☆✦✧•·—–';
@@ -9847,7 +9851,7 @@ function iconizeEl(root){
   for(var h=0;h<hits.length;h++){
     var node=hits[h];
     // never touch our own icon spans/<svg>, form controls, or raw script/style text
-    if(node.parentNode && node.parentNode.closest && node.parentNode.closest('.ico,svg,option,select,textarea,input,script,style')) continue;
+    if(node.parentNode && node.parentNode.closest && node.parentNode.closest('.ico,svg,option,select,textarea,input,script,style,#ov-dev')) continue;
     var frag=doc.createDocumentFragment(), buf='', spans=[];
     var flush=function(){ if(buf){ frag.appendChild(doc.createTextNode(buf)); buf=''; } };
     var chars=Array.from(node.nodeValue);
@@ -9919,7 +9923,7 @@ function emojiToIcon(s){ if(!s) return null; var ch=Array.from(s)[0]; return (EM
 function applyHudIcons(){
   const set=(id,name)=>{ const b=el(id); if(b) b.innerHTML=svgIcon(name); };
   set('btn-voyage','map'); set('btn-cruise','wheel'); set('btn-trim','flag');
-  set('btn-songbook','note'); set('btn-logbook','book'); set('btn-settings','sliders');
+  set('btn-songbook','note'); set('btn-logbook','book'); set('btn-settings','pause');
   const mb=el('btn-mute'); if(mb) mb.innerHTML=svgIcon(SND.muted?'speakerMute':'speaker');
   const fe=document.querySelector('#btn-fire .em'); if(fe) fe.innerHTML=svgIcon('cannon',26);
   const gi=document.querySelector('.stat.gold .ic'); if(gi) gi.innerHTML=svgIcon('coin',17);
@@ -10318,6 +10322,7 @@ el('logclose').onclick=closeLogbook;
 el('btn-settings').onclick=openSettings;
 el('startsettings').onclick=openSettings;
 el('settingsclose').onclick=closeSettings;
+{ const r=el('settings-resume'); if(r) r.onclick=closeSettings; }
 
 /* ---- DAILY BOUNTY: one rotating goal per calendar day (cozy, optional) ---- */
 const DAILY_TYPES=[
@@ -10531,15 +10536,20 @@ function buildDevSpawners(){
   }
 }
 let _devShanty=0;
+var _devCollapsed=(typeof _devCollapsed!=='undefined')?_devCollapsed:{};
 function buildDevMenu(){
   const box=el('devbtns'); if(!box)return; box.innerHTML='';
-  // each section = a header + a tidy 2-column grid of equal-width buttons
+  // each section = a collapsible header + a tidy 2-column grid of equal-width buttons.
+  // Sections start collapsed so the menu opens compact (no endless scrolling).
   for(const [title,items] of DEV_SECTIONS){
-    const h=document.createElement('div'); h.textContent=title;
-    h.style.cssText='font:800 11px/1 system-ui;color:#1d6a8c;text-align:left;margin:11px 2px 5px;text-transform:uppercase;letter-spacing:.6px;';
+    const collapsed = _devCollapsed[title] !== false;   // default = collapsed
+    const h=document.createElement('div');
+    h.textContent=(collapsed?'▸ ':'▾ ')+title;
+    h.style.cssText='font:800 11px/1 system-ui;color:#1d6a8c;text-align:left;margin:9px 2px 5px;text-transform:uppercase;letter-spacing:.6px;cursor:pointer;user-select:none;padding:4px 2px;';
     box.appendChild(h);
     const grid=document.createElement('div');
-    grid.style.cssText='display:grid;grid-template-columns:1fr 1fr;gap:6px;';
+    grid.style.cssText='display:'+(collapsed?'none':'grid')+';grid-template-columns:1fr 1fr;gap:6px;';
+    h.onclick=()=>{ _devCollapsed[title]=!collapsed; buildDevMenu(); };
     for(const [label,fn] of items){
       const b=document.createElement('button');
       b.textContent=(typeof label==='function')?label():label;
@@ -10619,15 +10629,20 @@ function buildIconGallery(){
   if(!box){
     const host=el('devbtns'); if(!host) return;
     const wrap=document.createElement('div');
-    const h=document.createElement('div'); h.textContent='ICON GALLERY';
-    h.style.cssText='font:800 11px/1 system-ui;color:#1d6a8c;text-align:left;margin:14px 2px 5px;text-transform:uppercase;letter-spacing:.6px;';
+    const h=document.createElement('div'); h.id='deviconsHdr';
+    h.style.cssText='font:800 11px/1 system-ui;color:#1d6a8c;text-align:left;margin:9px 2px 5px;text-transform:uppercase;letter-spacing:.6px;cursor:pointer;user-select:none;padding:4px 2px;';
     wrap.appendChild(h);
     box=document.createElement('div'); box.id='devicons';
     box.style.cssText='display:grid;grid-template-columns:repeat(4,1fr);gap:6px;';
     wrap.appendChild(box);
     host.parentNode.insertBefore(wrap, host.nextSibling);
+    h.onclick=()=>{ _devCollapsed['ICON GALLERY']=!(_devCollapsed['ICON GALLERY']!==false); buildIconGallery(); };
   }
+  const collapsed = _devCollapsed['ICON GALLERY'] !== false;   // default collapsed
+  const hdr=el('deviconsHdr'); if(hdr) hdr.textContent=(collapsed?'▸ ':'▾ ')+'ICON GALLERY';
+  box.style.display = collapsed ? 'none' : 'grid';
   box.innerHTML='';
+  if(collapsed){ return; }
   const names=Object.keys(UI_ICONS).sort();
   names.forEach(name=>{
     const cell=document.createElement('div');
@@ -11468,8 +11483,13 @@ function applySettings(){
   applyAudio();
 }
 function openSettings(){
-  if(G.state==='play') G.state='shop';   // pause the world cleanly like other menus
+  const paused = (G.state==='play');
+  if(paused) G.state='shop';   // pause the world cleanly like other menus
   else G._settingsFromMenu=true;
+  // when opened mid-voyage this IS the pause screen: title + prominent Resume
+  const t=el('settings-title'); if(t) t.textContent = paused ? 'Paused' : 'Settings';
+  const r=el('settings-resume'); if(r) r.style.display = paused ? '' : 'none';
+  const c=el('settingsclose'); if(c) c.textContent = paused ? 'Resume' : 'Back';
   buildSettings(); el('ov-settings').classList.add('show');
 }
 function closeSettings(){
