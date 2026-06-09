@@ -1606,12 +1606,20 @@ function genWorld(idx){
   // Every cache starts HIDDEN — revealed by a dropped map or by defeating a guardian.
   const bigIdx = rndi(0, world.islands.length-1);
   for(const is of world.islands){
-    // a dig spot on the beach (own shoreline point, distinct from the dock)
-    const ca = rng()*TAU;
-    const ce = edgeAt(is, ca, 0.9);                    // on the grass/sand band
+    // a dig spot on the beach (own shoreline point, distinct from the dock). Bias the
+    // angle toward map-centre and re-roll if the spot falls past the boundary, so a cache
+    // on an edge island never lands on the off-map half where the shore party can't reach it.
+    const toCenter = Math.atan2(S/2-is.y, S/2-is.x);
+    let ca = rng()*TAU, ce = edgeAt(is, ca, 0.9);      // on the grass/sand band
+    let dx = is.x+Math.cos(ca)*ce, dy = is.y+Math.sin(ca)*ce, tries = 0;
+    while((dx<160 || dx>S-160 || dy<160 || dy>S-160) && tries++<18){
+      ca = toCenter + (rng()*2.2-1.1);                 // re-roll on the inward-facing arc
+      ce = edgeAt(is, ca, 0.9);
+      dx = is.x+Math.cos(ca)*ce; dy = is.y+Math.sin(ca)*ce;
+    }
     is.cache = {
-      digX: is.x+Math.cos(ca)*ce,
-      digY: is.y+Math.sin(ca)*ce,
+      digX: dx,
+      digY: dy,
       big: is.id===bigIdx,
       state: 'hidden',                 // hidden -> revealed -> digging -> looted
       gold: is.id===bigIdx ? rndi(220,360) : rndi(35,90),
