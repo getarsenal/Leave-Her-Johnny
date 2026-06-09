@@ -707,9 +707,6 @@ window.addEventListener('resize',resize);
 window.addEventListener('orientationchange',()=>setTimeout(resize,150));
 window.addEventListener('load',()=>{ resize(); setTimeout(resize,200); setTimeout(resize,600);
   refreshBuildBadge();
-  // the SFX samples decode async — re-stamp the badge a few times so the title screen
-  // shows which custom recordings actually loaded on THIS device (musket saga diagnostics).
-  [800,2000,4000,7000].forEach(ms=>setTimeout(refreshBuildBadge,ms));
   applySettings();
   applyHudIcons();
 });
@@ -720,18 +717,9 @@ resize();
    build is actually running — App Store/TestFlight propagation lags the repo by hours/days.
    Keep this in lockstep with ios MARKETING_VERSION when bumping. */
 const GAME_BUILD='2.0.1';
-// Title-screen badge: version + which custom SFX samples actually decoded on THIS device.
-// (A '·' instead of '✓' next to "mus" means musket.mp3 failed to load/decode here.)
+// Title-screen badge — shows the build version so a fresh build is easy to confirm on-device.
 function refreshBuildBadge(){
-  const bb=document.getElementById('buildbadge'); if(!bb) return;
-  let sfx='';
-  try{
-    if(typeof SND!=='undefined' && SND.buffers){
-      sfx = '  ·  sfx ' + ['musket','cannon','explosion','storm']
-        .map(k=>k.slice(0,3)+(SND.buffers[k]?'✓':'·')).join(' ');
-    }
-  }catch(e){}
-  bb.textContent='build v'+GAME_BUILD+sfx;
+  const bb=document.getElementById('buildbadge'); if(bb) bb.textContent='build v'+GAME_BUILD;
 }
 /* ---------- math ---------- */
 const TAU=Math.PI*2;
