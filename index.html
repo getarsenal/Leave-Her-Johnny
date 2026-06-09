@@ -11067,15 +11067,16 @@ function loadSamples(){
       .catch(()=>{});
   }
 }
-/* play a decoded sample, allowing overlap; vol 0..1, optional playbackRate variance */
-function playSample(key,vol=1,rateVar=0){
+/* play a decoded sample, allowing overlap; vol 0..1, rateVar = random ± pitch jitter,
+   baseRate = a fixed playback-rate multiplier (e.g. pitch a cannon up into a musket crack) */
+function playSample(key,vol=1,rateVar=0,baseRate=1){
   if(!SND.ready||SND.muted||!SND.buffers[key])return;
   // returning from background can leave the context merely suspended — nudge it back so
   // the FIRST sample after a tap isn't swallowed (esp. the rapid shore-party muskets).
   if(SND.ctx.state!=='running'){ try{ SND.ctx.resume(); }catch(e){} }
   try{
     const src=SND.ctx.createBufferSource(); src.buffer=SND.buffers[key];
-    if(rateVar)src.playbackRate.value=1+(Math.random()*2-1)*rateVar;
+    if(baseRate!==1||rateVar)src.playbackRate.value=baseRate+(rateVar?(Math.random()*2-1)*rateVar:0);
     const g=SND.ctx.createGain(); g.gain.value=vol;
     src.connect(g); g.connect(SND.master); src.start();
     // free the graph when the shot finishes — without this, a long combat-heavy shore
@@ -11574,9 +11575,13 @@ const sfx={
     noise(0.05,0.06,700,'lowpass',0,0.4);
   },
   thunder(){ playSample('storm',0.9,0.03); },    // custom storm/thunder recording
-  musket(){ // flintlock crack — prefer the custom musket.mp3, fall back to synthesis
-    // until it decodes (or if it failed to load) so the shot is never silent.
-    if(typeof SND!=='undefined' && SND.buffers && SND.buffers['musket']){ playSample('musket',0.8,0.07); return; }
+  musket(){ // flintlock crack — ALWAYS prefer a real recording: the custom musket.mp3 if it
+    // decoded, else a pitched-up cannon sample (guaranteed loaded). The synth below is a
+    // last resort only if NO sample is available, since it's the sound the captain hates.
+    if(typeof SND!=='undefined' && SND.buffers){
+      if(SND.buffers['musket']){ playSample('musket',0.8,0.07); return; }
+      if(SND.buffers['cannon']){ playSample('cannon',0.5,0.08,1.85); return; }  // higher pitch ≈ a lighter firearm
+    }
     const v=0.85+Math.random()*0.3;
     noise(0.07,0.46*v,2400+Math.random()*700,'highpass',0,0.7);  // sharp powder crack
     noise(0.13,0.30*v,1000,'bandpass',0,0.6);                    // body of the report
