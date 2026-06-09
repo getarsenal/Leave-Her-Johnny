@@ -11188,9 +11188,9 @@ function updateMusic(){
   if(G.state==='shore') want='shore';
   else if(G.state==='play' && G.entities && G.entities.some(e=>e.type==='boss'&&!e.dead)) want='boss';
   if(want!==_themeLoopId){ if(want) playTheme(want); else stopTheme(); }
-  // whaling is a focused hunt — keep ONE track: stop any looping shanty so it doesn't
-  // overlap the shore theme (the ambient bed is already paused outside play).
-  if(G.shore && G.shore.whaling && _nowPlaying && typeof stopShanty==='function'){ stopShanty(); _nowPlaying=null; }
+  // A focused track (shore party or boss) keeps ONE piece of music: stop any looping
+  // shanty so it doesn't overlap the theme (the ambient bed is already paused outside play).
+  if(want && _nowPlaying && typeof stopShanty==='function'){ stopShanty(); _nowPlaying=null; }
   updateAmbientBed(want);
   // ---- DYNAMIC LAYERS: a tense drum ostinato during open-sea skirmishes, and a
   // heartbeat when the hull is failing. Both ride the music bus / respect mute. ----
@@ -11405,7 +11405,9 @@ const sfx={
     noise(0.05,0.06,700,'lowpass',0,0.4);
   },
   thunder(){ playSample('storm',0.9,0.03); },    // custom storm/thunder recording
-  musket(){ // flintlock crack — fully PROCEDURAL so it never depends on a sample decoding
+  musket(){ // flintlock crack — prefer the custom musket.mp3, fall back to synthesis
+    // until it decodes (or if it failed to load) so the shot is never silent.
+    if(typeof SND!=='undefined' && SND.buffers && SND.buffers['musket']){ playSample('musket',0.8,0.07); return; }
     const v=0.85+Math.random()*0.3;
     noise(0.07,0.46*v,2400+Math.random()*700,'highpass',0,0.7);  // sharp powder crack
     noise(0.13,0.30*v,1000,'bandpass',0,0.6);                    // body of the report
