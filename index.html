@@ -8828,13 +8828,16 @@ function drawIndicators(){
   const s=G.ship; if(!s)return;
   const z=G.cam.zoom;
   const marks=[];
+  // off-screen objectives are pointed to with a SMALL, SEMI-TRANSPARENT ICON of the thing
+  // itself (its creature / a gem / a guardian ship) plus a faint chevron — not a solid blob.
+  const BOSS_IC={shark:'shark',squid:'octopus',kraken:'octopus',ghost:'ghost',wraith:'eel',narwhal:'whale',drowned:'crown',manowar:'ship'};
   const boss=G.entities.find(e=>e.type==='boss'&&!e.dead);
-  if(boss)marks.push({x:boss.x,y:boss.y,c:'#ff6b6b',ic:'⚠'});
+  if(boss)marks.push({x:boss.x,y:boss.y,c:'#ff6b6b',ic:BOSS_IC[boss.mk]||'warn'});
   // corner arenas: once treasure is done, point the way to the remaining guardians
   if(G.world.corners && G.treasureFound>=G.treasureTotal){
     for(const cn of G.world.corners){
       if(cn.cleared || cn.locked || cn.spawned) continue;   // skip done/locked/active
-      marks.push({x:cn.x,y:cn.y,c:cn.themed?'#ff5b6e':'#b06adf',ic:cn.themed?'skull':'anchor'});
+      marks.push({x:cn.x,y:cn.y,c:cn.themed?'#ff5b6e':'#c089e8',ic:cn.themed?(BOSS_IC[cn.mk]||'skull'):'ship'});
     }
   }
   // nearest treasure
@@ -8847,11 +8850,16 @@ function drawIndicators(){
     const a=angTo(W/2,H/2,sx,sy);
     const mx=clamp(W/2+Math.cos(a)*(Math.min(W,H)/2-50),40,W-40);
     const my=clamp(H/2+Math.sin(a)*(Math.min(W,H)/2-50),70,H-90);
-    ctx.save();ctx.translate(mx,my);
-    ctx.fillStyle=m.c;ctx.beginPath();ctx.arc(0,0,15,0,TAU);ctx.fill();
-    ctx.rotate(a);ctx.fillStyle=m.c;ctx.beginPath();ctx.moveTo(16,0);ctx.lineTo(6,-7);ctx.lineTo(6,7);ctx.fill();
+    // faint chevron just outside the icon, pointing the way
+    ctx.save();ctx.translate(mx,my);ctx.rotate(a);
+    ctx.globalAlpha=0.5;ctx.fillStyle=m.c;
+    ctx.beginPath();ctx.moveTo(21,0);ctx.lineTo(13,-5.5);ctx.lineTo(13,5.5);ctx.closePath();ctx.fill();
     ctx.restore();
-    drawVecIcon(m.ic,mx,my,17,'#2a1410');
+    // soft dark backing keeps the small icon legible over bright water, then the icon itself
+    ctx.save();ctx.globalAlpha=0.62;
+    ctx.fillStyle='rgba(20,12,8,0.30)';ctx.beginPath();ctx.arc(mx,my,13,0,TAU);ctx.fill();
+    drawVecIcon(m.ic,mx,my,21,m.c);
+    ctx.restore();
   }
 }
 
