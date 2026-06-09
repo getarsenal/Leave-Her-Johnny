@@ -1754,7 +1754,7 @@ function genWorld(idx){
       }
     }
     const manMapMul=0.7+idx*idx*0.07;                 // quadratic ramp: relevant late, still under the themed climax
-    const themedMul=0.5+idx*0.075;                    // gentler early (M2 boss ~58s), climbs to a M8 climax
+    const themedMul=0.64+idx*0.072;                   // a touch beefier so the climax actually lasts (M2 was dying in a couple of broadsides), climbs to a M8 peak
     const themedCorner=Math.floor(rng()*4);
     let manCount=0;
     for(let i=0;i<4;i++){
@@ -3728,7 +3728,7 @@ function spawnBoss(){
   const bx=G.world.spawn.x<S/2?S*0.85:S*0.15;
   const by=G.world.spawn.y<S/2?S*0.85:S*0.15;
   const b=spawnBossOf(def.boss, bx, by, {scale: bossPowerScale()});
-  if(b){ toast('⚠ '+b.bossName+'!',2600); G.shake=18; sfx.bossAppear(); haptic('heavy'); }
+  if(b){ beginBossEntrance(b, true); }   // legacy single-boss seas — same cinematic reveal
 }
 
 /* ================================================================
@@ -4009,7 +4009,9 @@ function updatePlayer(s,dt){
         const b=spawnBossOf(c.mk, c.x+rnd(-60,60), c.y+rnd(-60,60),
           {scale:c.scale, corner:G.world.corners.indexOf(c),
            name:c.themed?undefined:('Heavy Man-o-War'+(c.tier?' '+['I','II','III'][c.tier-1]:''))});
-        if(b){ b._cornerRef=c; toast('⚠ '+b.bossName+' guards this corner!',2400); G.shake=14; sfx.bossAppear&&sfx.bossAppear(); }
+        if(b){ b._cornerRef=c;
+          if(c.themed){ beginBossEntrance(b, true); }   // the sea's signature boss — full cinematic reveal
+          else { toast('⚠ '+b.bossName+' guards this corner!',2400); G.shake=14; sfx.bossAppear&&sfx.bossAppear(); } }
       }
     }
     G._nearCorner = nearCorner;   // drawn as an approach banner in render
@@ -6280,6 +6282,17 @@ function updateBoss(e,dt,s,dp){
   e.tentacle=(e.tentacle||0)+dt;
   e.phaseT=(e.phaseT||0)-dt;
   e.stunT=Math.max(0,(e.stunT||0)-dt);
+  // --- BOSS ENTRANCE: a brief cinematic reveal. The beast rises to the surface, turns to
+  //     face the captain, and is UNTOUCHABLE while its name card is up — so a heavily-geared
+  //     ship can never burst it down before the player even sees it (the old "the boss never
+  //     appeared on level 2" bug, where the submerged shark died in a couple of broadsides). ---
+  if(e.introT>0){
+    e.introT-=dt; e.invuln=true;
+    e.submerged=lerp(e.submerged||0,0,dt*5);   // sea-beasts surface for the reveal
+    if(s){ const fa=angTo(e.x,e.y,s.x,s.y); e.a+=angDiff(e.a,fa)*Math.min(1,dt*1.6); }
+    e.gazeX=e.gazeX||0; e.gazeY=e.gazeY||0;
+    return;                                      // skip combat AI during the entrance
+  }
   // --- liveliness: eyes track the player, and the beast blinks now and then ---
   if(s){
     const want=angTo(e.x,e.y,s.x,s.y)-e.a;     // gaze direction in the boss's local frame
@@ -8805,6 +8818,9 @@ function render(){
     ctx.restore();
   }
 
+  // boss entrance card + persistent boss health bar
+  drawBossUI();
+
   // floating joystick (screen-space) — hidden during a whale hunt (it has its own aim UI)
   if(input.active && !(G.shore && G.shore.whaling)){
     const ax=input.ax, ay=input.ay;
@@ -8861,6 +8877,89 @@ function drawIndicators(){
     drawVecIcon(m.ic,mx,my,21,m.c);
     ctx.restore();
   }
+}
+
+/* ================================================================
+   BOSS PRESENTATION — cinematic entrance card + persistent health bar.
+   Makes a sea's signature boss read as a climactic fight instead of
+   "just the 4th corner guardian".
+   ================================================================ */
+const BOSS_FLAVOR={
+  shark:'The reef runs red where it hunts.',
+  squid:'It drags whole ships into the dark.',
+  kraken:'The sea itself recoils.',
+  ghost:'Crewed by the drowned, captained by the damned.',
+  wraith:'Bone and coral, risen to ruin you.',
+  narwhal:'Frost follows in its wake.',
+  drowned:'All who sail these waters sail for him.',
+  eel:'It weaves the reefs like a needle.',
+};
+/* Kick off a boss's cinematic entrance: rise + face the captain + a fading name card. */
+function beginBossEntrance(b, themed){
+  if(!b) return;
+  b.introT = themed?1.6:1.1;
+  // sea-beasts start fully submerged so the reveal is them surfacing; ship-bosses just hold.
+  if(b.mk==='shark'||b.mk==='squid'||b.mk==='kraken'||b.mk==='narwhal'||b.mk==='eel') b.submerged=1;
+  G.bossIntro={ name:b.bossName, sub:(BOSS_FLAVOR[b.mk]||''), t:themed?3.0:2.2, max:themed?3.0:2.2, themed:!!themed };
+  G.shake=Math.max(G.shake,16);
+  if(typeof sfx!=='undefined'&&sfx.bossAppear) sfx.bossAppear();
+  if(typeof haptic==='function') haptic('heavy');
+}
+function drawBossUI(){
+  // --- cinematic name card on a boss entrance (fades in, holds, fades out) ---
+  const bi=G.bossIntro;
+  if(bi && bi.t>0){
+    bi.t-=(G.dt||0.016);
+    const k=bi.max>0?bi.t/bi.max:0;                       // 1 → 0 over the card's life
+    const a=clamp(Math.min((1-k)*3.4+0.1, k*3.4), 0, 1);  // fade in then fade out
+    const cy=H*0.30;
+    ctx.save();
+    ctx.globalAlpha=a; ctx.textAlign='center';
+    ctx.fillStyle=bi.themed?'#ffce5c':'#ff9a6b';
+    ctx.font="800 13px 'Baloo 2',sans-serif"; ctx.textBaseline='alphabetic';
+    ctx.fillText(bi.themed?'⚔  THE GUARDIAN OF THIS SEA':'⚔  A GUARDIAN RISES', W/2, cy-30);
+    ctx.fillStyle='#fff'; ctx.shadowColor='#000'; ctx.shadowBlur=16;
+    ctx.font="800 "+Math.round(Math.min(40,W*0.085))+"px 'Baloo 2',sans-serif";
+    ctx.fillText(bi.name||'', W/2, cy+8);
+    ctx.shadowBlur=0;
+    if(bi.sub){ ctx.fillStyle='#dbe8f2'; ctx.font="italic 600 14.5px 'Baloo 2',sans-serif"; ctx.fillText(bi.sub, W/2, cy+32); }
+    ctx.restore();
+    if(bi.t<=0) G.bossIntro=null;
+  }
+  // --- persistent top health bar for the boss currently being fought ---
+  if(G.state!=='play' || !G.entities) return;
+  let boss=null, bd=1e9;
+  const sigMk=G.world&&G.world.def&&G.world.def.boss;
+  for(const e of G.entities){
+    if(e.type!=='boss'||e.dead) continue;
+    // a themed/signature boss always owns the bar; otherwise the nearest engaged guardian
+    if(e._cornerRef&&e._cornerRef.themed){ boss=e; break; }
+    if(e.mk===sigMk && !(e._cornerRef)){ boss=e; break; }
+    const d=G.ship?dist(e.x,e.y,G.ship.x,G.ship.y):0;
+    if(d<1200 && d<bd){ bd=d; boss=e; }
+  }
+  if(!boss) return;
+  const frac=clamp(boss.hp/boss.maxhp,0,1);
+  const themed=!!(boss._cornerRef&&boss._cornerRef.themed) || boss.mk===sigMk;
+  const bw=Math.min(W*0.62,430), bx=(W-bw)/2, by=Math.max(18,H*0.045), bh=themed?16:13;
+  ctx.save();
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillStyle='#fff'; ctx.font="800 "+(themed?16:14)+"px 'Baloo 2',sans-serif";
+  ctx.shadowColor='#000'; ctx.shadowBlur=6;
+  ctx.fillText(boss.bossName||'Boss', W/2, by-9);
+  ctx.shadowBlur=0;
+  ctx.fillStyle='rgba(8,6,10,0.72)'; roundRect(bx-2,by-2,bw+4,bh+4,5); ctx.fill();
+  const accent=themed?'#ff5b6e':(boss.mk==='manowar'?'#c089e8':'#ff6b6b');
+  const g=ctx.createLinearGradient(bx,0,bx+bw,0);
+  g.addColorStop(0,'#8c1b26'); g.addColorStop(1,accent);
+  ctx.fillStyle=g; roundRect(bx,by,Math.max(0,bw*frac),bh,4); ctx.fill();
+  // phase ticks so the player can read the escalation stages
+  const stages=boss.maxPhases||2;
+  if(stages>1){ ctx.strokeStyle='rgba(0,0,0,0.5)'; ctx.lineWidth=2;
+    for(let k=1;k<stages;k++){ const tx=bx+bw*(1-k/stages); ctx.beginPath();ctx.moveTo(tx,by);ctx.lineTo(tx,by+bh);ctx.stroke(); } }
+  // invulnerable shimmer during the entrance, so the bar reads as "not yet vulnerable"
+  if(boss.introT>0){ ctx.globalAlpha=0.5; ctx.fillStyle='rgba(255,255,255,0.35)'; roundRect(bx,by,bw,bh,4); ctx.fill(); }
+  ctx.restore();
 }
 
 /* ================================================================
