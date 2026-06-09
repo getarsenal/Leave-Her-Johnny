@@ -2814,6 +2814,7 @@ function makeFort(plan){
   // build cannons spread along the full sea-facing wall arc
   const cannons=[];
   const spread = wallHalf*1.8;                     // guns span nearly the whole wall
+  const gunHp = Math.max(1, Math.round(hp/nCannon)); // each emplacement is individually destructible
   for(let i=0;i<nCannon;i++){
     const t = nCannon===1?0.5:(i/(nCannon-1));     // 0..1 across the wall
     const a = plan.faceA + (t-0.5)*spread;
@@ -2822,6 +2823,8 @@ function makeFort(plan){
       rel:(t-0.5)*spread,                           // position along the wall (for drawing)
       dist:plan.r*0.92,                             // gun sits near the wall edge
       alive:true, reload: rnd(0,2),
+      hp:gunHp, maxhp:gunHp,                         // SIEGE: shell THIS emplacement to silence it
+      arc:1.15,                                      // ±66° firing arc — so there ARE safe approach angles
     });
   }
   return {
@@ -2834,7 +2837,7 @@ function makeFort(plan){
     smoke:0,                                        // grows with damage
     hasMortar: tier>=3,                             // big forts lob mortars from the center
     mortarReload: 4,
-    range: 520+tier*40,                             // cannon engagement range
+    range: 360+tier*30,                             // SIEGE: closer to the player's 340 so you can trade fire (was 520+) — the long reach is now the mortar's job
     dmg: 8+tier*4,                                  // per-shell damage to player
     speed:0, dead:false, hitflash:0, sink:0, bob:0, drawScale:1,
     bounty: 200+tier*150,                           // gold for destroying it
@@ -4195,7 +4198,7 @@ function updateCannonballs(dt){
           const host=G.world.islands.find(is=>is.id===e.islandId);
           if(host && dist(b.x,b.y,host.x,host.y) < host.r*(host.stretch||1)*1.2) overFortIsland=true;
           if(dist(b.x,b.y,e.x,e.y) < e.r + b.r){
-            dealDamage(e,b.dmg,b.owner); b.life=0; splash(b.x,b.y,'#ffe0a0');
+            fortTakeHit(e, b.x, b.y, b.dmg, b.owner); b.life=0; splash(b.x,b.y,'#ffe0a0');
             sfx.hitWood();
             for(let k=0;k<5;k++)G.particles.push({x:b.x,y:b.y,vx:rnd(-50,50),vy:rnd(-60,10),life:.5,max:.5,c:'#b8b0a4',r:3});
             hitFort=true; break;
@@ -6826,37 +6829,56 @@ function updateKraken(e,dt,s,dp,low){
    arcing mortars (telegraphed, dodge-able, near-lethal on a direct hit).
    Damage shows in CHUNKS: each 20% HP lost disables one cannon + crumbles a wall
    section and adds smoke. */
-function updateFort(e,dt,s,dp){
-  // ---- damage-stage check: stage = how many 20% chunks of HP are gone ----
-  const lost = 1 - clamp(e.hp/e.maxhp, 0, 1);
-  const newStage = Math.min(5, Math.floor(lost/0.2));
-  if(newStage>e.stage){
-    // crossing a damage threshold: knock out a cannon + belch smoke + shake
-    for(let st=e.stage+1; st<=newStage; st++){
-      const live=e.cannons.filter(c=>c.alive);
-      if(live.length){ live[(Math.random()*live.length)|0].alive=false; }
-      e.smoke=Math.min(1, e.smoke+0.25);
-      // crumble puff at a random wall point
-      const ca=e.faceA+rnd(-1,1);
-      const px=e.x+Math.cos(ca)*e.r*0.9, py=e.y+Math.sin(ca)*e.r*0.9;
-      for(let k=0;k<10;k++)G.particles.push({x:px,y:py,vx:rnd(-60,60),vy:rnd(-70,10),life:.7,max:.7,c:'#9b9183',r:rnd(3,7)});
-      if(dist(e.x,e.y,s.x,s.y)<900){ G.shake=Math.max(G.shake,6); }
-    }
-    e.stage=newStage;
+/* SIEGE — a player shell on the fort is routed to the nearest STILL-FIRING gun emplacement,
+   so the fight is "dismantle the guns one by one" rather than chipping one big HP pool.
+   A shell that lands on bare/already-broken wall only glances the structure. */
+function fortTakeHit(e, x, y, dmg, by){
+  if(e.dead) return;
+  let best=null, bestD=1e9;
+  for(const c of e.cannons){
+    if(!c.alive) continue;
+    const gx=e.x+Math.cos(c.offA)*c.dist, gy=e.y+Math.sin(c.offA)*c.dist;
+    const d=Math.hypot(x-gx, y-gy);
+    if(d<bestD){ bestD=d; best=c; }
   }
-  // ---- cannons fire at the player when in range & line-of-sea ----
+  if(best && bestD < e.r*0.55){
+    best.hp-=dmg;
+    if(best.hp<=0) fortGunDestroyed(e, best, by);    // may drop the fort if it was the last gun
+    if(!e.dead) dealDamage(e, dmg, by);              // structure HP tracks the guns (drives the bar)
+  } else {
+    dealDamage(e, dmg*0.4, by);                      // glancing hit on solid stone — chip only
+  }
+}
+function fortGunDestroyed(e, c, by){
+  c.alive=false;
+  const gx=e.x+Math.cos(c.offA)*c.dist, gy=e.y+Math.sin(c.offA)*c.dist;
+  for(let k=0;k<18;k++)G.particles.push({x:gx,y:gy,vx:rnd(-130,130),vy:rnd(-160,20),life:.75,max:.75,c:k%2?'#ffce5c':'#7a6a5a',r:rnd(3,7)});
+  splash(gx,gy,'#cdbb92'); e.smoke=Math.min(1, e.smoke+0.22);
+  if(typeof playSample==='function') playSample('explosion',0.7,0.06);
+  if(typeof haptic==='function') haptic('medium');
+  const dead=e.cannons.filter(g=>!g.alive).length, n=e.cannons.length;
+  e.stage=Math.min(5, Math.round(dead/n*5));         // crumble visuals track guns lost
+  if(G.ship && dist(e.x,e.y,G.ship.x,G.ship.y)<1000) G.shake=Math.max(G.shake,9);
+  if(dead>=n){ if(!e.dead){ e.hp=0; killEntity(e, by); } }   // last emplacement gone → the fort falls
+  else toast('💥 Gun emplacement silenced!  ('+dead+'/'+n+')',1400);
+}
+function updateFort(e,dt,s,dp){
+  // ---- cannons fire ONLY at a player inside both their range AND their firing arc ----
+  // Each gun bears on a forward cone; approach through a gap (or where guns are already
+  // knocked out) and you can close in safely. That's the safe-zone read.
   if(dp < e.range){
     for(const c of e.cannons){
       if(!c.alive)continue;
       c.reload-=dt;
+      const gx=e.x+Math.cos(c.offA)*c.dist, gy=e.y+Math.sin(c.offA)*c.dist;
+      const aim=angTo(gx,gy,s.x,s.y);
+      if(Math.abs(angDiff(c.offA, aim)) > (c.arc||1.15)) continue;   // player outside this gun's arc
       if(c.reload<=0){
         c.reload = rnd(2.4, 3.6) - e.tier*0.18;   // higher tier reloads faster
-        const gx=e.x+Math.cos(c.offA)*c.dist, gy=e.y+Math.sin(c.offA)*c.dist;
-        const a=angTo(gx,gy,s.x,s.y);
         const sp=400;
-        G.cannonballs.push({x:gx,y:gy, vx:Math.cos(a)*sp, vy:Math.sin(a)*sp,
+        G.cannonballs.push({x:gx,y:gy, vx:Math.cos(aim)*sp, vy:Math.sin(aim)*sp,
           life:dp/sp+0.3, dmg:e.dmg, friendly:false, owner:e, h:0, vh:85, r:3.2});
-        smoke(gx+Math.cos(a)*6, gy+Math.sin(a)*6);
+        smoke(gx+Math.cos(aim)*6, gy+Math.sin(aim)*6);
         if(dist(e.x,e.y,s.x,s.y)<800 && typeof sfx!=='undefined' && sfx.enemyCannon) sfx.enemyCannon();
       }
     }
@@ -7622,6 +7644,22 @@ function drawFort(e,z,sx,sy){
     return;
   }
 
+  // ---- DANGER ARCS: faint cones showing where each live gun can fire, so the safe lanes
+  //      (gaps between guns + knocked-out sections) read at a glance. Only while engaged. ----
+  if(G.ship && !G.ship.dead && dist(e.x,e.y,G.ship.x,G.ship.y) < (e.range||400)*1.25){
+    const len=(e.range||400)*z;
+    for(const c of e.cannons){
+      if(!c.alive) continue;
+      ctx.save();
+      ctx.translate(Math.cos(c.offA)*R*0.9, Math.sin(c.offA)*R*0.9);
+      ctx.rotate(c.offA);
+      const grd=ctx.createRadialGradient(0,0,R*0.2, 0,0,len);
+      grd.addColorStop(0,'rgba(214,68,52,0.11)'); grd.addColorStop(1,'rgba(214,68,52,0)');
+      ctx.fillStyle=grd;
+      ctx.beginPath(); ctx.moveTo(0,0); ctx.arc(0,0,len,-(c.arc||1.15),(c.arc||1.15)); ctx.closePath(); ctx.fill();
+      ctx.restore();
+    }
+  }
   // ground shadow
   ctx.save(); ctx.globalAlpha=0.25; ctx.fillStyle='#06283a';
   ctx.translate(7*z,9*z); ctx.beginPath(); ctx.ellipse(0,0,R*1.0,R*0.78,0,0,TAU); ctx.fill(); ctx.restore();
@@ -7966,7 +8004,10 @@ function drawCritters(){
    ================================================================ */
 function drawEntity(e){
   const z=G.cam.zoom, sx=wx(e.x), sy=wy(e.y);
-  if(sx<-120||sx>W+120||sy<-120||sy>H+120)return;
+  // forts are large structures — cull by their on-screen radius so they don't flicker
+  // out the moment their CENTRE leaves the viewport (the old fixed 120px margin did that).
+  const cullM = e.type==='fort' ? (e.r*z+160) : 120;
+  if(sx<-cullM||sx>W+cullM||sy<-cullM||sy>H+cullM)return;
   if(e.type==='fort'){ drawFort(e,z,sx,sy); return; }  // static structure, own renderer
   const sink = e.dead?clamp(e.sink/1.6,0,1):0;
   const ds=e.drawScale||1.12;
