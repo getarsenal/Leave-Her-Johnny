@@ -706,7 +706,10 @@ function resize(){
 window.addEventListener('resize',resize);
 window.addEventListener('orientationchange',()=>setTimeout(resize,150));
 window.addEventListener('load',()=>{ resize(); setTimeout(resize,200); setTimeout(resize,600);
-  const bb=document.getElementById('buildbadge'); if(bb) bb.textContent='build v'+GAME_BUILD;
+  refreshBuildBadge();
+  // the SFX samples decode async — re-stamp the badge a few times so the title screen
+  // shows which custom recordings actually loaded on THIS device (musket saga diagnostics).
+  [800,2000,4000,7000].forEach(ms=>setTimeout(refreshBuildBadge,ms));
   applySettings();
   applyHudIcons();
 });
@@ -716,7 +719,20 @@ resize();
 /* Build/version string shown in-app (start screen + dev readout) so it's obvious which
    build is actually running — App Store/TestFlight propagation lags the repo by hours/days.
    Keep this in lockstep with ios MARKETING_VERSION when bumping. */
-const GAME_BUILD='2.0';
+const GAME_BUILD='2.0.1';
+// Title-screen badge: version + which custom SFX samples actually decoded on THIS device.
+// (A '·' instead of '✓' next to "mus" means musket.mp3 failed to load/decode here.)
+function refreshBuildBadge(){
+  const bb=document.getElementById('buildbadge'); if(!bb) return;
+  let sfx='';
+  try{
+    if(typeof SND!=='undefined' && SND.buffers){
+      sfx = '  ·  sfx ' + ['musket','cannon','explosion','storm']
+        .map(k=>k.slice(0,3)+(SND.buffers[k]?'✓':'·')).join(' ');
+    }
+  }catch(e){}
+  bb.textContent='build v'+GAME_BUILD+sfx;
+}
 /* ---------- math ---------- */
 const TAU=Math.PI*2;
 const rnd=(a=1,b)=>b===undefined?Math.random()*a:a+Math.random()*(b-a);
@@ -3055,7 +3071,7 @@ function spawnFleet(){ for(const d of (G.fleet||[])) spawnAlly(d); }
 // convert a just-boarded navy ship in place into an escort
 function captureAsAlly(e){
   e._boarding=false; e.type='ally'; e.faction='ally'; e.ai='escort';
-  e.dead=false; e.sink=0; e.deathT=0; delete e.glideDur;
+  e.dead=false; e.sink=0; e.deathT=0; delete e.glideDur; e.disabled=false;
   e.hp=Math.max(e.hp||0, e.maxhp*0.55);          // patched up to at least half
   e.slot=fleetNextSlot(); e.tint=shade(e.tint||'#88b0d0',0.10);
   e.combatT=0; e.reload=0;
@@ -3093,11 +3109,20 @@ function updateAlly(e,dt,s,dp){
       fireBroadside(e,foe,e.dmg);
       if(G.ship && dist(e.x,e.y,G.ship.x,G.ship.y)<700 && typeof sfx!=='undefined' && sfx.cannon) sfx.cannon(); }
   } else {
-    // hold formation behind the flagship; match her pace, close any gap
+    // hold formation behind the flagship. An upgraded flagship must NOT be able to outrun her
+    // escorts, so the catch-up speed scales with the gap and is allowed to EXCEED the escort's
+    // own top speed while closing. A long leash snaps a hopeless straggler back over the
+    // horizon, so the fleet can never be permanently lost no matter how fast/far you sail.
     const slot=allySlotPos(e.slot||0, s), d2=dist(e.x,e.y,slot.x,slot.y);
-    if(d2>46){ steer(e, angTo(e.x,e.y,slot.x,slot.y), dt);
-      e.speed=lerp(e.speed, Math.min(e.maxspeed, (s.speed||0)+45+d2*0.5), dt*2.2); }
-    else { steer(e, s.a, dt); e.speed=lerp(e.speed, (s.speed||0)*0.92, dt*2); }
+    if(d2>1500){
+      e.x=slot.x; e.y=slot.y; e.a=s.a; e.speed=s.speed||0;
+      for(let k=0;k<8;k++)G.particles.push({x:e.x+rnd(-e.r,e.r),y:e.y+rnd(-e.r,e.r),vx:rnd(-30,30),vy:rnd(-44,6),life:.6,max:.6,c:'rgba(220,235,245,0.7)',r:rnd(2,4)});
+    } else if(d2>46){
+      steer(e, angTo(e.x,e.y,slot.x,slot.y), dt);
+      // at least the flagship's pace + a gap-proportional burst — past maxspeed if needed to close
+      const catchSpd=Math.max(e.maxspeed, (s.speed||0)+60) + d2*0.7;
+      e.speed=lerp(e.speed, catchSpd, dt*2.4);
+    } else { steer(e, s.a, dt); e.speed=lerp(e.speed, (s.speed||0)*0.95, dt*2); }
   }
   e.combatT=Math.max(0,(e.combatT||0)-dt);
   if(!engaging && e.combatT<=0 && e.hp<e.maxhp){ e.hp=Math.min(e.maxhp, e.hp+e.maxhp*0.05*dt); }  // slow self-repair
@@ -3764,7 +3789,13 @@ function updateEntities(dt){
     // distance to player
     const dp=dist(e.x,e.y,s.x,s.y);
 
-    if(e.type==='cargo'){
+    if(e.disabled && (e.type==='navy'||e.type==='cargo')){
+      // struck prize: dead in the water, guns silent — coast to a halt + smoulder, awaiting
+      // a boarding party or a finishing volley. (Her HP is floored in dealDamage.)
+      e.speed=lerp(e.speed,0,dt*1.5);
+      if(Math.random()<0.4) G.particles.push({x:e.x+rnd(-e.r*0.5,e.r*0.5),y:e.y-e.r*0.2,vx:rnd(-8,8),vy:rnd(-26,-12),life:1.2,max:1.2,c:'#6b6660',r:rnd(4,8),smoke:1});
+    }
+    else if(e.type==='cargo'){
       if(e.ai==='convoy'){
         // sail steadily along the convoy heading; mild flee if player is right on top
         let h=e.convoyHead;
@@ -4300,6 +4331,19 @@ function dealDamage(e,amt,by){
     return;
   }
   e.hp-=amt; e.hitflash=1;
+  // BOARDING: a capturable prize STRIKES instead of sinking under your guns. Shot down to
+  // ~20% she goes dead in the water (disabled) and HOLDS there — your own broadsides can't
+  // finish her before you pull alongside to choose to board or sink. Only when you can
+  // actually board (upgrade + sea 2+), only on capturable hulls, only from player/ally fire.
+  if((G.upgrades&&G.upgrades.boarding>0) && G.mapIndex>=1
+     && !e.disabled && e!==G.ship && (e.type==='navy'||e.type==='cargo') && isBoardable(e)
+     && (by===G.ship || (by && by.faction==='ally')) && e.hp <= e.maxhp*0.20){
+    e.disabled=true; e.disabledAt=G.t; e.combatT=0;
+    toast('🏳️ She strikes her colours — board her, or sink her!',2400);
+    if(typeof haptic==='function') haptic('medium');
+    if(G.ship && dist(e.x,e.y,G.ship.x,G.ship.y)<800) G.shake=Math.max(G.shake,6);
+  }
+  if(e.disabled) e.hp=Math.max(e.hp, e.maxhp*0.08);   // floored while disabled — guns can't sink her
   // floating damage number — pops where the hit landed, drifts up and fades
   if(amt>0 && e!==G.ship){
     const crit = amt>=22;
@@ -5697,6 +5741,18 @@ function clampToDeck(sh,x,y,pad){
   const maxC=Math.max(6,deckHalfWidthAt(sh,L.along)-pad);
   L.across=clamp(L.across,-maxC,maxC);
   return deckToWorld(sh,L.along,L.across);
+}
+// "Sink Her" on a struck prize: a defiant parting broadside at the flagship, then she sinks.
+function sinkPrize(e){
+  if(!e || e.dead) return;
+  e.disabled=false;                                  // lift the disabled HP floor so she can sink
+  if(G.ship && !G.ship.dead && typeof fireBroadside==='function'){
+    fireBroadside(e, G.ship, e.dmg||10);             // one last defiant volley
+    if(typeof sfx!=='undefined' && sfx.cannon) sfx.cannon();
+  }
+  toast('🔥 A defiant last volley — then she slips beneath the waves.',2200);
+  G.shake=Math.max(G.shake,8);
+  setTimeout(()=>{ if(e && !e.dead){ e.hp=0; killEntity(e, G.ship); } }, 380);  // beat, then she goes down
 }
 function startBoarding(enemy){
   if(!enemy || G.shore) return;
@@ -10913,7 +10969,12 @@ function enterPortFromPrompt(){
   else { openShop(true); }
 }
 function hidePortPrompt(){ const p=el('portprompt'); if(p)p.classList.remove('show'); G.portPromptShown=false; }
-function dismissPortPrompt(){ if(G._shorePromptUp){ shoreKeepExploring(); return; } hidePortPrompt(); G.portPromptDismissed=G.promptKey; }
+function dismissPortPrompt(){
+  if(G._shorePromptUp){ shoreKeepExploring(); return; }
+  // alongside a struck prize, the "leave" button is "Sink Her" — a last volley, then she goes down
+  if(G.promptMode==='board' && G.nearTargetEnemy){ hidePortPrompt(); sinkPrize(G.nearTargetEnemy); G.nearTargetEnemy=null; G.portPromptDismissed=G.promptKey; return; }
+  hidePortPrompt(); G.portPromptDismissed=G.promptKey;
+}
 el('pp-enter').onclick=enterPortFromPrompt;
 el('pp-leave').onclick=dismissPortPrompt;
 bindTouchBtn('pp-enter',enterPortFromPrompt);
@@ -10930,7 +10991,7 @@ function checkPortPrompt(){
     let bt=null;
     for(const e of G.entities){
       if(e.dead || !isBoardable(e)) continue;
-      if(e.hp > e.maxhp*0.5) continue;                          // must be below half health
+      if(!e.disabled) continue;                                 // only a STRUCK (disabled) prize
       if(e._boardCd && G.t < e._boardCd) continue;              // recently failed → cooling down
       if(dist(s.x,s.y,e.x,e.y) < e.r + s.r + 64){ bt=e; break; }// alongside (grapple range)
     }
@@ -10939,10 +11000,10 @@ function checkPortPrompt(){
       const key='board:'+bt._bid;
       if(G.portPromptDismissed!==key && (!G.portPromptShown || G.promptKey!==key)){
         G.portPromptShown=true; G.promptMode='board'; G.promptKey=key; G.nearTargetEnemy=bt;
-        el('pp-title').textContent='⚔️ She’s crippled — alongside!';
-        el('pp-name').textContent='Send a boarding party for DOUBLE loot?';
-        el('pp-enter').textContent='Board Her!';
-        el('pp-leave').textContent='Sail On';
+        el('pp-title').textContent='🏳️ She’s struck her colours!';
+        el('pp-name').textContent='Board for DOUBLE loot — or sink her?';
+        el('pp-enter').textContent='Board Her';
+        el('pp-leave').textContent='Sink Her';
         el('portprompt').classList.add('show');
       }
       return;   // while alongside a crippled prize, the boarding prompt owns the UI
