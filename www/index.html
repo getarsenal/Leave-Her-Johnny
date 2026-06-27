@@ -716,7 +716,7 @@ resize();
 /* Build/version string shown in-app (start screen + dev readout) so it's obvious which
    build is actually running — App Store/TestFlight propagation lags the repo by hours/days.
    Keep this in lockstep with ios MARKETING_VERSION when bumping. */
-const GAME_BUILD='2.0.1';
+const GAME_BUILD='2.1';
 // Title-screen badge — shows the build version so a fresh build is easy to confirm on-device.
 function refreshBuildBadge(){
   const bb=document.getElementById('buildbadge'); if(bb) bb.textContent='build v'+GAME_BUILD;
