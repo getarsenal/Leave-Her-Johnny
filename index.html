@@ -30,7 +30,14 @@
 <meta name="twitter:image" content="https://getarsenal.app/leave-her-johnny-icon-1024.png">
 <style>
   /* ============ FONTS ============ */
-  @import url('https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&family=Fredoka:wght@400;500;600;700&display=swap');
+  /* Bundled (SIL OFL 1.1, assets/fonts/OFL.txt) so the game looks the same offline and in the
+     App Store build: the Google Fonts @import this replaced needed the network at launch, and a
+     device without one (or App Review's) fell back to the system font. Both are variable fonts,
+     one file each, latin subset. */
+  @font-face{font-family:'Baloo 2';font-style:normal;font-weight:500 800;font-display:swap;
+    src:url('assets/fonts/Baloo2-latin.woff2') format('woff2');}
+  @font-face{font-family:'Fredoka';font-style:normal;font-weight:300 700;font-display:swap;
+    src:url('assets/fonts/Fredoka-latin.woff2') format('woff2');}
 
   /* ============ TOKENS ============ */
   :root{

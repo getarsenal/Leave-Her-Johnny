@@ -173,7 +173,9 @@ This is the newest, most complex feature. **It is NOT a separate `G.state`** —
 7. **`git push` under the sandbox fails** with "Could not resolve host: github.com" (the Bash sandbox blocks git's network). Push with the sandbox disabled, or from a normal shell / PowerShell. (PowerShell wraps git's stderr as a red "error" even on success — check for the `old..new  main -> main` line to confirm.)
 8. **Performance:** it's a single canvas redrawn every frame. Keep per-frame allocations modest; reuse particle/array patterns already in the code.
 9. **Link-preview / Open Graph:** the `<head>` has `og:*` + `twitter:*` tags (absolute `https://getarsenal.app/...` URLs to the 1024 icon) so the **website** link shows the logo in iMessage/social. An **App Store** link's preview card is built by Apple from App Store Connect — it uses your **first screenshot**; reorder screenshots there to change that image (not a code change).
-10. **Toast notifications** (`#toast`) sit just under the top HUD (`top:max(94px, safe-area-inset-top + 84px)`), not centre-screen, so convoy/boss alerts don't block play in portrait or landscape.
+10. **Fonts are bundled.** `assets/fonts/*.woff2` (Baloo 2 and Fredoka, variable, latin, SIL OFL) are declared with `@font-face` at the top of the `<style>` block; there is no Google Fonts `@import` any more, so the app renders its own type offline and under App Review. Mirror `assets/fonts/` into `www/assets/fonts/` like any asset.
+11. **App Store hygiene lives in `ios/App/App/`:** `PrivacyInfo.xcprivacy` (no tracking, no data, UserDefaults CA92.1) is a resource of the App target; `Info.plist` carries `ITSAppUsesNonExemptEncryption=NO` and `UIRequiredDeviceCapabilities=arm64`. The submission checklist, release notes and listing copy are in `docs/APP_STORE_SUBMISSION.md`.
+12. **Toast notifications** (`#toast`) sit just under the top HUD (`top:max(94px, safe-area-inset-top + 84px)`), not centre-screen, so convoy/boss alerts don't block play in portrait or landscape.
 
 ---
 

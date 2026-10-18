@@ -1,0 +1,11 @@
+The two font files in this folder are bundled with the game under the
+SIL Open Font License, Version 1.1 (https://openfontlicense.org).
+
+Baloo2-latin.woff2   Baloo 2 — Copyright 2019 The Baloo 2 Project Authors (Ek Type)
+                     https://github.com/EkType/Baloo2
+Fredoka-latin.woff2  Fredoka — Copyright 2021 The Fredoka Project Authors
+                     https://github.com/hafontia-zz/Fredoka
+
+Both are the variable-weight, latin-subset builds as served by Google Fonts.
+The fonts are not sold; they are embedded so the game renders its own
+typography without a network connection.
