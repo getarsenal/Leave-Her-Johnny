@@ -168,6 +168,10 @@
   #btn-cruise.on{background:linear-gradient(180deg,#ffd76a,#e6a52e);border-color:#fff3c4;
     box-shadow:0 0 12px rgba(255,206,92,.7),var(--shadow-soft);}
   .trbtns{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;max-width:132px;}
+  /* mute lives in the pause/settings panel now (Sound toggle) — keeps this a tidy 2×3 grid */
+  #btn-mute{display:none!important;}
+  /* the title screen stands alone: no sailing HUD peeking through the scrim */
+  body:has(#ov-start.show) #hud{visibility:hidden;}
   /* Songbook shuffle toggle */
   #btn-shuffle{font-family:'Baloo 2';font-weight:700;font-size:13px;color:#cde7f2;cursor:pointer;
     background:rgba(255,255,255,.06);border:2px solid rgba(255,255,255,.22);border-radius:999px;
@@ -235,15 +239,15 @@
     transition:width .22s ease, height .22s ease, border-radius .22s ease;}
   #minimap{position:static;display:block;width:100%;height:100%;border-radius:13px;}
   /* tap affordance — a tiny expand glyph, swapped for a close hint when popped out */
-  #minimapwrap::after{content:'⤢';position:absolute;top:1px;right:4px;font:700 11px system-ui;
-    color:rgba(255,255,255,.65);pointer-events:none;text-shadow:0 1px 2px rgba(0,0,0,.6);}
+  /* collapsed: no glyph (the weather gauge owns that corner); popped out: a close hint */
+  #minimapwrap::after{content:none;position:absolute;pointer-events:none;
+    color:rgba(255,255,255,.9);text-shadow:0 1px 2px rgba(0,0,0,.6);font:700 13px system-ui;}
   /* "pop out": grow to a large centred chart and dim the world behind it (huge spread
      shadow), so the player can read the whole sea, then tap again to retract. */
   #minimapwrap.expanded{left:50%;top:50%;bottom:auto;transform:translate(-50%,-50%);
     width:min(88vw,72vh);height:min(88vw,72vh);border-width:4px;border-radius:20px;z-index:60;
     box-shadow:0 0 0 100vmax rgba(8,16,30,.5), 0 14px 40px rgba(0,0,0,.5);}
-  #minimapwrap.expanded::after{content:'✕  tap to close';top:7px;right:12px;font-size:13px;
-    font-weight:700;color:rgba(255,255,255,.9);}
+  #minimapwrap.expanded::after{content:'✕  tap to close';bottom:8px;left:0;right:0;text-align:center;}
   .hpwrap{position:fixed;left:10px;
     bottom:calc(16px + env(safe-area-inset-bottom) + var(--mini) + 6px);
     width:var(--mini);pointer-events:auto;z-index:12;}
@@ -305,6 +309,32 @@
     border-radius:22px;border:3px solid var(--gold);
     box-shadow:0 10px 24px rgba(0,0,0,.35), inset 0 2px 0 rgba(255,255,255,.4);
     object-fit:cover;}
+  /* start menu: ONE screen, never scrolls — every size flexes with the viewport height */
+  #ov-start{padding:max(12px,env(safe-area-inset-top)) 16px max(12px,env(safe-area-inset-bottom));}
+  .card.startcard{max-height:100%;overflow:hidden;display:flex;flex-direction:column;align-items:center;
+    gap:clamp(6px,1.3vh,12px);padding:clamp(14px,2.4vh,24px) 20px clamp(10px,1.6vh,16px);max-width:400px;}
+  .startcard>*{margin:0!important;}
+  .startcard .hero-art{width:min(54vw,27vh,220px);flex:none;}
+  .startcard .st-tag{font-size:17px;font-weight:800;color:#b5651d;line-height:1.1;letter-spacing:.3px;}
+  .startcard .st-best{font-size:14px;font-weight:800;color:#1f7a3f;line-height:1;margin-top:-4px!important;}
+  .startcard #classpick{width:100%;}
+  .st-btns{display:flex;flex-direction:column;gap:clamp(8px,1.4vh,12px);width:100%;max-width:290px;}
+  .st-btns .bigbtn{margin:0;width:100%;padding:clamp(9px,1.5vh,13px) 20px;font-size:clamp(17px,2.4vh,20px);}
+  .st-row{display:flex;gap:8px;}
+  .st-row .bigbtn.st-sub{flex:1;padding:8px 6px;font-size:14px;border-radius:13px;
+    background:#1c3a4a;color:#bfe6f2;box-shadow:0 4px 0 #0f2330,0 6px 12px rgba(0,0,0,.25);}
+  .startcard .st-mini{font-size:11px;color:#9a8a70;line-height:1.1;}
+  /* short landscape phones: art + title on the left, picker + buttons on the right */
+  @media (orientation:landscape) and (max-height:520px){
+    .card.startcard{display:grid;grid-template-columns:auto 1fr;grid-auto-rows:min-content;
+      column-gap:22px;row-gap:7px;max-width:640px;padding:10px 20px;align-items:center;justify-items:center;align-content:center;}
+    .startcard .hero-art{grid-column:1;grid-row:1 / span 3;width:min(38vh,170px);align-self:center;}
+    .startcard>*:not(.hero-art){grid-column:2;}
+    .startcard .st-best{margin-top:0!important;}
+    .st-btns{max-width:none;gap:7px;}
+    .st-btns .bigbtn{padding:7px 20px;font-size:17px;}
+    .st-row .bigbtn.st-sub{padding:6px;}
+  }
   .card h2{font-size:24px;font-weight:800;color:#b5651d;margin-bottom:4px;}
   .card p{font-size:16px;font-weight:500;color:#6b5a44;margin:8px 0;line-height:1.4;}
   .bigbtn{margin-top:16px;padding:14px 30px;font-family:'Baloo 2';font-weight:800;font-size:20px;
@@ -573,19 +603,21 @@
   <div id="errbox" style="display:none;position:absolute;left:8px;right:8px;bottom:120px;z-index:99;background:#3a0d0d;color:#ffd0d0;border:2px solid #ff6b6b;border-radius:10px;padding:8px 10px;font:600 12px/1.4 monospace;white-space:pre-wrap;pointer-events:none;"></div>
 
   <div class="overlay" id="ov-start">
-    <div class="card">
+    <div class="card startcard">
       <img class="hero-art" alt="Leave Her Johnny" src="assets/hero.png">
-      <p style="margin-top:12px;font-weight:700;color:#b5651d;font-size:18px">A Pirate's Tale</p>
-      <p id="bestrunbadge" style="display:none;margin:6px 0;font-weight:800;color:#1f7a3f">🏆 Best run: <span id="bestrunval">0</span>g</p>
-      <p>Sail the bright blue. Hunt treasure, raid cargo ships, dodge the Crown's navy, and upgrade your ship until you're the terror of the tides — all the way to the Kraken.</p>
-      <p class="hint">Tap the water to sail there (or <b>WASD</b> on a keyboard). Cannons fire on their own when foes draw near — tap <b>Fire</b> or hit <b>Space</b> for a full broadside.</p>
-      <div id="classpick" style="margin:10px 0"></div>
-      <button class="bigbtn gold" id="continuebtn" style="display:none">Continue ⚓</button>
-      <button class="bigbtn gold" id="startbtn">New Voyage ⛵</button>
-      <button class="bigbtn" id="endlessbtn" style="display:none;margin-top:8px;background:#1c3a4a;color:#bfe6f2;border-color:#2b6f96">🌊 Open Seas (Endless)</button>
-      <p id="endlessbest" class="hint" style="display:none;margin-top:6px">Best Open Seas score: <span id="endlessbestval">0</span></p>
-      <button class="bigbtn" id="startsettings" style="margin-top:8px;background:#1c3a4a;color:#bfe6f2;border-color:#2b6f96">⚙️ Settings &amp; Accessibility</button>
-      <p id="buildbadge" class="hint" style="margin-top:10px;opacity:0.55;font-size:11px">build —</p>
+      <p class="st-tag">A Pirate's Tale</p>
+      <p id="bestrunbadge" class="st-best" style="display:none">🏆 Best run <span id="bestrunval">0</span>g</p>
+      <div id="classpick"></div>
+      <div class="st-btns">
+        <button class="bigbtn gold" id="continuebtn" style="display:none">Continue ⚓</button>
+        <button class="bigbtn gold" id="startbtn">New Voyage ⛵</button>
+        <div class="st-row">
+          <button class="bigbtn st-sub" id="endlessbtn" style="display:none">🌊 Open Seas</button>
+          <button class="bigbtn st-sub" id="startsettings">⚙️ Settings</button>
+        </div>
+      </div>
+      <p id="endlessbest" class="st-mini" style="display:none">Open Seas best: <span id="endlessbestval">0</span></p>
+      <p id="buildbadge" class="st-mini" style="opacity:0.55">build —</p>
     </div>
   </div>
 
@@ -781,6 +813,8 @@ function saveGame(){
   // never persist the transient Sea Cavern (its empty corners would wipe the sea's
   // progress); the sea was saved on entry and is rebuilt from that on exit.
   if(G.dungeon)return;
+  // Open Seas is a separate run (maxed ship, all seas): never write it over the campaign save
+  if(G.endless)return;
   try{
     // record which caches are looted and which floating treasures are collected,
     // keyed by the current map, so cleared islands stay cleared on Continue.
@@ -3290,23 +3324,21 @@ function drawEncounters(){
 function buildClassPicker(){
   const host=el('classpick'); if(!host) return;
   host.innerHTML='';
-  const lbl=document.createElement('div');
-  lbl.style.cssText='font-weight:800;color:#7a4a1d;margin:0 0 6px;font-size:13px;letter-spacing:.5px';
-  lbl.textContent='⚓ CHOOSE YOUR SHIP';
-  host.appendChild(lbl);
   const row=document.createElement('div');
-  row.style.cssText='display:flex;gap:6px;justify-content:center;flex-wrap:wrap';
+  row.style.cssText='display:flex;gap:6px;justify-content:center';
   host.appendChild(row);
   for(const c of SHIPCLASSES){
     const unlocked=shipClassUnlocked(c), sel=(G.shipClass===c.id);
     const b=document.createElement('button');
-    b.style.cssText='flex:1 1 0;min-width:62px;max-width:100px;border-radius:12px;padding:7px 4px;cursor:pointer;'
-      +'transition:transform .08s;'
-      +'border:2px solid '+(sel?'#e8b34a':'#caa97a')+';'
+    b.setAttribute('aria-label',c.name+(unlocked?'':' (locked)'));
+    b.style.cssText='flex:1 1 0;min-width:0;max-width:92px;border-radius:12px;padding:6px 2px 5px;cursor:pointer;'
+      +'transition:transform .08s;font-family:inherit;'
+      +'border:2px solid '+(sel?'#e8b34a':'#d9c09a')+';'
       +'background:'+(sel?'#fff3d6':'#fbf1de')+';'
-      +(unlocked?'':'opacity:.55;filter:grayscale(.5);');
-    b.innerHTML='<div style="font-size:22px;line-height:1">'+(unlocked?c.icon:'🔒')+'</div>'
-      +'<div style="font-weight:800;color:#5e3a18;font-size:11.5px;margin-top:3px">'+c.name+'</div>';
+      +(sel?'box-shadow:0 0 0 2px rgba(232,179,74,.35);':'')
+      +(unlocked?'':'opacity:.5;filter:grayscale(.6);');
+    b.innerHTML='<div style="font-size:19px;line-height:1">'+(unlocked?c.icon:'🔒')+'</div>'
+      +'<div style="font-weight:800;color:#5e3a18;font-size:11.5px;margin-top:2px">'+c.name+'</div>';
     b.onclick=()=>{
       if(typeof sfx!=='undefined'&&sfx.click)sfx.click();
       if(unlocked){ G.shipClass=c.id; } else if(c.unlock){ toast('🔒 '+c.name+' — '+c.unlock.hint, 2800); }
@@ -3314,10 +3346,12 @@ function buildClassPicker(){
     };
     row.appendChild(b);
   }
+  // one short line: what the selected hull is about + its trait's effect
   const sel=currentShipClass();
+  const perk=(sel.trait||'').split(' — ').pop();
   const desc=document.createElement('div');
-  desc.style.cssText='margin-top:8px;font-size:12px;color:#5e4a32;min-height:34px;line-height:1.35';
-  desc.innerHTML='<b>'+sel.name+'</b> — '+sel.blurb+'<br><span style="color:#9a6a2a;font-weight:700">✦ '+sel.trait+'</span>';
+  desc.style.cssText='margin-top:6px;font-size:12px;color:#6b5a44;line-height:1.3';
+  desc.innerHTML=sel.blurb+(perk?' · <span style="color:#9a6a2a;font-weight:700">'+perk+'</span>':'');
   host.appendChild(desc);
 }
 /* Live charm strip in the sailing HUD: the icons you've collected this voyage. */
@@ -5414,18 +5448,51 @@ function _whaleSpoutFx(wh){
   for(let k=0;k<10;k++)G.particles.push({x:wh.x+rnd(-4,4),y:wh.y-wh.r*0.5,vx:rnd(-12,12),vy:rnd(-70,-40),life:.7,max:.7,c:'rgba(220,235,245,0.8)',r:rnd(2,4)});
   if(typeof sfx!=='undefined' && sfx.whaleSpout) sfx.whaleSpout();
 }
+/* Keep a point-mass (longboat / whale) off every island: push it back out to the painted
+   shore and strip the velocity heading into land so knockback can't beach it either. */
+function pushOffLand(o, r){
+  if(!G.world||!G.world.islands) return false;
+  let hit=false;
+  for(const is of G.world.islands){
+    const reach=is.r*(is.stretch||1)+r+8;
+    if(Math.abs(o.x-is.x)>reach||Math.abs(o.y-is.y)>reach) continue;
+    const edge=islandEdge(is,o.x,o.y,0.98)+r, d=dist(o.x,o.y,is.x,is.y);
+    if(d<edge){
+      const a=angTo(is.x,is.y,o.x,o.y), nx=Math.cos(a), ny=Math.sin(a);
+      o.x=is.x+nx*edge; o.y=is.y+ny*edge;
+      if(o.vx!=null){ const vn=o.vx*nx+o.vy*ny; if(vn<0){ o.vx-=vn*nx; o.vy-=vn*ny; } }
+      hit=true;
+    }
+  }
+  return hit;
+}
+/* Row toward (tx,ty) but slide around any island in the way: if the straight line is
+   blocked a little way ahead, bend the heading along the coast. */
+function rowHeading(o, tx, ty){
+  const want=angTo(o.x,o.y,tx,ty);
+  for(const turn of [0,0.5,-0.5,1.0,-1.0,1.5,-1.5]){
+    const a=want+turn, px=o.x+Math.cos(a)*60, py=o.y+Math.sin(a)*60;
+    let blocked=false;
+    for(const is of G.world.islands){
+      if(dist(px,py,is.x,is.y) < islandEdge(is,px,py,0.98)+14){ blocked=true; break; }
+    }
+    if(!blocked) return a;
+  }
+  return want;
+}
 function updateWhaling(sh,dt){
   const wh=sh.whale, bt=sh.boat;
   bt.row += dt*6;
   if(sh.phase==='hunt'){
     // --- boat auto-pursues, holding a throwing standoff ---
     const d=dist(bt.x,bt.y,wh.x,wh.y), toW=angTo(bt.x,bt.y,wh.x,wh.y);
-    let want=toW; let thrust=120;
+    let want=rowHeading(bt,wh.x,wh.y); let thrust=120;
     if(d<95){ want=toW+Math.PI; thrust=70; }        // too close — back off
     else if(d<150) thrust=40;                        // good range — ease
     bt.a += angDiff(bt.a, want)*Math.min(1,dt*3.2);
     bt.vx=lerp(bt.vx, Math.cos(bt.a)*thrust, dt*2.2); bt.vy=lerp(bt.vy, Math.sin(bt.a)*thrust, dt*2.2);
     bt.x+=bt.vx*dt; bt.y+=bt.vy*dt;
+    pushOffLand(bt, 18);
     // --- whale AI: surface (vulnerable, spouts, flees) <-> dive (submerged) ---
     wh.stateT-=dt; if(wh.hurt>0) wh.hurt-=dt; if(wh.hitFlash>0) wh.hitFlash-=dt*3;
     if(bt.hurtT>0) bt.hurtT-=dt;
@@ -5466,6 +5533,7 @@ function updateWhaling(sh,dt){
       wh.x+=Math.cos(wh.a)*34*dt; wh.y+=Math.sin(wh.a)*34*dt;
       if(wh.stateT<=0){ wh.state='surface'; wh.stateT=rnd(4,6); wh.spoutT=0.4; }
     }
+    pushOffLand(wh, wh.r*0.8);                      // whales don't beach either
     // --- aim (drag back) → release to throw a harpoon (slingshot: flies OPPOSITE the pull) ---
     if(input.active && input.mag>0){
       sh.aim={dx:input.dx, dy:input.dy, len:Math.hypot(input.dx,input.dy)};
@@ -5500,15 +5568,17 @@ function updateWhaling(sh,dt){
   } else if(sh.phase==='collect'){
     for(const h of sh.harpoons){ if(h.stuck){ h.x=wh.x+h.ox; h.y=wh.y+h.oy; } }
     const d=dist(bt.x,bt.y,wh.x,wh.y);
-    if(d>42){ const a=angTo(bt.x,bt.y,wh.x,wh.y); bt.a+=angDiff(bt.a,a)*Math.min(1,dt*4); bt.x+=Math.cos(a)*90*dt; bt.y+=Math.sin(a)*90*dt; }
+    if(d>42){ const a=rowHeading(bt,wh.x,wh.y); bt.a+=angDiff(bt.a,a)*Math.min(1,dt*4); bt.x+=Math.cos(bt.a)*90*dt; bt.y+=Math.sin(bt.a)*90*dt; }
+    pushOffLand(bt, 18);
     if(Math.random()<0.3) G.particles.push({x:wh.x+rnd(-22,22),y:wh.y+rnd(-12,12),vx:0,vy:-28,life:.9,max:.9,c:'#ffe08a',r:3});
     G.cam.x=lerp(G.cam.x,(bt.x+wh.x)/2,dt*3); G.cam.y=lerp(G.cam.y,(bt.y+wh.y)/2,dt*3);
     sh.collectT-=dt;
     if(sh.collectT<=0){ sh.phase='return'; toast('⛵ Rowing the haul back to the ship…',2200); }
   } else if(sh.phase==='return'){
-    const d=dist(bt.x,bt.y,sh.shipX,sh.shipY), a=angTo(bt.x,bt.y,sh.shipX,sh.shipY);
+    const d=dist(bt.x,bt.y,sh.shipX,sh.shipY), a=rowHeading(bt,sh.shipX,sh.shipY);
     bt.a+=angDiff(bt.a,a)*Math.min(1,dt*4);
-    bt.x+=Math.cos(a)*135*dt; bt.y+=Math.sin(a)*135*dt;
+    bt.x+=Math.cos(bt.a)*135*dt; bt.y+=Math.sin(bt.a)*135*dt;
+    pushOffLand(bt, 18);
     G.cam.x=lerp(G.cam.x,bt.x,dt*4); G.cam.y=lerp(G.cam.y,bt.y,dt*4);
     if(d<32) finishWhaling(sh);
   }
@@ -5534,6 +5604,111 @@ function failWhaling(sh){
   haptic('warning');
   toast('💥 The boat is stove in — the whale escapes into the deep!',3400);
   if(typeof updateHUD==='function') updateHUD();
+}
+/* The whaleboat: double-ended, clinker-planked, four oarsmen pulling in time, a line
+   tub amidships, a steersman on the long steering oar and the harpooner braced in the
+   bow (his iron swings to follow your aim). Drawn bow-up in boat space. */
+function drawWhaleboat(sh, bt, z){
+  z*=1.6;                                                  // reads at whale scale
+  const bx=wx(bt.x), by=wy(bt.y);
+  // speed from frame-to-frame motion (the boat is moved by several phases, not only vx/vy)
+  const spd = bt._px==null ? 0 : dist(bt.x,bt.y,bt._px,bt._py)/Math.max(G.dt,1e-3);
+  bt._px=bt.x; bt._py=bt.y;
+  bt._spd = lerp(bt._spd||0, spd, 0.15);
+  const mv = clamp(bt._spd/120,0,1);
+  const HL=21*z, HB=7*z;                                   // half length / half beam
+  const hull=()=>{ ctx.beginPath(); ctx.moveTo(0,-HL);
+    ctx.bezierCurveTo(HB*1.35,-HL*0.55, HB*1.25,HL*0.55, 0,HL);
+    ctx.bezierCurveTo(-HB*1.25,HL*0.55, -HB*1.35,-HL*0.55, 0,-HL); ctx.closePath(); };
+  // shadow on the water — same sun as the ships (falls down-right)
+  ctx.save(); ctx.translate(bx+4*z,by+6*z); ctx.rotate(bt.a+Math.PI/2);
+  ctx.fillStyle='rgba(8,28,42,0.24)'; hull(); ctx.fill(); ctx.restore();
+  ctx.save(); ctx.translate(bx,by); ctx.rotate(bt.a+Math.PI/2);
+  // bow wave + stern foam while under way
+  if(mv>0.05){
+    ctx.strokeStyle='rgba(235,248,255,'+(0.55*mv)+')'; ctx.lineWidth=1.6*z; ctx.lineCap='round';
+    for(const sg of [-1,1]){ ctx.beginPath(); ctx.moveTo(sg*1.5*z,-HL+1*z);
+      ctx.quadraticCurveTo(sg*(HB+5*z),-HL*0.45, sg*(HB+9*z*mv),-HL*0.05); ctx.stroke(); }
+    ctx.fillStyle='rgba(235,248,255,'+(0.35*mv)+')';
+    for(let i=0;i<3;i++){ ctx.beginPath(); ctx.arc(Math.sin(G.t*9+i*2)*2.5*z, HL+(3+i*3.5)*z, (2.2-i*0.5)*z,0,TAU); ctx.fill(); }
+  }
+  // oars (under the gunwale so the hull overlaps the looms) — 4 sweeps, alternating sides
+  const stroke=bt.row;                                        // stroke phase
+  const oarY=[-9*z,-3*z,3*z,9*z], side=[1,-1,1,-1];
+  for(let i=0;i<4;i++){
+    const sg=side[i], sw=Math.sin(stroke)*0.42, inWater=Math.cos(stroke)>0;
+    const px=sg*HB*0.95, py=oarY[i];
+    const ang=(sg>0?0:Math.PI) + sg*sw;                        // sweeps fore/aft
+    const ox=Math.cos(ang), oy=Math.sin(ang);
+    const out=17*z, inn=6*z;
+    ctx.strokeStyle='#7a5532'; ctx.lineWidth=1.5*z; ctx.lineCap='round';
+    ctx.beginPath(); ctx.moveTo(px-ox*inn,py-oy*inn); ctx.lineTo(px+ox*out,py+oy*out); ctx.stroke();
+    // blade: dips (darker, with a splash ring) on the pull, feathered + pale on recovery
+    ctx.save(); ctx.translate(px+ox*out,py+oy*out); ctx.rotate(ang);
+    ctx.fillStyle=inWater?'#5e3e22':'#a77b4c';
+    ctx.beginPath(); ctx.ellipse(1.5*z,0,3.6*z,inWater?1.9*z:1.1*z,0,0,TAU); ctx.fill();
+    ctx.restore();
+    if(inWater && mv>0.05){ ctx.strokeStyle='rgba(235,248,255,0.45)'; ctx.lineWidth=1*z;
+      ctx.beginPath(); ctx.arc(px+ox*(out+2*z),py+oy*(out+2*z),(2+Math.cos(stroke)*2)*z,0,TAU); ctx.stroke(); }
+  }
+  // steering oar trailing off the stern
+  ctx.strokeStyle='#6b4a2c'; ctx.lineWidth=1.7*z;
+  const ss=Math.sin(G.t*1.3)*0.12;
+  ctx.beginPath(); ctx.moveTo(0,HL-6*z); ctx.lineTo(Math.sin(ss)*17*z,HL+15*z); ctx.stroke();
+  ctx.fillStyle='#6b4a2c'; ctx.beginPath(); ctx.ellipse(Math.sin(ss)*17*z,HL+15*z,1.6*z,3.6*z,ss,0,TAU); ctx.fill();
+  // hull: dark outer strake, sunlit gunwale rim, lighter interior
+  ctx.fillStyle='#4f2e18'; hull(); ctx.fill();
+  ctx.strokeStyle='#b07a44'; ctx.lineWidth=1.4*z; hull(); ctx.stroke();
+  ctx.save(); ctx.scale(0.78,0.9); ctx.fillStyle='#93643a'; hull(); ctx.fill(); ctx.restore();
+  // clinker plank seams following the hull
+  ctx.strokeStyle='rgba(60,34,16,0.45)'; ctx.lineWidth=0.8*z;
+  for(const f of [0.42,0.68]){ for(const sg of [-1,1]){ ctx.beginPath(); ctx.moveTo(0,-HL*0.86);
+    ctx.bezierCurveTo(sg*HB*1.05*f*1.3,-HL*0.45, sg*HB*1.0*f*1.3,HL*0.45, 0,HL*0.86); ctx.stroke(); } }
+  // stem & stern posts
+  ctx.fillStyle='#3a2210';
+  ctx.beginPath(); ctx.arc(0,-HL+1.5*z,1.6*z,0,TAU); ctx.arc(0,HL-1.5*z,1.6*z,0,TAU); ctx.fill();
+  // thwarts (benches)
+  ctx.fillStyle='#6b4426';
+  for(const y of [-11*z,-5*z,1*z,7*z,12*z]){ const w=HB*(1.05-Math.abs(y)/HL*0.55); ctx.fillRect(-w,y-0.9*z,w*2,1.8*z); }
+  // spare irons racked along the starboard gunwale
+  ctx.strokeStyle='#8a6a48'; ctx.lineWidth=0.9*z;
+  ctx.beginPath(); ctx.moveTo(HB*0.55,-12*z); ctx.lineTo(HB*0.7,8*z); ctx.moveTo(HB*0.4,-11*z); ctx.lineTo(HB*0.55,9*z); ctx.stroke();
+  ctx.fillStyle='#cfd6dd'; ctx.beginPath(); ctx.moveTo(HB*0.55,-14*z); ctx.lineTo(HB*0.45,-12*z); ctx.lineTo(HB*0.65,-12*z); ctx.fill();
+  // line tub with coiled rope, amidships aft
+  ctx.fillStyle='#5a3a20'; ctx.beginPath(); ctx.arc(-1.5*z,10*z,3.3*z,0,TAU); ctx.fill();
+  ctx.strokeStyle='#e8dcb8'; ctx.lineWidth=0.8*z;
+  for(const rr of [2.4,1.5,0.7]){ ctx.beginPath(); ctx.arc(-1.5*z,10*z,rr*z,0,TAU); ctx.stroke(); }
+  // oarsmen — lean back on the pull, forward on the recovery
+  const lean=Math.sin(stroke+Math.PI/2)*1.1*z;
+  const shirts=['#3f6fa0','#e0c070','#4f8f5a','#7a4a8a'], caps=['#c4493f','#2b3e5c','#c4493f','#e8dcb8'];
+  for(let i=0;i<4;i++){
+    const rx=-side[i]*1.6*z, ry=oarY[i]+1.5*z+lean;
+    ctx.fillStyle='rgba(0,0,0,0.18)'; ctx.beginPath(); ctx.ellipse(rx+0.6*z,ry+0.8*z,2.9*z,2.3*z,0,0,TAU); ctx.fill();
+    ctx.fillStyle=shirts[i]; ctx.beginPath(); ctx.ellipse(rx,ry,2.8*z,2.2*z,0,0,TAU); ctx.fill();
+    ctx.fillStyle='#e8b88a'; ctx.beginPath(); ctx.arc(rx,ry-0.4*z,1.45*z,0,TAU); ctx.fill();
+    ctx.fillStyle=caps[i]; ctx.beginPath(); ctx.arc(rx,ry-0.4*z,1.45*z,Math.PI,TAU); ctx.fill();
+  }
+  // steersman at the stern
+  ctx.fillStyle='#2b3e5c'; ctx.beginPath(); ctx.ellipse(0,HL-6.5*z,2.6*z,2.1*z,0,0,TAU); ctx.fill();
+  ctx.fillStyle='#3a2a1c'; ctx.beginPath(); ctx.arc(0,HL-7*z,1.9*z,0,TAU); ctx.fill();            // tricorn
+  ctx.fillStyle='#e8b88a'; ctx.beginPath(); ctx.arc(0,HL-7*z,1.2*z,0,TAU); ctx.fill();
+  // harpooner braced in the bow; his iron follows the aim while you drag
+  let ha=-Math.PI/2;                                             // boat-space: straight ahead
+  if(sh.phase==='hunt' && sh.aim && sh.aim.len>10){
+    ha = Math.atan2(-sh.aim.dy,-sh.aim.dx) - (bt.a+Math.PI/2);
+  }
+  const hx=0, hy=-HL+8*z;
+  ctx.strokeStyle='#6b4a2c'; ctx.lineWidth=1.5*z;
+  ctx.beginPath(); ctx.moveTo(hx-Math.cos(ha)*4*z,hy-Math.sin(ha)*4*z); ctx.lineTo(hx+Math.cos(ha)*13*z,hy+Math.sin(ha)*13*z); ctx.stroke();
+  ctx.save(); ctx.translate(hx+Math.cos(ha)*13*z,hy+Math.sin(ha)*13*z); ctx.rotate(ha);
+  ctx.fillStyle='#e6ebf0'; ctx.beginPath(); ctx.moveTo(4*z,0); ctx.lineTo(-1*z,-2.3*z); ctx.lineTo(0,0); ctx.lineTo(-1*z,2.3*z); ctx.closePath(); ctx.fill();
+  ctx.restore();
+  ctx.fillStyle='#c4493f'; ctx.beginPath(); ctx.ellipse(hx,hy,3*z,2.4*z,0,0,TAU); ctx.fill();
+  ctx.fillStyle='#e8b88a'; ctx.beginPath(); ctx.arc(hx,hy-0.6*z,1.6*z,0,TAU); ctx.fill();
+  ctx.fillStyle='#2a1a10'; ctx.beginPath(); ctx.arc(hx,hy-0.6*z,1.6*z,Math.PI*1.05,Math.PI*1.95); ctx.fill();
+  // struck: a brief red wash over the boat
+  if(bt.hurtT>0){ ctx.globalAlpha=clamp(bt.hurtT/0.5,0,1)*0.45; ctx.fillStyle='#ff5040'; hull(); ctx.fill(); ctx.globalAlpha=1; }
+  ctx.restore();
 }
 function drawWhaling(sh){
   const z=G.cam.zoom, wh=sh.whale, bt=sh.boat;
@@ -5592,21 +5767,7 @@ function drawWhaling(sh){
     ctx.fillStyle='#e6ebf0';ctx.beginPath();ctx.moveTo(6*z,0);ctx.lineTo(0,-3*z);ctx.lineTo(0,3*z);ctx.fill();
     ctx.restore(); }
   // ---- the longboat (auto-rowed) ----
-  { const bx=wx(bt.x), by=wy(bt.y);
-    ctx.save();ctx.translate(bx,by);ctx.rotate(bt.a+Math.PI/2);
-    ctx.fillStyle='rgba(8,28,42,0.28)';ctx.beginPath();ctx.ellipse(2*z,4*z,9*z,16*z,0,0,TAU);ctx.fill();
-    ctx.fillStyle='#5e3620';ctx.beginPath();ctx.ellipse(0,0,9*z,17*z,0,0,TAU);ctx.fill();
-    ctx.fillStyle='#8a5a2e';ctx.beginPath();ctx.ellipse(0,0,6.5*z,14*z,0,0,TAU);ctx.fill();
-    // oars sweeping
-    ctx.strokeStyle='#6b4a2c';ctx.lineWidth=1.6*z;ctx.lineCap='round';
-    const sw=Math.sin(bt.row)*4*z;
-    for(const sgn of [-1,1]){ ctx.beginPath();ctx.moveTo(sgn*5*z,-2*z);ctx.lineTo(sgn*13*z,-2*z+sw);ctx.stroke(); }
-    // rowers + a harpooner at the bow
-    ctx.fillStyle='#caa23f';for(let i=0;i<2;i++){ctx.beginPath();ctx.arc(0,4*z-i*6*z,2.4*z,0,TAU);ctx.fill();}
-    ctx.fillStyle='#c4493f';ctx.beginPath();ctx.arc(0,-11*z,2.6*z,0,TAU);ctx.fill();   // harpooner (red)
-    ctx.fillStyle='#e8b88a';ctx.beginPath();ctx.arc(0,-13.5*z,1.6*z,0,TAU);ctx.fill();  // head
-    ctx.restore();
-  }
+  drawWhaleboat(sh, bt, z);
   // ---- aim indicator while dragging back (slingshot trajectory) ----
   if(sh.phase==='hunt' && sh.aim && sh.aim.len>10){
     const bx=wx(bt.x), by=wy(bt.y);
@@ -5623,22 +5784,22 @@ function drawWhaling(sh){
   }
   // red damage vignette when the boat is struck
   if(bt.hurtT>0){ ctx.fillStyle='rgba(190,40,30,'+(0.35*clamp(bt.hurtT/0.5,0,1))+')'; ctx.fillRect(0,0,W,H); }
-  // ---- HUD: whale health bar + boat-hull bar + phase hint (screen space) ----
+  // ---- HUD: one dark panel — whale health, boat hull, phase hint (screen space) ----
   const safeTop=(window.__safeTop||0), hy=Math.max(150,safeTop+118);
-  const bw=Math.min(W*0.6,260), bx=(W-bw)/2;
-  ctx.fillStyle='rgba(0,0,0,0.45)';roundRect(bx-3,hy-3,bw+6,16,5);ctx.fill();
-  ctx.fillStyle='#1a2740';roundRect(bx,hy,bw,10,4);ctx.fill();
-  ctx.fillStyle=wh.sub>0.4?'#5a6b86':'#d65a4a';roundRect(bx,hy,bw*clamp(wh.hp/wh.maxhp,0,1),10,4);ctx.fill();
-  // boat hull bar (smaller, below)
-  const hbw=bw*0.6, hbx=(W-hbw)/2, hby=hy+18;
-  ctx.fillStyle='rgba(0,0,0,0.4)';roundRect(hbx-3,hby-3,hbw+6,12,4);ctx.fill();
-  ctx.fillStyle='#1a2740';roundRect(hbx,hby,hbw,6,3);ctx.fill();
-  const hpf=clamp(bt.hp/bt.maxhp,0,1);
-  ctx.fillStyle=hpf>0.5?'#6fae7e':hpf>0.25?'#e6a52e':'#d65a4a';roundRect(hbx,hby,hbw*hpf,6,3);ctx.fill();
-  ctx.fillStyle='#bcdcea';ctx.font="700 9px 'Baloo 2'";ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('HULL',hbx-26*1,hby+3);
-  ctx.fillStyle='#ffe9c4';ctx.font="800 13px 'Baloo 2'";ctx.textAlign='center';ctx.textBaseline='middle';
-  const hint = sh.phase!=='hunt' ? '🐋 Hauling in the catch…' : (wh.charging?'⚠ It charges — brace!':(wh.sub>0.4?'🌊 Diving — wait for it to surface!':'🐋 Drag back & release to harpoon!'));
-  ctx.fillText(hint, W/2, hby+22);
+  const bw=Math.min(W*0.62,260), bx=(W-bw)/2, pad=10;
+  ctx.fillStyle='rgba(11,30,46,0.78)'; roundRect(bx-pad,hy-pad,bw+pad*2,64,14); ctx.fill();
+  ctx.strokeStyle='rgba(232,195,74,0.55)'; ctx.lineWidth=1.5; roundRect(bx-pad,hy-pad,bw+pad*2,64,14); ctx.stroke();
+  // whale
+  ctx.fillStyle='#1a2740';roundRect(bx,hy,bw,10,5);ctx.fill();
+  ctx.fillStyle=wh.sub>0.4?'#5a6b86':'#d65a4a';roundRect(bx,hy,Math.max(10,bw*clamp(wh.hp/wh.maxhp,0,1)),10,5);ctx.fill();
+  // hull (label sits inside the panel, left of the bar)
+  const hpf=clamp(bt.hp/bt.maxhp,0,1), hby=hy+18, hbx=bx+38, hbw=bw-38;
+  ctx.fillStyle='#bcdcea';ctx.font="800 10px 'Baloo 2'";ctx.textAlign='left';ctx.textBaseline='middle';ctx.fillText('HULL',bx,hby+3.5);
+  ctx.fillStyle='#1a2740';roundRect(hbx,hby,hbw,7,3.5);ctx.fill();
+  ctx.fillStyle=hpf>0.5?'#6fae7e':hpf>0.25?'#e6a52e':'#d65a4a';roundRect(hbx,hby,Math.max(7,hbw*hpf),7,3.5);ctx.fill();
+  const hint = sh.phase!=='hunt' ? 'Hauling in the catch…' : (wh.charging?'It charges — brace!':(wh.sub>0.4?'Diving — wait for it to surface':'Drag back & release to harpoon'));
+  ctx.fillStyle=wh.charging&&sh.phase==='hunt'?'#ffb4a0':'#ffe9c4';ctx.font="800 13px 'Baloo 2'";ctx.textAlign='center';
+  ctx.fillText(hint, W/2, hby+24);
 }
 /* ================================================================
    ⚔️ BOARDING PARTIES — storm a crippled enemy ship's deck.
@@ -7946,14 +8107,7 @@ function drawEntity(e){
   ctx.save();
   const bobAmt = (e.type==='player'?3.2:2)*z;
   ctx.translate(sx,sy+Math.sin(e.bob||0)*bobAmt);
-  // soft drop shadow (parallax float)
-  ctx.save();
-  ctx.globalAlpha=0.22*(1-sink);
-  ctx.fillStyle='#06283a';
-  ctx.translate(6*z,9*z);
-  ctx.scale(1,0.55);
-  ctx.beginPath();ctx.arc(0,0,e.r*z*1.05*ds,0,TAU);ctx.fill();
-  ctx.restore();
+  drawEntityShadow(e,z,ds,sink);
 
   ctx.globalAlpha=1-sink*0.9;
   ctx.rotate(e.a+Math.PI/2 + (e.dead?(e.sinkSpin||0):0));   // a slow turn as a wreck goes under
@@ -8059,6 +8213,47 @@ function drawEntity(e){
   }
 }
 
+/* Drop shadow cast by a fixed sun (upper-left → shadow falls down-right). It takes the
+   hull's own silhouette and turns with the heading, so it reads as the ship's shadow
+   rather than a sticker; when the player turns hard the ship heels and the shadow
+   slides toward the outside of the turn. Sea creatures get a heading-aligned oval. */
+function hullDims(e){
+  const L = e.type==='player' ? (1 + G.upgrades.hull*0.16)*(e.classL||1)
+          : (e.type==='navy'||e.type==='boss'||e.type==='cargo'||e.type==='ally') ? (e.shipL||1) : 1;
+  const B = (e.type==='navy'||e.type==='boss'||e.type==='cargo'||e.type==='ally') ? (e.beam||1) : 1;
+  return {L,B};
+}
+function drawEntityShadow(e,z,ds,sink){
+  const hullish = !(e.type==='monster' || (e.type==='boss' && !(e.mk==='ghost'||e.mk==='wraith'||e.mk==='drowned'||e.mk==='manowar')));
+  const heel = e.type==='player' ? clamp(e.va||0,-1.6,1.6) : 0;          // + = turning clockwise
+  const perp = e.a+Math.PI/2;
+  const offX = 6*z - Math.cos(perp)*heel*3*z, offY = 9*z - Math.sin(perp)*heel*3*z;
+  ctx.save();
+  ctx.globalAlpha=0.2*(1-sink);
+  ctx.fillStyle='#06283a';
+  ctx.translate(offX,offY);
+  ctx.rotate(e.a+Math.PI/2);
+  ctx.scale(ds*(1+Math.abs(heel)*0.05),ds);                                 // a heeled hull shows a touch more beam
+  const r=e.r*z;
+  ctx.beginPath();
+  if(hullish){
+    const {L,B}=hullDims(e), noseY=-r*1.4*L, sternY=r*1.25*L;
+    ctx.moveTo(0,noseY);
+    ctx.quadraticCurveTo(r*1.0*B,-r*0.5*L, r*0.85*B,r*0.7*L);
+    ctx.quadraticCurveTo(r*0.55*B,sternY, 0,sternY);
+    ctx.quadraticCurveTo(-r*0.55*B,sternY,-r*0.85*B,r*0.7*L);
+    ctx.quadraticCurveTo(-r*1.0*B,-r*0.5*L, 0,noseY);
+    ctx.fill();
+    // sails stand taller than the hull, so their soft patch lands further down-sun
+    ctx.rotate(-(e.a+Math.PI/2)); ctx.translate(offX*0.9,offY*0.9); ctx.rotate(e.a+Math.PI/2);
+    ctx.globalAlpha*=0.4;
+    ctx.beginPath(); ctx.ellipse(0,0,r*0.95*B,r*0.6*L,0,0,TAU);
+  } else {
+    ctx.ellipse(0,0,r*0.85,r*1.35,0,0,TAU);
+  }
+  ctx.fill();
+  ctx.restore();
+}
 function drawHull(e,z){
   const r=e.r*z;
   let body=getCss('--hull'), bodyDk=getCss('--hull-dk'), sailC='#fff7e8', accent=getCss('--gold');
@@ -8774,7 +8969,7 @@ function render(){
   }
 
   // offscreen indicators for boss/treasure
-  drawIndicators();
+  if(G.state==='play') drawIndicators();
 
   // "approach to engage" banner when nearing an un-fought corner (AC4 fort feel)
   if(G.state==='play' && G._nearCorner){
@@ -8810,34 +9005,55 @@ function render(){
   ctx.restore();
 }
 
+/* Off-screen pointers. Slim notched "compass needle" arrows riding the screen edge —
+   gold-on-ink to match the HUD. Bosses/guardians always show; treasure only once you're
+   within TREASURE_HINT_R, fading in as you close, so it's a nudge rather than a GPS. */
+const TREASURE_HINT_R=1500;
+function drawEdgeArrow(x,y,a,col,sc,alpha){
+  ctx.save(); ctx.translate(x,y); ctx.rotate(a); ctx.scale(sc,sc); ctx.globalAlpha=alpha;
+  ctx.beginPath(); ctx.moveTo(11,0); ctx.lineTo(-5,-6.5); ctx.lineTo(-1.5,0); ctx.lineTo(-5,6.5); ctx.closePath();
+  ctx.lineJoin='round'; ctx.lineWidth=3; ctx.strokeStyle='rgba(42,20,16,0.85)'; ctx.stroke();
+  ctx.fillStyle=col; ctx.fill();
+  // sunlit upper facet for a little dimension
+  ctx.beginPath(); ctx.moveTo(11,0); ctx.lineTo(-5,-6.5); ctx.lineTo(-1.5,0); ctx.closePath();
+  ctx.fillStyle='rgba(255,255,255,0.28)'; ctx.fill();
+  ctx.restore();
+}
 function drawIndicators(){
   const s=G.ship; if(!s)return;
-  const z=G.cam.zoom;
   const marks=[];
   const boss=G.entities.find(e=>e.type==='boss'&&!e.dead);
-  if(boss)marks.push({x:boss.x,y:boss.y,c:'#ff6b6b',ic:'⚠'});
+  if(boss)marks.push({x:boss.x,y:boss.y,c:'#ff6b6b',sc:1.15,al:1});
   // corner arenas: once treasure is done, point the way to the remaining guardians
   if(G.world.corners && G.treasureFound>=G.treasureTotal){
     for(const cn of G.world.corners){
       if(cn.cleared || cn.locked || cn.spawned) continue;   // skip done/locked/active
-      marks.push({x:cn.x,y:cn.y,c:cn.themed?'#ff5b6e':'#b06adf',ic:cn.themed?'skull':'anchor'});
+      marks.push({x:cn.x,y:cn.y,c:cn.themed?'#ff5b6e':'#b06adf',sc:1.05,al:0.9});
     }
   }
-  // nearest treasure
+  // nearest treasure — only within hint range, fading in over the outer third
   let nt=null,nd=1e9;
   for(const f of G.floaters){if(f.type==='treasure'){const d=dist(s.x,s.y,f.x,f.y);if(d<nd){nd=d;nt=f;}}}
-  if(nt)marks.push({x:nt.x,y:nt.y,c:'#ffce5c',ic:'gem'});
+  if(nt && nd<TREASURE_HINT_R){
+    const al=clamp((TREASURE_HINT_R-nd)/(TREASURE_HINT_R*0.33),0,1)*0.9;
+    marks.push({x:nt.x,y:nt.y,c:'#ffce5c',sc:0.95,al,gem:true});
+  }
+  const top=(window.__safeTop||0)+70;
   for(const m of marks){
     const sx=wx(m.x), sy=wy(m.y);
     if(sx>-20&&sx<W+20&&sy>-20&&sy<H+20)continue; // on screen, skip
-    const a=angTo(W/2,H/2,sx,sy);
-    const mx=clamp(W/2+Math.cos(a)*(Math.min(W,H)/2-50),40,W-40);
-    const my=clamp(H/2+Math.sin(a)*(Math.min(W,H)/2-50),70,H-90);
-    ctx.save();ctx.translate(mx,my);
-    ctx.fillStyle=m.c;ctx.beginPath();ctx.arc(0,0,15,0,TAU);ctx.fill();
-    ctx.rotate(a);ctx.fillStyle=m.c;ctx.beginPath();ctx.moveTo(16,0);ctx.lineTo(6,-7);ctx.lineTo(6,7);ctx.fill();
-    ctx.restore();
-    drawVecIcon(m.ic,mx,my,17,'#2a1410');
+    const a=angTo(W/2,H/2,sx,sy), bob=Math.sin(G.t*3)*2;
+    const rr=Math.min(W,H)/2-34+bob;
+    const mx=clamp(W/2+Math.cos(a)*rr,28,W-28);
+    const my=clamp(H/2+Math.sin(a)*rr,top,H-90);
+    drawEdgeArrow(mx,my,a,m.c,m.sc,m.al);
+    // treasure: a tiny twinkle trailing the needle so it reads as "loot", not danger
+    if(m.gem){ const tw=0.5+0.5*Math.sin(G.t*5);
+      ctx.save(); ctx.globalAlpha=m.al*tw; ctx.fillStyle='#fff6d0';
+      const tx=mx-Math.cos(a)*12, ty=my-Math.sin(a)*12;
+      ctx.beginPath(); ctx.moveTo(tx,ty-3.5); ctx.lineTo(tx+1,ty-1); ctx.lineTo(tx+3.5,ty); ctx.lineTo(tx+1,ty+1);
+      ctx.lineTo(tx,ty+3.5); ctx.lineTo(tx-1,ty+1); ctx.lineTo(tx-3.5,ty); ctx.lineTo(tx-1,ty-1); ctx.closePath(); ctx.fill();
+      ctx.restore(); }
   }
 }
 
@@ -8916,7 +9132,9 @@ function loop(now){
     if(G._saveT > (G._saveDirty?1.5:4)){ G._saveT=0; G._saveDirty=false; saveGame(); }
     if(G.fireCooldown>0){G.fireCooldown-=G.dt; updateFireBtn();}
   }
-  if(G.state==='shore'){
+  // paused from the pause button while ashore — tied to the panel being up, so no exit path can leave it frozen
+  if(G.shorePaused && !el('ov-settings').classList.contains('show')) G.shorePaused=false;
+  if(G.state==='shore' && !G.shorePaused){
     applyKeyboardInput();   // WASD walks the shore party on PC
     updateShore(G.dt);
     updateParticles(G.dt);
@@ -9314,14 +9532,26 @@ function drawMinimap(){
   // YOU — a bright ship at dead-centre, pointing your heading
   boat(s.x*sc,s.y*sc,s.a,5*k,'#fff3cf');
   x.restore();   // end player-centred world transform
-  // WIND — a clean straight compass arrow in the chart's top-right corner (points downwind)
+  // WIND — a small weather gauge tucked in the chart's top-right corner: a brass-rimmed
+  // dial whose needle points downwind, with a rim arc that grows with wind strength.
   if(G.wind){
-    const cx=N-15*k, cy=15*k, len=8.5*k;
-    x.fillStyle='rgba(8,22,34,0.55)'; x.beginPath();x.arc(cx,cy,13*k,0,TAU);x.fill();
-    x.save(); x.translate(cx,cy); x.rotate(G.wind.ang);
-    x.strokeStyle='#eaf6ff'; x.fillStyle='#eaf6ff'; x.lineWidth=2*k; x.lineCap='round'; x.lineJoin='round';
-    x.beginPath(); x.moveTo(-len,0); x.lineTo(len,0); x.stroke();              // straight shaft
-    x.beginPath(); x.moveTo(len,0); x.lineTo(len-4.5*k,-3.5*k); x.lineTo(len-4.5*k,3.5*k); x.closePath(); x.fill();  // solid head
+    const R=9.5*k, cx=N-R-5*k, cy=R+5*k, w=G.wind;
+    x.fillStyle='rgba(8,22,34,0.62)'; x.beginPath(); x.arc(cx,cy,R,0,TAU); x.fill();
+    x.strokeStyle='rgba(232,195,74,0.85)'; x.lineWidth=1.1*k; x.stroke();
+    // cardinal ticks
+    x.strokeStyle='rgba(234,246,255,0.35)'; x.lineWidth=0.9*k; x.lineCap='round';
+    for(let i=0;i<4;i++){ const t=i*Math.PI/2; x.beginPath();
+      x.moveTo(cx+Math.cos(t)*R*0.72,cy+Math.sin(t)*R*0.72); x.lineTo(cx+Math.cos(t)*R*0.9,cy+Math.sin(t)*R*0.9); x.stroke(); }
+    // strength arc, centred on the downwind side of the rim
+    const span=lerp(0.35,1.6,clamp(w.str,0,1));
+    x.strokeStyle='#8fd3f0'; x.lineWidth=1.6*k;
+    x.beginPath(); x.arc(cx,cy,R-0.2*k,w.ang-span/2,w.ang+span/2); x.stroke();
+    // needle: gold head downwind, pale tail upwind
+    x.save(); x.translate(cx,cy); x.rotate(w.ang);
+    const L=R*0.66, hw=1.9*k;
+    x.fillStyle='#ffce5c'; x.beginPath(); x.moveTo(L,0); x.lineTo(0,-hw); x.lineTo(0,hw); x.closePath(); x.fill();
+    x.fillStyle='rgba(234,246,255,0.75)'; x.beginPath(); x.moveTo(-L*0.75,0); x.lineTo(0,-hw); x.lineTo(0,hw); x.closePath(); x.fill();
+    x.fillStyle='#2a1410'; x.beginPath(); x.arc(0,0,1.1*k,0,TAU); x.fill();
     x.restore();
   }
 }
@@ -9359,6 +9589,7 @@ function checkWin(){
 function endMap(victory){
   // guard: don't re-fire if we've already left 'play' via this overlay
   if(G.state==='end' && el('ov-end').classList.contains('show')) return;
+  if(G.endless) return;               // Open Seas has no victory screen (and must not clearSave)
   G.state='end';
   const last=G.mapIndex>=MAPS.length-1;
   const b2=el('endbtn2');
@@ -9381,7 +9612,7 @@ function endMap(victory){
     // on the final map you can still choose to linger and mop up treasure
     b2.style.display='';
     b2.textContent='Stay & Explore';
-    b2.onclick=()=>{ el('ov-end').classList.remove('show'); G.state='play'; saveGame(); };
+    b2.onclick=()=>{ el('ov-end').classList.remove('show'); G.state='play'; G._victoryAck=true; saveGame(); };
   } else if(victory){
     el('endtitle').textContent='⚓ Sea Conquered!';
     el('endbody').innerHTML=`${G.world.def.name} is yours. Keep your gold &amp; upgrades — rougher waters ahead.<br><br>Next: <b>${MAPS[G.mapIndex+1].name}</b><br><span class="hint">${MAPS[G.mapIndex+1].desc}</span>`;
@@ -9389,7 +9620,7 @@ function endMap(victory){
     el('endbtn').onclick=()=>{G.mapIndex++;startMap(G.mapIndex);};
     b2.style.display='';
     b2.textContent='Stay & Explore';
-    b2.onclick=()=>{ el('ov-end').classList.remove('show'); G.state='play'; saveGame(); };
+    b2.onclick=()=>{ el('ov-end').classList.remove('show'); G.state='play'; G._victoryAck=true; saveGame(); };
   }
   el('ov-end').classList.add('show');
 }
@@ -9450,6 +9681,7 @@ function runSnap(){ const s=G.stats||{}; const f={};
   return f; }
 function resetRun(){ G.runGold=0; G.runKills=0; G.combo=0; G.comboBest=0; G.runStatsBase=runSnap(); }
 function startMap(idx, restore){
+  G._victoryAck=false;
   G.dungeon=false; document.body.classList.remove('cave-mode'); G._caveBoss=null;  // any path into a sea leaves the cavern
   // restore the minimap reveal for this sea (persists across deaths; empty on a new voyage)
   G.mapIndex=idx; G.world=genWorld(idx);
@@ -9696,8 +9928,10 @@ document.addEventListener('visibilitychange',()=>{
   // will hard-recover it; try a light resume now in case a plain resume suffices
   resumeAudio();
   // becoming visible again: if we beat the boss but no overlay is up, re-offer the choice
+  // only from open sailing, in the campaign, and only if the player hasn't already chosen
+  // to stay — otherwise it re-fired every return (and wiped the save after the final sea)
   if(G.world && G.world.def && G.world.def.boss && G.bossDead
-     && G.state!=='shop' && G.state!=='menu'
+     && G.state==='play' && !G.endless && !G.shore && !G._victoryAck
      && !el('ov-end').classList.contains('show')){
     endMap(true);
   }
@@ -11490,8 +11724,10 @@ function applySettings(){
   applyAudio();
 }
 function openSettings(){
-  const paused = (G.state==='play');
-  if(paused) G.state='shop';   // pause the world cleanly like other menus
+  const ashore = (G.state==='shore');
+  const paused = (G.state==='play') || ashore;
+  if(ashore) G.shorePaused=true;   // shore/boarding/whaling keep their state; the loop just stops updating them
+  else if(paused) G.state='shop';  // pause the world cleanly like other menus
   else G._settingsFromMenu=true;
   // when opened mid-voyage this IS the pause screen: title + prominent Resume
   const t=el('settings-title'); if(t) t.textContent = paused ? 'Paused' : 'Settings';
@@ -11502,6 +11738,7 @@ function openSettings(){
 function closeSettings(){
   el('ov-settings').classList.remove('show');
   if(G._settingsFromMenu){ G._settingsFromMenu=false; }
+  else if(G.shorePaused){ G.shorePaused=false; }
   else if(G.state==='shop') G.state='play';
   if(typeof saveLifetime==='function') saveLifetime();
 }
@@ -11522,6 +11759,7 @@ function buildSettings(){
     b.onclick=()=>{ onclick(!on); buildSettings(); };
     r.appendChild(b); host.appendChild(r);
   };
+  toggle('🔊 Sound','Mute all audio', !SND.muted, v=>{ if(v && s.vol<=0.01) s.vol=0.8; if(v===SND.muted) toggleMute(); });
   slider('🔊 Volume','Overall sound', SND.muted?0:s.vol, v=>{ s.vol=v; SND.muted=(v<=0); applyAudio(); });
   slider('🎵 Music','Shanties & themes', s.music, v=>{ s.music=v; applyAudio(); });
   toggle('📳 Haptics','Vibration feedback', s.haptics!==false, v=>{ s.haptics=v; applySettings(); });
