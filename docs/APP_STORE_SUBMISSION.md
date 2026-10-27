@@ -1,6 +1,6 @@
 # Leave Her Johnny — App Store submission (version 2.0)
 
-Last published: 1.2. This release is **2.0** (`MARKETING_VERSION` in
+Last published: 1.2. This release is **2.1** (2.0 was approved; its train is closed) (`MARKETING_VERSION` in
 `ios/App/App.xcodeproj/project.pbxproj`, `GAME_BUILD` in `index.html`). The
 build number is set by Codemagic from the timestamp, so every push to `main`
 is a new, higher build. Team: Scheidel Holdings LLC. Bundle id:
