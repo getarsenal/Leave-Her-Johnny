@@ -295,22 +295,26 @@
   @keyframes frFlicker{from{transform:scale(.8);opacity:.85}to{transform:scale(1.15);opacity:1}}
   /* the glossy cannon face, a perfect circle inset inside the bezel */
   .fr-face{position:absolute;inset:11px;border-radius:50%;overflow:hidden;
-    background:radial-gradient(120% 110% at 50% 18%, #ffd98a 0%, #ff9e48 42%, #f26a38 74%, #c8402a 100%);
-    box-shadow:inset 0 3px 5px rgba(255,255,255,.55), inset 0 -5px 8px rgba(130,35,15,.45), 0 0 0 2px rgba(80,40,10,.55);
+    background:radial-gradient(120% 110% at 50% 20%, #4d6ea3 0%, #2c4470 45%, #1b2a48 80%, #121d33 100%);
+    box-shadow:inset 0 3px 5px rgba(190,220,255,.35), inset 0 -5px 9px rgba(0,0,0,.45), 0 0 0 2px rgba(80,40,10,.6);
     transition:filter .25s, transform .25s;}
   .fr-face::after{content:'';position:absolute;inset:0;border-radius:50%;pointer-events:none;
     background:linear-gradient(115deg, transparent 30%, rgba(255,255,255,.75) 48%, transparent 64%);
     transform:translateX(-120%);}
-  .fr-face .em{position:absolute;left:50%;top:50%;transform:translate(-50%,-58%);line-height:0;
-    filter:drop-shadow(0 1px 1px rgba(120,30,10,.45));transition:transform .25s;}
-  .fr-face .em svg{display:block;width:27px;height:27px;}
+  /* the burst sits dead-centre (its bright core is the image centre), nudged up only to
+     clear the label; on the navy face it gets a soft warm glow */
+  .fr-burst{position:absolute;left:50%;top:50%;width:40px;height:40px;transform:translate(-50%,-56%);
+    pointer-events:none;-webkit-user-drag:none;user-select:none;
+    filter:drop-shadow(0 0 5px rgba(255,170,60,.55)) drop-shadow(0 1.5px 1px rgba(0,0,0,.35));
+    transition:transform .25s;}
   .fr-lbl{position:absolute;left:0;right:0;bottom:6px;text-align:center;font:800 9.5px/1 'Baloo 2',sans-serif;
-    letter-spacing:.8px;text-transform:uppercase;color:#fff8e6;text-shadow:0 1px 1px rgba(120,30,10,.6);}
+    letter-spacing:.8px;text-transform:uppercase;color:#ffe2a0;text-shadow:0 1px 1px rgba(0,0,0,.6);}
   .fr-wave{position:absolute;inset:0;border-radius:50%;pointer-events:none;border:3px solid #fff1bf;opacity:0;
     box-shadow:0 0 12px rgba(255,205,90,.85), inset 0 0 8px rgba(255,205,90,.6);}
   /* reloading: the face cools to a banked ember, the fuse burns */
-  .abtn.fire.cool .fr-face{filter:saturate(.8) brightness(.62) contrast(1.05);}
-  .abtn.fire.cool .fr-face .em{transform:translate(-50%,-58%) scale(.88);}
+  .abtn.fire.cool .fr-face{filter:brightness(.78);}
+  .abtn.fire.cool .fr-burst{filter:grayscale(.75) brightness(.7) drop-shadow(0 1.5px 1px rgba(0,0,0,.35));}
+  .abtn.fire.cool .fr-burst{transform:translate(-50%,-56%) scale(.86);}
   .abtn.fire.cool .fr-spark{opacity:1;}
   .abtn.fire.cool .fr-prog{stroke:#e8913a;}
   /* ready, idling: a slow warm breath on the bezel so it reads "loaded" at a glance */
@@ -329,7 +333,7 @@
   .abtn.fire.kick .fr-wave{border-color:#ffe0a0;box-shadow:0 0 14px rgba(255,120,40,.9), inset 0 0 10px rgba(255,140,50,.7);animation:frWave .45s ease-out;}
   .abtn.fire.kick .fr-face{animation:frFlash .38s ease-out;}
   @keyframes frKick{0%{transform:translateY(0) scale(1)}18%{transform:translateY(5px) scale(.9)}60%{transform:translateY(-1px) scale(1.03)}100%{transform:none}}
-  @keyframes frFlash{0%{filter:brightness(1.9) saturate(1.2)}100%{filter:saturate(.8) brightness(.62) contrast(1.05)}}
+  @keyframes frFlash{0%{filter:brightness(1.9) saturate(1.2)}100%{filter:brightness(.78)}}
   /* tapped while reloading: a quick "not yet" wobble */
   .abtn.fire.nope{animation:frNope .32s ease-in-out;}
   @keyframes frNope{0%,100%{transform:rotate(0)}25%{transform:rotate(-8deg)}75%{transform:rotate(8deg)}}
@@ -637,7 +641,7 @@
           <g class="fr-ticks"><line x1="50" y1="2.5" x2="50" y2="9.5" transform="rotate(0 50 50)"/><line x1="50" y1="2.5" x2="50" y2="7.5" transform="rotate(30 50 50)"/><line x1="50" y1="2.5" x2="50" y2="7.5" transform="rotate(60 50 50)"/><line x1="50" y1="2.5" x2="50" y2="9.5" transform="rotate(90 50 50)"/><line x1="50" y1="2.5" x2="50" y2="7.5" transform="rotate(120 50 50)"/><line x1="50" y1="2.5" x2="50" y2="7.5" transform="rotate(150 50 50)"/><line x1="50" y1="2.5" x2="50" y2="9.5" transform="rotate(180 50 50)"/><line x1="50" y1="2.5" x2="50" y2="7.5" transform="rotate(210 50 50)"/><line x1="50" y1="2.5" x2="50" y2="7.5" transform="rotate(240 50 50)"/><line x1="50" y1="2.5" x2="50" y2="9.5" transform="rotate(270 50 50)"/><line x1="50" y1="2.5" x2="50" y2="7.5" transform="rotate(300 50 50)"/><line x1="50" y1="2.5" x2="50" y2="7.5" transform="rotate(330 50 50)"/></g>
           <g id="firespark" class="fr-spark"><circle class="glow" cx="50" cy="6" r="9.5"/><circle class="core" cx="50" cy="6" r="2.4"/></g>
         </svg>
-        <span class="fr-face"><span class="em">💥</span><span class="fr-lbl">Fire</span></span>
+        <span class="fr-face"><img class="fr-burst" src="assets/fire-burst.png" alt="" draggable="false"><span class="fr-lbl">Fire</span></span>
         <span class="fr-wave" aria-hidden="true"></span>
       </button>
     </div>
@@ -10241,7 +10245,6 @@ function applyHudIcons(){
   set('btn-voyage','map'); set('btn-cruise','wheel'); set('btn-trim','flag');
   set('btn-songbook','note'); set('btn-logbook','book'); set('btn-settings','pause');
   const mb=el('btn-mute'); if(mb) mb.innerHTML=svgIcon(SND.muted?'speakerMute':'speaker');
-  const fe=document.querySelector('#btn-fire .em'); if(fe) fe.innerHTML=svgIcon('cannon',27);
   const gi=document.querySelector('.stat.gold .ic'); if(gi) gi.innerHTML=svgIcon('coin',17);
   const wi=document.querySelector('.stat.wood .ic'); if(wi) wi.innerHTML=svgIcon('log',18);
 }
