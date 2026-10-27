@@ -273,20 +273,67 @@
   .abtn:active{transform:translateY(3px);box-shadow:0 2px 0 rgba(0,0,0,.2);}
   .abtn .em{font-size:22px;line-height:0;display:flex;align-items:center;justify-content:center;}
   .abtn .em svg, #btn-mute svg, #btn-voyage svg, #btn-cruise svg, #btn-trim svg, #btn-songbook svg, #btn-logbook svg, #btn-settings svg{display:block;}
-  /* Fire button — chunky, glossy, playful (on-brand): a sunny cannon button with a
-     cream rim, soft 3D depth and a satisfying squish on tap. */
-  .abtn.fire{width:74px;height:74px;border-radius:26px;border:4px solid #fff3da;
-    background:radial-gradient(125% 120% at 50% 16%, #ffd57e 0%, #ff9e48 40%, #ff6e3e 72%, #e8482f 100%);
-    box-shadow:0 6px 0 #b73a2a, 0 10px 18px rgba(232,72,47,.42), inset 0 3px 6px rgba(255,255,255,.55), inset 0 -6px 10px rgba(150,40,20,.32);
-    color:#fff;text-shadow:0 1px 2px rgba(120,30,10,.5);}
-  .abtn.fire .em{font-size:26px;filter:drop-shadow(0 1px 1px rgba(120,30,10,.4));}
-  .abtn.fire:active{transform:translateY(4px) scale(.95);
-    box-shadow:0 2px 0 #b73a2a, 0 4px 8px rgba(232,72,47,.4), inset 0 3px 6px rgba(255,255,255,.5);}
-  .abtn.fire.cool{filter:saturate(.7) brightness(.9);}
-  /* cooldown = a clock wipe: the dark wedge shrinks clockwise as the cannons reload
-     (--p goes 0→1). Far nicer than the old gray bar sliding up. */
-  .abtn .cd{position:absolute;inset:0;border-radius:22px;pointer-events:none;
-    background:conic-gradient(from -90deg, rgba(0,0,0,0) calc(var(--p,1)*360deg), rgba(8,20,34,.52) 0);}
+  /* FIRE — a round brass "porthole" cannon button. The bezel IS the reload dial: a lit
+     fuse burns clockwise round the rim as the guns reload (gold arc fills behind the
+     spark). Ready → the face pops, a shimmer crosses it and a gold shockwave rings out.
+     Firing kicks the button back with a muzzle flash; tapping early gets a "not yet"
+     wobble. Everything is centred on one circle so icon, face and dial always line up. */
+  .abtn.fire{position:relative;width:82px;height:82px;border-radius:50%;padding:0;border:none;
+    background:radial-gradient(circle at 50% 30%, #f6d98a 0%, #d9a640 46%, #9c6b22 100%);
+    box-shadow:0 5px 0 #6e4614, 0 9px 18px rgba(0,0,0,.38), inset 0 2px 1px rgba(255,248,220,.75), inset 0 -3px 4px rgba(90,55,10,.5);
+    display:block;color:#fff;transition:transform .12s cubic-bezier(.3,1.6,.5,1);
+    -webkit-tap-highlight-color:transparent;}
+  .abtn.fire:active{transform:translateY(3px) scale(.96);}
+  .fr-ring{position:absolute;inset:0;width:100%;height:100%;overflow:visible;pointer-events:none;}
+  .fr-track{fill:none;stroke:rgba(52,28,10,.72);stroke-width:8;}
+  .fr-prog{fill:none;stroke:url(#frgrad);stroke-width:6;stroke-linecap:round;
+    stroke-dasharray:100 100;stroke-dashoffset:0;}
+  .fr-ticks line{stroke:rgba(255,236,190,.38);stroke-width:1.6;stroke-linecap:round;}
+  .fr-spark{opacity:0;transition:opacity .2s;}
+  .fr-spark .glow{fill:url(#frspark);transform-origin:50px 6px;animation:frFlicker .11s steps(2) infinite alternate;}
+  .fr-spark .core{fill:#fffbe6;}
+  @keyframes frFlicker{from{transform:scale(.8);opacity:.85}to{transform:scale(1.15);opacity:1}}
+  /* the glossy cannon face, a perfect circle inset inside the bezel */
+  .fr-face{position:absolute;inset:11px;border-radius:50%;overflow:hidden;
+    background:radial-gradient(120% 110% at 50% 18%, #ffd98a 0%, #ff9e48 42%, #f26a38 74%, #c8402a 100%);
+    box-shadow:inset 0 3px 5px rgba(255,255,255,.55), inset 0 -5px 8px rgba(130,35,15,.45), 0 0 0 2px rgba(80,40,10,.55);
+    transition:filter .25s, transform .25s;}
+  .fr-face::after{content:'';position:absolute;inset:0;border-radius:50%;pointer-events:none;
+    background:linear-gradient(115deg, transparent 30%, rgba(255,255,255,.75) 48%, transparent 64%);
+    transform:translateX(-120%);}
+  .fr-face .em{position:absolute;left:50%;top:50%;transform:translate(-50%,-58%);line-height:0;
+    filter:drop-shadow(0 1px 1px rgba(120,30,10,.45));transition:transform .25s;}
+  .fr-face .em svg{display:block;width:27px;height:27px;}
+  .fr-lbl{position:absolute;left:0;right:0;bottom:6px;text-align:center;font:800 9.5px/1 'Baloo 2',sans-serif;
+    letter-spacing:.8px;text-transform:uppercase;color:#fff8e6;text-shadow:0 1px 1px rgba(120,30,10,.6);}
+  .fr-wave{position:absolute;inset:0;border-radius:50%;pointer-events:none;border:3px solid #fff1bf;opacity:0;
+    box-shadow:0 0 12px rgba(255,205,90,.85), inset 0 0 8px rgba(255,205,90,.6);}
+  /* reloading: the face cools to a banked ember, the fuse burns */
+  .abtn.fire.cool .fr-face{filter:saturate(.8) brightness(.62) contrast(1.05);}
+  .abtn.fire.cool .fr-face .em{transform:translate(-50%,-58%) scale(.88);}
+  .abtn.fire.cool .fr-spark{opacity:1;}
+  .abtn.fire.cool .fr-prog{stroke:#e8913a;}
+  /* ready, idling: a slow warm breath on the bezel so it reads "loaded" at a glance */
+  .abtn.fire:not(.cool){animation:frBreath 2.6s ease-in-out infinite;}
+  @keyframes frBreath{0%,100%{box-shadow:0 5px 0 #6e4614, 0 9px 18px rgba(0,0,0,.38), inset 0 2px 1px rgba(255,248,220,.75), inset 0 -3px 4px rgba(90,55,10,.5), 0 0 0 0 rgba(255,200,90,0)}
+    50%{box-shadow:0 5px 0 #6e4614, 0 9px 18px rgba(0,0,0,.38), inset 0 2px 1px rgba(255,248,220,.75), inset 0 -3px 4px rgba(90,55,10,.5), 0 0 16px 3px rgba(255,200,90,.55)}}
+  /* reload complete */
+  .abtn.fire.ready-pop{animation:frPop .55s cubic-bezier(.3,1.7,.5,1);}
+  .abtn.fire.ready-pop .fr-face::after{animation:frShine .6s ease-out .05s;}
+  .abtn.fire.ready-pop .fr-wave{animation:frWave .65s ease-out;}
+  @keyframes frPop{0%{transform:scale(1)}35%{transform:scale(1.12)}100%{transform:scale(1)}}
+  @keyframes frShine{from{transform:translateX(-120%)}to{transform:translateX(120%)}}
+  @keyframes frWave{0%{opacity:.95;transform:scale(1)}100%{opacity:0;transform:scale(1.6)}}
+  /* broadside! recoil + white-hot muzzle flash */
+  .abtn.fire.kick{animation:frKick .42s cubic-bezier(.2,.9,.3,1);}
+  .abtn.fire.kick .fr-wave{border-color:#ffe0a0;box-shadow:0 0 14px rgba(255,120,40,.9), inset 0 0 10px rgba(255,140,50,.7);animation:frWave .45s ease-out;}
+  .abtn.fire.kick .fr-face{animation:frFlash .38s ease-out;}
+  @keyframes frKick{0%{transform:translateY(0) scale(1)}18%{transform:translateY(5px) scale(.9)}60%{transform:translateY(-1px) scale(1.03)}100%{transform:none}}
+  @keyframes frFlash{0%{filter:brightness(1.9) saturate(1.2)}100%{filter:saturate(.8) brightness(.62) contrast(1.05)}}
+  /* tapped while reloading: a quick "not yet" wobble */
+  .abtn.fire.nope{animation:frNope .32s ease-in-out;}
+  @keyframes frNope{0%,100%{transform:rotate(0)}25%{transform:rotate(-8deg)}75%{transform:rotate(8deg)}}
+  @media (prefers-reduced-motion:reduce){ .abtn.fire:not(.cool){animation:none;} .fr-spark .glow{animation:none;} }
 
   /* ============ OVERLAYS ============ */
   .overlay{position:absolute;inset:0;z-index:50;display:none;
@@ -577,7 +624,22 @@
     </div>
 
     <div id="botright">
-      <button class="abtn fire" id="btn-fire"><span class="em">💥</span>Fire<div class="cd" id="firecd" style="transform:scaleY(0)"></div></button>
+      <button class="abtn fire" id="btn-fire" aria-label="Fire broadside">
+        <svg class="fr-ring" viewBox="0 0 100 100" aria-hidden="true">
+          <defs>
+            <linearGradient id="frgrad" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stop-color="#fff0b0"/><stop offset=".45" stop-color="#ffc24a"/><stop offset="1" stop-color="#ff7a32"/>
+            </linearGradient>
+            <radialGradient id="frspark"><stop offset="0" stop-color="#fffbe6"/><stop offset=".35" stop-color="#ffd260"/><stop offset="1" stop-color="rgba(255,120,40,0)"/></radialGradient>
+          </defs>
+          <circle class="fr-track" cx="50" cy="50" r="44"/>
+          <circle class="fr-prog" id="fireprog" cx="50" cy="50" r="44" pathLength="100" transform="rotate(-90 50 50)"/>
+          <g class="fr-ticks"><line x1="50" y1="2.5" x2="50" y2="9.5" transform="rotate(0 50 50)"/><line x1="50" y1="2.5" x2="50" y2="7.5" transform="rotate(30 50 50)"/><line x1="50" y1="2.5" x2="50" y2="7.5" transform="rotate(60 50 50)"/><line x1="50" y1="2.5" x2="50" y2="9.5" transform="rotate(90 50 50)"/><line x1="50" y1="2.5" x2="50" y2="7.5" transform="rotate(120 50 50)"/><line x1="50" y1="2.5" x2="50" y2="7.5" transform="rotate(150 50 50)"/><line x1="50" y1="2.5" x2="50" y2="9.5" transform="rotate(180 50 50)"/><line x1="50" y1="2.5" x2="50" y2="7.5" transform="rotate(210 50 50)"/><line x1="50" y1="2.5" x2="50" y2="7.5" transform="rotate(240 50 50)"/><line x1="50" y1="2.5" x2="50" y2="9.5" transform="rotate(270 50 50)"/><line x1="50" y1="2.5" x2="50" y2="7.5" transform="rotate(300 50 50)"/><line x1="50" y1="2.5" x2="50" y2="7.5" transform="rotate(330 50 50)"/></g>
+          <g id="firespark" class="fr-spark"><circle class="glow" cx="50" cy="6" r="9.5"/><circle class="core" cx="50" cy="6" r="2.4"/></g>
+        </svg>
+        <span class="fr-face"><span class="em">💥</span><span class="fr-lbl">Fire</span></span>
+        <span class="fr-wave" aria-hidden="true"></span>
+      </button>
     </div>
     <div id="relicpop"></div>
   </div>
@@ -4081,7 +4143,8 @@ function playerBroadside(){
     fireBroadside(s,portPt,s.dmg*1.1);
     fireBroadside(s,starPt,s.dmg*1.1);
   }
-  G.fireCooldown=4.5;
+  G.fireCooldown=G.fireCooldownMax=4.5;
+  updateFireBtn(); fireBtnFx('kick',440);
   G.shake=Math.max(G.shake,6);
   sfx.cannon(); haptic('light');
 }
@@ -9217,11 +9280,23 @@ function updateHUD(){
   }
 }
 function updateFireBtn(){
-  const cd=el('firecd'), btn=el('btn-fire');
-  const r=clamp(G.fireCooldown/2.6,0,1);
-  cd.style.transform='';                         // drop the old scaleY; the clock-wipe is a conic bg now
-  cd.style.setProperty('--p',(1-r).toFixed(3));  // reloaded fraction (0 just-fired → 1 ready)
-  btn.classList.toggle('cool',G.fireCooldown>0);
+  const btn=el('btn-fire'); if(!btn) return;
+  const max=G.fireCooldownMax||4.5, p=1-clamp(G.fireCooldown/max,0,1);   // reloaded fraction
+  const prog=el('fireprog'); if(prog) prog.style.strokeDashoffset=(100-p*100).toFixed(2);
+  const sp=el('firespark'); if(sp) sp.setAttribute('transform','rotate('+(p*360).toFixed(1)+' 50 50)');
+  const cooling=G.fireCooldown>0;
+  if(btn._cool && !cooling) fireBtnFx('ready-pop',650);   // the moment the guns are loaded
+  btn._cool=cooling; btn.classList.toggle('cool',cooling);
+}
+// restartable one-shot CSS animation on the Fire button
+function fireBtnFx(cls,ms){
+  const b=el('btn-fire'); if(!b) return;
+  ['ready-pop','kick','nope'].forEach(c=>b.classList.remove(c)); void b.offsetWidth;
+  b.classList.add(cls); clearTimeout(b._fxT); b._fxT=setTimeout(()=>b.classList.remove(cls),ms);
+}
+function onFirePress(){
+  if(G.state==='play' && G.fireCooldown>0){ fireBtnFx('nope',340); return; }
+  playerBroadside();
 }
 // strip emoji/pictographs from any user-facing string (the de-emoji sweep: flowing text
 // reads cleaner as plain words; discrete UI gets real SVG icons instead).
@@ -9938,7 +10013,7 @@ document.addEventListener('visibilitychange',()=>{
 });
 window.addEventListener('pagehide', saveGame);
 window.addEventListener('beforeunload', saveGame);
-el('btn-fire').onclick=playerBroadside;
+el('btn-fire').onclick=onFirePress;
 el('shopclose').onclick=closeOverlays;
 el('btn-mute').onclick=toggleMute;
 // charm/fleet summary pill → toggle the loadout popout
@@ -10166,7 +10241,7 @@ function applyHudIcons(){
   set('btn-voyage','map'); set('btn-cruise','wheel'); set('btn-trim','flag');
   set('btn-songbook','note'); set('btn-logbook','book'); set('btn-settings','pause');
   const mb=el('btn-mute'); if(mb) mb.innerHTML=svgIcon(SND.muted?'speakerMute':'speaker');
-  const fe=document.querySelector('#btn-fire .em'); if(fe) fe.innerHTML=svgIcon('cannon',26);
+  const fe=document.querySelector('#btn-fire .em'); if(fe) fe.innerHTML=svgIcon('cannon',27);
   const gi=document.querySelector('.stat.gold .ic'); if(gi) gi.innerHTML=svgIcon('coin',17);
   const wi=document.querySelector('.stat.wood .ic'); if(wi) wi.innerHTML=svgIcon('log',18);
 }
@@ -10965,7 +11040,7 @@ function bindTouchBtn(id,fn){
     resumeAudio();
     fn();},{passive:false});
 }
-bindTouchBtn('btn-fire',playerBroadside);
+bindTouchBtn('btn-fire',onFirePress);
 bindTouchBtn('btn-mute',toggleMute);
 bindTouchBtn('btn-cruise',toggleCruise);
 bindTouchBtn('btn-trim',openTrim);
