@@ -137,6 +137,8 @@
     background:linear-gradient(180deg,var(--panel),var(--panel2));border:3px solid var(--gold-dk);
     box-shadow:var(--shadow-soft);cursor:pointer;display:grid;place-items:center;color:#f3e6c8;
     transition:transform .08s;}
+  .stat,#mapname,#btn-voyage,#btn-songbook,#btn-logbook,#btn-cruise,#btn-trim,#btn-settings{
+    box-shadow:var(--shadow-soft), inset 0 1.5px 0 rgba(255,236,190,.28), inset 0 -2px 3px rgba(0,0,0,.25);}
   #btn-cruise.on{color:#3a2410;}   /* dark wheel on the gold 'autopilot on' state */
   #btn-mute:active,#btn-voyage:active,#btn-songbook:active,#btn-logbook:active,#btn-cruise:active,#btn-trim:active,#btn-settings:active{transform:scale(.92);}
   /* ---- Settings & accessibility ---- */
@@ -233,11 +235,16 @@
      The minimap is a <canvas>, which some webviews mis-position with fixed+bottom,
      so we anchor a WRAPPER DIV (reliable) and let the canvas fill it statically. */
   #botleft{position:fixed;left:10px;bottom:0;--mini:120px;pointer-events:none;z-index:12;}
+  /* brass-bezelled chart (same metalwork as the Fire button): the wrapper is the brass,
+     the canvas sits recessed inside it with a dark lip */
   #minimapwrap{position:fixed;left:10px;bottom:calc(16px + env(safe-area-inset-bottom));
-    width:var(--mini);height:var(--mini);border-radius:16px;pointer-events:auto;z-index:12;
-    border:3px solid var(--gold);box-shadow:var(--shadow-soft);background:#1c2a47;overflow:hidden;
+    width:var(--mini);height:var(--mini);border-radius:18px;pointer-events:auto;z-index:12;
+    box-sizing:border-box;padding:4px;border:none;
+    background:radial-gradient(circle at 50% 22%, #f6d98a 0%, #d9a640 48%, #9c6b22 100%);
+    box-shadow:0 4px 0 #6e4614, 0 8px 16px rgba(0,0,0,.35), inset 0 2px 1px rgba(255,248,220,.75), inset 0 -2px 3px rgba(90,55,10,.5);
     transition:width .22s ease, height .22s ease, border-radius .22s ease;}
-  #minimap{position:static;display:block;width:100%;height:100%;border-radius:13px;}
+  #minimap{position:static;display:block;width:100%;height:100%;border-radius:14px;background:#1c2a47;
+    box-shadow:0 0 0 2px rgba(60,34,10,.7);}
   /* tap affordance — a tiny expand glyph, swapped for a close hint when popped out */
   /* collapsed: no glyph (the weather gauge owns that corner); popped out: a close hint */
   #minimapwrap::after{content:none;position:absolute;pointer-events:none;
@@ -245,16 +252,22 @@
   /* "pop out": grow to a large centred chart and dim the world behind it (huge spread
      shadow), so the player can read the whole sea, then tap again to retract. */
   #minimapwrap.expanded{left:50%;top:50%;bottom:auto;transform:translate(-50%,-50%);
-    width:min(88vw,72vh);height:min(88vw,72vh);border-width:4px;border-radius:20px;z-index:60;
-    box-shadow:0 0 0 100vmax rgba(8,16,30,.5), 0 14px 40px rgba(0,0,0,.5);}
+    width:min(88vw,72vh);height:min(88vw,72vh);padding:7px;border-radius:24px;z-index:60;
+    box-shadow:0 0 0 100vmax rgba(8,16,30,.5), 0 5px 0 #6e4614, 0 14px 40px rgba(0,0,0,.5), inset 0 2px 1px rgba(255,248,220,.75);}
+  #minimapwrap.expanded #minimap{border-radius:18px;}
   #minimapwrap.expanded::after{content:'✕  tap to close';bottom:8px;left:0;right:0;text-align:center;}
   .hpwrap{position:fixed;left:10px;
     bottom:calc(16px + env(safe-area-inset-bottom) + var(--mini) + 6px);
     width:var(--mini);pointer-events:auto;z-index:12;}
-  .hpbar{width:100%;height:14px;border-radius:999px;background:#1a2740;box-sizing:border-box;
-    border:3px solid var(--gold-dk);overflow:hidden;box-shadow:var(--shadow-soft);position:relative;}
-  .hpfill{height:100%;width:100%;border-radius:999px;
-    background:linear-gradient(180deg,#ff8d8d,var(--danger-dk));transition:width .25s;}
+  /* hull bar: a brass capsule with a recessed track, glossy red fill */
+  .hpbar{width:100%;height:16px;border-radius:999px;box-sizing:border-box;padding:3px;position:relative;
+    background:linear-gradient(180deg,#f3d58a,#c8922e 60%,#9c6b22);
+    box-shadow:0 3px 0 #6e4614, 0 5px 10px rgba(0,0,0,.3), inset 0 1px 0 rgba(255,248,220,.7);}
+  .hpbar::before{content:'';position:absolute;inset:3px;border-radius:999px;background:#1a2236;
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.6);}
+  .hpfill{position:relative;height:100%;width:100%;border-radius:999px;
+    background:linear-gradient(180deg,#ff9a8a 0%,#e5483c 55%,#b92f28 100%);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.45);transition:width .25s;}
 
   /* bottom-right action buttons */
   #botright{position:fixed;bottom:calc(16px + env(safe-area-inset-bottom));right:10px;
@@ -624,7 +637,7 @@
       <div class="hpwrap">
         <div class="hpbar"><div class="hpfill" id="hpfill"></div></div>
       </div>
-      <div id="minimapwrap"><canvas id="minimap" width="168" height="168"></canvas></div>
+      <div id="minimapwrap"><canvas id="minimap" width="336" height="336"></canvas></div>
     </div>
 
     <div id="botright">
@@ -860,6 +873,13 @@ function shade(hex,amt){ // amt -1..1
   if(amt>0){r=lerp(r,255,amt);g=lerp(g,255,amt);b=lerp(b,255,amt);}
   else{const a=-amt;r=lerp(r,0,a);g=lerp(g,0,a);b=lerp(b,0,a);}
   return `rgb(${r|0},${g|0},${b|0})`;
+}
+
+// blend two #rrggbb colours (t=0 → a, 1 → b), returned as #rrggbb so it can be shaded again
+function mixHex(a,b,t){
+  const pa=parseInt(a.slice(1),16), pb=parseInt(b.slice(1),16);
+  const ch=(sh)=>Math.round(lerp(pa>>sh&255, pb>>sh&255, t));
+  return '#'+((1<<24)|(ch(16)<<16)|(ch(8)<<8)|ch(0)).toString(16).slice(1);
 }
 
 /* ================================================================
@@ -8325,9 +8345,9 @@ function drawHull(e,z){
   const r=e.r*z;
   let body=getCss('--hull'), bodyDk=getCss('--hull-dk'), sailC='#fff7e8', accent=getCss('--gold');
   if(e.type==='cargo'){body=e.tint;bodyDk=shade(e.tint,-0.3);sailC=e.sailC||'#f0e2c4';}
-  else if(e.type==='navy'){ body=shade(e.tint,-0.32); bodyDk=shade(e.tint,-0.5); sailC=e.sailC||'#dde6f2'; accent='#cf3a3f';
+  else if(e.type==='navy'){ body=mixHex(e.tint,'#000000',0.32); bodyDk=mixHex(e.tint,'#000000',0.5); sailC=e.sailC||'#dde6f2'; accent='#cf3a3f';
     if(e.spectral){ body='#3e4e58'; bodyDk='#2a363e'; sailC='#46555e'; accent='#5ac896'; } }
-  else if(e.type==='ally'){ body=shade(e.tint||'#7da6c8',-0.26); bodyDk=shade(e.tint||'#7da6c8',-0.46); sailC=e.sailC||'#eef5ff'; accent='#3f9e6a'; }
+  else if(e.type==='ally'){ body=mixHex(e.tint||'#7da6c8','#000000',0.26); bodyDk=mixHex(e.tint||'#7da6c8','#000000',0.46); sailC=e.sailC||'#eef5ff'; accent='#3f9e6a'; }
   else if(e.type==='boss' && e.mk==='ghost'){ body='#2e3a44'; bodyDk='#1c252b'; sailC='#3a4a55'; accent='#5ac896'; }
   else if(e.type==='boss' && e.mk==='manowar'){ body='#23202b'; bodyDk='#131119'; sailC='#2a2630'; accent='#e8c34a'; }
   else if(e.type==='boss' && e.mk==='wraith'){ body='#9a8a72'; bodyDk='#5e5040'; sailC='#6f8a52'; accent='#ff7e5a'; }  // Coral Colossus: bleached wreck + kelp sails
@@ -8343,27 +8363,73 @@ function drawHull(e,z){
   const B = (e.type==='navy'||e.type==='boss'||e.type==='cargo'||e.type==='ally') ? (e.beam||1) : 1;     // beam (width) factor
   const noseY=-r*1.35*L, sternY=r*1.2*L;            // bow up (-y), stern down (+y)
 
-  // hull (rounded boat shape, pointing up = -y), lengthened by L, widened by B
-  ctx.fillStyle=bodyDk;
-  ctx.beginPath();
-  ctx.moveTo(0,noseY);
-  ctx.quadraticCurveTo(r*0.95*B,-r*0.5*L, r*0.8*B,r*0.7*L);
-  ctx.quadraticCurveTo(r*0.5*B,sternY, 0,sternY);
-  ctx.quadraticCurveTo(-r*0.5*B,sternY,-r*0.8*B,r*0.7*L);
-  ctx.quadraticCurveTo(-r*0.95*B,-r*0.5*L, 0,noseY);
-  ctx.fill();
-  // deck (lighter, inset)
-  ctx.fillStyle=body;
-  ctx.beginPath();
-  ctx.moveTo(0,noseY+r*0.25);
-  ctx.quadraticCurveTo(r*0.72*B,-r*0.4*L, r*0.6*B,r*0.6*L);
-  ctx.quadraticCurveTo(r*0.35*B,sternY-r*0.22, 0,sternY-r*0.22);
-  ctx.quadraticCurveTo(-r*0.35*B,sternY-r*0.22,-r*0.6*B,r*0.6*L);
-  ctx.quadraticCurveTo(-r*0.72*B,-r*0.4*L, 0,noseY+r*0.25);
-  ctx.fill();
-  // deck plank highlight
-  ctx.fillStyle=shade(e.type==='navy'?body:e.type==='cargo'?e.tint:'#7c4a2d',0.18);
-  ctx.beginPath();ctx.ellipse(0,r*0.1*L,r*0.4*B,r*0.85*L,0,0,TAU);ctx.fill();
+  // ---- HULL — storybook ink outline (like the key art), dark outer strake with a
+  // sunlit wale, then a warm PLANKED deck with a bevelled gunwale. Spectral/cursed
+  // hulls keep their dark decks; everyone else gets real timber underfoot. ----
+  const INK='#1d2438';
+  const ghostly = e.spectral || (e.type==='boss' && (e.mk==='ghost'||e.mk==='wraith'||e.mk==='drowned'||e.mk==='manowar'));
+  const hullPath=()=>{ ctx.beginPath(); ctx.moveTo(0,noseY);
+    ctx.quadraticCurveTo(r*0.95*B,-r*0.5*L, r*0.8*B,r*0.7*L);
+    ctx.quadraticCurveTo(r*0.5*B,sternY, 0,sternY);
+    ctx.quadraticCurveTo(-r*0.5*B,sternY,-r*0.8*B,r*0.7*L);
+    ctx.quadraticCurveTo(-r*0.95*B,-r*0.5*L, 0,noseY); ctx.closePath(); };
+  const deckPath=(k)=>{ k=k||0; ctx.beginPath(); ctx.moveTo(0,noseY+r*(0.25+k));
+    ctx.quadraticCurveTo(r*(0.72-k)*B,-r*0.4*L, r*(0.6-k)*B,r*0.6*L);
+    ctx.quadraticCurveTo(r*(0.35-k*0.6)*B,sternY-r*(0.22+k), 0,sternY-r*(0.22+k));
+    ctx.quadraticCurveTo(-r*(0.35-k*0.6)*B,sternY-r*(0.22+k),-r*(0.6-k)*B,r*0.6*L);
+    ctx.quadraticCurveTo(-r*(0.72-k)*B,-r*0.4*L, 0,noseY+r*(0.25+k)); ctx.closePath(); };
+  ctx.lineJoin='round'; ctx.lineCap='round';
+  hullPath(); ctx.fillStyle=bodyDk; ctx.fill();
+  ctx.strokeStyle=INK; ctx.lineWidth=2.4*z; ctx.stroke();
+  // sunlit wale just inside the outline (top-left catches the light)
+  ctx.save(); hullPath(); ctx.clip();
+  ctx.strokeStyle='rgba(255,236,200,0.22)'; ctx.lineWidth=2.2*z;
+  ctx.translate(-0.9*z,-0.9*z); hullPath(); ctx.stroke(); ctx.restore();
+  // deck timber
+  const deckC = ghostly ? body
+    : e.type==='player' ? mixHex(String(body).trim(),'#c08a52',0.55)
+    : e.type==='navy'   ? '#d6b383'
+    : e.type==='ally'   ? '#cfa36c'
+    : mixHex(e.tint||'#c9a06b','#c8955a',0.55);
+  deckPath(); ctx.fillStyle=deckC; ctx.fill();
+  ctx.save(); deckPath(); ctx.clip();
+  // planks run fore-and-aft; a soft shade on the lee side gives the deck some curve
+  ctx.strokeStyle=ghostly?'rgba(0,0,0,0.25)':'rgba(70,38,14,0.22)'; ctx.lineWidth=0.8*z;
+  const pg=Math.max(2.6*z, r*0.15*B);
+  for(let x=-r*0.9*B; x<=r*0.9*B; x+=pg){ ctx.beginPath(); ctx.moveTo(x,noseY); ctx.lineTo(x,sternY); ctx.stroke(); }
+  ctx.fillStyle='rgba(40,20,8,0.10)'; ctx.fillRect(r*0.12*B,noseY,r*B,sternY-noseY);
+  ctx.fillStyle='rgba(255,245,220,0.10)'; ctx.fillRect(-r*B,noseY,r*0.5*B,sternY-noseY);
+  ctx.restore();
+  // gunwale: dark inner lip + bright cap
+  deckPath(); ctx.strokeStyle='rgba(30,16,6,0.45)'; ctx.lineWidth=1.6*z; ctx.stroke();
+  deckPath(-0.03); ctx.strokeStyle=ghostly?'rgba(160,220,200,0.18)':'rgba(255,238,205,0.4)'; ctx.lineWidth=0.9*z; ctx.stroke();
+  // deck furniture so each ship reads at a glance: grated hatch on everyone;
+  // merchants carry their trade (crates & barrels; rich ships a glinting chest)
+  if(!ghostly && e.type!=='player'){
+    const hw=r*0.22*B, hh=r*0.2;
+    ctx.fillStyle='#6a4426'; roundRect(-hw/2, r*0.05*L-hh/2, hw, hh, 1.5*z); ctx.fill();
+    ctx.strokeStyle='rgba(30,14,4,0.7)'; ctx.lineWidth=0.7*z;
+    for(let k=1;k<3;k++){ ctx.beginPath(); ctx.moveTo(-hw/2+hw*k/3, r*0.05*L-hh/2); ctx.lineTo(-hw/2+hw*k/3, r*0.05*L+hh/2); ctx.stroke(); }
+    ctx.strokeStyle=INK; ctx.lineWidth=0.9*z; roundRect(-hw/2, r*0.05*L-hh/2, hw, hh, 1.5*z); ctx.stroke();
+  }
+  if(e.type==='cargo'){
+    const cs=r*0.17;
+    const crate=(x,y,col)=>{ ctx.fillStyle=col; ctx.fillRect(x-cs/2,y-cs/2,cs,cs);
+      ctx.strokeStyle='rgba(60,30,8,0.55)'; ctx.lineWidth=0.7*z;
+      ctx.beginPath(); ctx.moveTo(x-cs/2,y-cs/2); ctx.lineTo(x+cs/2,y+cs/2); ctx.moveTo(x+cs/2,y-cs/2); ctx.lineTo(x-cs/2,y+cs/2); ctx.stroke();
+      ctx.strokeStyle=INK; ctx.lineWidth=0.9*z; ctx.strokeRect(x-cs/2,y-cs/2,cs,cs); };
+    const barrel=(x,y)=>{ ctx.fillStyle='#9a6432'; ctx.beginPath(); ctx.arc(x,y,cs*0.48,0,TAU); ctx.fill();
+      ctx.strokeStyle='#d8b24a'; ctx.lineWidth=0.7*z; ctx.beginPath(); ctx.arc(x,y,cs*0.3,0,TAU); ctx.stroke();
+      ctx.strokeStyle=INK; ctx.lineWidth=0.9*z; ctx.beginPath(); ctx.arc(x,y,cs*0.48,0,TAU); ctx.stroke(); };
+    crate(-r*0.2*B, r*0.42*L, '#c79a5c'); crate(r*0.16*B, r*0.48*L, '#b88a4e'); barrel(r*0.24*B,-r*0.28*L);
+    if(L>1.1) { crate(-r*0.16*B,-r*0.5*L,'#c79a5c'); barrel(-r*0.24*B,-r*0.2*L); }
+    if(e.rich){ const gx=0, gy=r*0.62*L, gw=r*0.26, gh=r*0.17;
+      ctx.fillStyle='#7a4a1d'; roundRect(gx-gw/2,gy-gh/2,gw,gh,1.5*z); ctx.fill();
+      ctx.fillStyle='#ffce5c'; ctx.fillRect(gx-gw/2,gy-gh*0.12,gw,gh*0.24);
+      ctx.strokeStyle=INK; ctx.lineWidth=0.9*z; roundRect(gx-gw/2,gy-gh/2,gw,gh,1.5*z); ctx.stroke();
+      const tw=0.5+0.5*Math.sin(G.t*4+(e.bob||0)); ctx.fillStyle='rgba(255,246,200,'+(0.85*tw)+')';
+      ctx.beginPath(); ctx.arc(gx+gw*0.3,gy-gh*0.4,1.4*z,0,TAU); ctx.fill(); }
+  }
 
   // ---- NAVY gun ports: a row of dark squares with cannon muzzles down each side ----
   const shipBossGuns = (e.type==='boss' && (e.mk==='manowar'||e.mk==='wraith'||e.mk==='drowned'));
@@ -8390,9 +8456,9 @@ function drawHull(e,z){
         ctx.save();ctx.translate(-hw*0.96,yy);ctx.strokeRect(-2.6*z*gz,-2.6*z*gz,5.2*z*gz,5.2*z*gz);ctx.restore();
         ctx.save();ctx.translate( hw*0.96,yy);ctx.strokeRect(-2.6*z*gz,-2.6*z*gz,5.2*z*gz,5.2*z*gz);ctx.restore();
       }
-      ctx.fillStyle='#1a1a1f';
-      ctx.save();ctx.translate(-hw,yy);roundRect(-3.5*z*gz,-1.6*z*gz,5*z*gz,3.2*z*gz,1.5*z);ctx.fill();ctx.restore();
-      ctx.save();ctx.translate( hw,yy);roundRect(-1.5*z*gz,-1.6*z*gz,5*z*gz,3.2*z*gz,1.5*z);ctx.fill();ctx.restore();
+      ctx.fillStyle='#2a2d36'; ctx.strokeStyle=INK; ctx.lineWidth=0.9*z;
+      ctx.save();ctx.translate(-hw,yy);roundRect(-3.5*z*gz,-1.6*z*gz,5*z*gz,3.2*z*gz,1.5*z);ctx.fill();ctx.stroke();ctx.restore();
+      ctx.save();ctx.translate( hw,yy);roundRect(-1.5*z*gz,-1.6*z*gz,5*z*gz,3.2*z*gz,1.5*z);ctx.fill();ctx.stroke();ctx.restore();
     }
     // gilded trim stripe on heavies (galleon/manowar) — very British
     if(e.beam>=1.1 || shipBossGuns){
@@ -8403,9 +8469,13 @@ function drawHull(e,z){
       ctx.moveTo(0,noseY+r*0.3);
       ctx.quadraticCurveTo(-r*0.66*B,-r*0.4*L,-r*0.55*B,r*0.6*L);
       ctx.stroke();
-      // raised stern castle (poop deck) — the chunky aft of a man-o'-war
-      ctx.fillStyle=shade(body,0.06);
-      roundRect(-r*0.45*B, sternY-r*0.5, r*0.9*B, r*0.5, 4*z);ctx.fill();
+      // raised stern castle (poop deck) — the chunky aft of a man-o'-war, its rail
+      // inked like the hull and a row of lit stern windows along the transom
+      ctx.fillStyle=ghostly?shade(String(body).trim(),0.06):mixHex(deckC,'#3a2210',0.18);
+      roundRect(-r*0.45*B, sternY-r*0.5, r*0.9*B, r*0.42, 4*z);ctx.fill();
+      ctx.strokeStyle=INK;ctx.lineWidth=1.3*z;roundRect(-r*0.45*B, sternY-r*0.5, r*0.9*B, r*0.42, 4*z);ctx.stroke();
+      ctx.fillStyle=ghostly?'rgba(120,230,190,0.7)':'#ffd978';
+      for(let k=0;k<4;k++){ ctx.fillRect(-r*0.3*B+k*r*0.2*B-r*0.04, sternY-r*0.16, r*0.08, r*0.06); }
     }
   }
 
@@ -8427,8 +8497,9 @@ function drawHull(e,z){
       const t=cn===1?0.5:i/(cn-1);
       const yy=lerp(yTop, yBot, t);
       const hw=halfW(yy);
-      ctx.save();ctx.translate(-hw,yy);roundRect(-4*z,-bh*0.5*z,8*z,bh*z,1.6*z);ctx.fill();ctx.restore();
-      ctx.save();ctx.translate( hw,yy);roundRect(-4*z,-bh*0.5*z,8*z,bh*z,1.6*z);ctx.fill();ctx.restore();
+      ctx.strokeStyle=INK; ctx.lineWidth=0.9*z;
+      ctx.save();ctx.translate(-hw,yy);roundRect(-4*z,-bh*0.5*z,8*z,bh*z,1.6*z);ctx.fill();ctx.stroke();ctx.restore();
+      ctx.save();ctx.translate( hw,yy);roundRect(-4*z,-bh*0.5*z,8*z,bh*z,1.6*z);ctx.fill();ctx.stroke();ctx.restore();
     }
     // ---- CREW upgrade: little sailors on deck, busy at work ----
     // count scales with the crew upgrade (1 base + up to ~5). Deterministic slots so
@@ -8549,9 +8620,12 @@ function drawHull(e,z){
   ctx.translate(0,noseY+r*0.35);
   const fw=Math.sin(G.t*5+e.bob)*0.12;
   ctx.fillStyle = e.type==='player'?(currentCosmetic('flag').col||'#222'):(e.type==='navy'?'#cf3a3f':e.type==='ally'?'#3f9e6a':'#5e3620');
-  ctx.beginPath();ctx.moveTo(0,0);ctx.lineTo(r*0.55,r*0.1+fw*r);ctx.lineTo(0,r*0.32);ctx.fill();
+  ctx.beginPath();ctx.moveTo(0,0);ctx.quadraticCurveTo(r*0.3,r*0.02+fw*r*0.5,r*0.55,r*0.1+fw*r);ctx.quadraticCurveTo(r*0.28,r*0.2+fw*r*0.5,0,r*0.32);ctx.closePath();ctx.fill();
+  ctx.strokeStyle='#1d2438';ctx.lineWidth=1.1*z;ctx.lineJoin='round';ctx.stroke();
   if(e.type==='player'){ // skull dot
     ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(r*0.22,r*0.16,r*0.07,0,TAU);ctx.fill();}
+  else if(e.type==='navy'){ // white band — the Crown's ensign
+    ctx.strokeStyle='#fff6e6';ctx.lineWidth=1.1*z;ctx.beginPath();ctx.moveTo(r*0.04,r*0.16);ctx.lineTo(r*0.36,r*0.16+fw*r*0.6);ctx.stroke();}
   ctx.restore();
 }
 /* a small carved figurehead at the prow (cosmetic) */
@@ -8602,23 +8676,45 @@ function drawSailEmblem(my, r, z, sailC){
 }
 
 /* one mast with a billowing two-lobe sail, centered at vertical position my */
+/* One mast seen from above: a billowing square sail (the game's two-lobed leaf shape,
+   now inked), its yard spar across the top, canvas seams, and the round crow's nest. */
 function drawMastSail(my, r, z, sailC, sailW, bodyDk){
-  ctx.strokeStyle=bodyDk;ctx.lineWidth=3.2*z;ctx.lineCap='round';
-  ctx.beginPath();ctx.moveTo(0,my+r*0.5);ctx.lineTo(0,my-r*0.55);ctx.stroke();
-  // right lobe
-  ctx.fillStyle=sailC;
-  ctx.beginPath();
-  ctx.moveTo(0,my-r*0.5);
-  ctx.quadraticCurveTo(r*0.7*sailW,my-r*0.2, r*0.5*sailW, my+r*0.35);
-  ctx.quadraticCurveTo(r*0.18,my+r*0.18, 0, my+r*0.28);
-  ctx.lineTo(0,my-r*0.5);ctx.fill();
-  // left lobe (shaded)
-  ctx.fillStyle=shade(sailC,-0.08);
-  ctx.beginPath();
-  ctx.moveTo(0,my-r*0.5);
-  ctx.quadraticCurveTo(-r*0.7*sailW,my-r*0.2,-r*0.5*sailW, my+r*0.35);
-  ctx.quadraticCurveTo(-r*0.18,my+r*0.18, 0, my+r*0.28);
-  ctx.lineTo(0,my-r*0.5);ctx.fill();
+  const INK='#1d2438';
+  ctx.lineCap='round'; ctx.lineJoin='round';
+  // mast (mostly hidden under the canvas; peeks out fore and aft)
+  ctx.strokeStyle=bodyDk; ctx.lineWidth=3.2*z;
+  ctx.beginPath(); ctx.moveTo(0,my+r*0.5); ctx.lineTo(0,my-r*0.55); ctx.stroke();
+  const top=my-r*0.5, bot=my+r*0.28, tipY=my+r*0.35, tipX=r*0.5*sailW, bulge=r*0.7*sailW;
+  const sail=()=>{ ctx.beginPath(); ctx.moveTo(0,top);
+    ctx.quadraticCurveTo(bulge,my-r*0.2, tipX,tipY);
+    ctx.quadraticCurveTo(r*0.18,my+r*0.18, 0,bot);
+    ctx.quadraticCurveTo(-r*0.18,my+r*0.18, -tipX,tipY);
+    ctx.quadraticCurveTo(-bulge,my-r*0.2, 0,top); ctx.closePath(); };
+  // canvas: lit on the left, falling into shade on the right, full in the belly
+  const sc=String(sailC);
+  const hexOk=sc[0]==='#'&&sc.length===7;
+  const g=ctx.createLinearGradient(-bulge,0,bulge,0);
+  g.addColorStop(0, hexOk?mixHex(sc,'#ffffff',0.35):sc);
+  g.addColorStop(0.45, sc);
+  g.addColorStop(1, hexOk?shade(sc,-0.16):sc);
+  sail(); ctx.fillStyle=g; ctx.fill();
+  ctx.save(); sail(); ctx.clip();
+  // seams following the curve of the foot
+  ctx.strokeStyle='rgba(60,50,40,0.14)'; ctx.lineWidth=0.8*z;
+  for(const f of [0.35,0.65]){ const yy=lerp(top,bot,f);
+    ctx.beginPath(); ctx.moveTo(-bulge,yy+r*0.12); ctx.quadraticCurveTo(0,yy-r*0.06,bulge,yy+r*0.12); ctx.stroke(); }
+  // centre fold where the canvas meets the mast
+  ctx.strokeStyle='rgba(40,30,20,0.18)'; ctx.lineWidth=1*z;
+  ctx.beginPath(); ctx.moveTo(0,top); ctx.lineTo(0,bot); ctx.stroke();
+  ctx.restore();
+  sail(); ctx.strokeStyle=INK; ctx.lineWidth=1.5*z; ctx.stroke();
+  // yard spar lashed across the head of the sail
+  const yy=top+r*0.14, yw=r*0.42*sailW;
+  ctx.strokeStyle=INK; ctx.lineWidth=2.6*z; ctx.beginPath(); ctx.moveTo(-yw,yy); ctx.lineTo(yw,yy); ctx.stroke();
+  ctx.strokeStyle='#9a6a3e'; ctx.lineWidth=1.2*z; ctx.beginPath(); ctx.moveTo(-yw,yy); ctx.lineTo(yw,yy); ctx.stroke();
+  // crow's nest / masthead
+  ctx.fillStyle='#6b4326'; ctx.beginPath(); ctx.arc(0,yy,2.4*z,0,TAU); ctx.fill();
+  ctx.strokeStyle=INK; ctx.lineWidth=1*z; ctx.stroke();
 }
 
 function drawEel(e,z){
@@ -9504,14 +9600,14 @@ function toggleMinimap(){
   _miniExpanded=!_miniExpanded;
   const wrap=el('minimapwrap'), c=el('minimap');
   if(wrap) wrap.classList.toggle('expanded',_miniExpanded);
-  if(c){ const res=_miniExpanded?512:168; if(c.width!==res){ c.width=res; c.height=res; } }
+  if(c){ const res=_miniExpanded?768:336; if(c.width!==res){ c.width=res; c.height=res; } }
   if(typeof sfx!=='undefined' && sfx.click) sfx.click();
 }
 function collapseMinimap(){
   _miniExpanded=false;
   const wrap=el('minimapwrap'), c=el('minimap');
   if(wrap) wrap.classList.remove('expanded');
-  if(c && c.width!==168){ c.width=168; c.height=168; }
+  if(c && c.width!==336){ c.width=336; c.height=336; }
 }
 { const _mw=el('minimapwrap'); if(_mw) _mw.addEventListener('click',toggleMinimap); }
 /* ================= FOG OF WAR (per-sea map discovery) =================
@@ -9552,13 +9648,19 @@ function drawMinimap(){
   x.textAlign='center'; x.textBaseline='middle';
   const glyph=(t,gx,gy,px)=>{ x.font='700 '+px+'px sans-serif'; x.fillText(t,gx,gy); };
   // a little ship silhouette (real-map marker, not a circle/triangle), pointing along heading
+  const INK='#1d2438';
   const boat=(cx,cy,ang,r,col)=>{ x.save();x.translate(cx,cy);x.rotate((ang||0)+Math.PI/2);x.fillStyle=col;
-    x.beginPath();x.moveTo(0,-r);x.quadraticCurveTo(r*0.62,-r*0.12,r*0.5,r*0.78);x.lineTo(-r*0.5,r*0.78);x.quadraticCurveTo(-r*0.62,-r*0.12,0,-r);x.closePath();x.fill();x.restore(); };
+    x.beginPath();x.moveTo(0,-r);x.quadraticCurveTo(r*0.62,-r*0.12,r*0.5,r*0.78);x.lineTo(-r*0.5,r*0.78);x.quadraticCurveTo(-r*0.62,-r*0.12,0,-r);x.closePath();
+    x.strokeStyle=INK;x.lineWidth=1.1*k;x.lineJoin='round';x.stroke();x.fill();x.restore(); };
   const tint=(G.world.def&&G.world.def.tint)||'#2f6f93';
   x.clearRect(0,0,N,N);
-  x.fillStyle=shade(tint,-0.04); x.fillRect(0,0,N,N);
+  x.fillStyle='#0b1724'; x.fillRect(0,0,N,N);                 // off the edge of the chart
   // PLAYER-CENTRED: world scrolls under your ship (always dead-centre)
   x.save(); x.translate(N/2 - s.x*sc, N/2 - s.y*sc);
+  x.fillStyle=shade(tint,-0.04); x.fillRect(0,0,S*sc,S*sc);
+  { const step=S/8; x.strokeStyle='rgba(255,255,255,0.07)'; x.lineWidth=1*k;
+    for(let g=step; g<S; g+=step){ x.beginPath(); x.moveTo(g*sc,0); x.lineTo(g*sc,S*sc); x.moveTo(0,g*sc); x.lineTo(S*sc,g*sc); x.stroke(); }
+    x.strokeStyle='rgba(255,236,190,0.28)'; x.lineWidth=1.4*k; x.strokeRect(0,0,S*sc,S*sc); }   // edge of the known sea
   const miniIsle=(is,scale)=>{
     const cx=is.x*sc, cy=is.y*sc, r=is.r*scale*sc;
     if(!is.pts||!is.offs){ x.beginPath();x.arc(cx,cy,r,0,TAU);x.closePath(); return; }
@@ -9575,12 +9677,16 @@ function drawMinimap(){
     if(is.rock || !G.discovered.has(is.id)) continue;
     const rpx=is.r*sc;
     if(rpx<2.8){ x.fillStyle=is.hasCove?'#ffce5c':'#7ece6a'; x.beginPath();x.arc(is.x*sc,is.y*sc,Math.max(2,2.4*k),0,TAU);x.fill(); continue; }
-    miniIsle(is,1.14); x.fillStyle='#ead7a4'; x.fill();
+    miniIsle(is,1.14); x.fillStyle='#ead7a4'; x.fill(); x.strokeStyle='rgba(29,36,56,0.75)'; x.lineWidth=1*k; x.stroke();
     miniIsle(is,0.84); x.fillStyle=is.explorable?'#5fb152':'#7ece6a'; x.fill();
     if(is.hasCove){ x.fillStyle='#caa23f'; x.beginPath();x.arc(is.x*sc,is.y*sc,Math.max(2.4*k,rpx*0.42),0,TAU);x.fill(); }
   }
   // FOG VEIL — darken everything you haven't sailed near (smoothed = soft edges)
-  if(G._fogCanvas && G.fog){ x.imageSmoothingEnabled=true; x.drawImage(G._fogCanvas,0,0,FOGN,FOGN, 0,0, S*sc, S*sc); }
+  if(G._fogCanvas && G.fog){ x.imageSmoothingEnabled=true;
+    const cw=S*sc/FOGN, taps=[[0,0],[-0.6,0],[0.6,0],[0,-0.6],[0,0.6]];
+    x.globalAlpha=0.42;
+    for(const [ox,oy] of taps) x.drawImage(G._fogCanvas,0,0,FOGN,FOGN, ox*cw,oy*cw, S*sc, S*sc);
+    x.globalAlpha=1; }
   // ---- markers, on TOP of the veil and only where you've EXPLORED ----
   for(const is of G.world.islands){ const ca=is.cache; if(!ca||ca.state==='hidden'||ca.state==='looted')continue;
     if(!fogExplored(ca.digX,ca.digY))continue;
@@ -9609,8 +9715,16 @@ function drawMinimap(){
     x.fillStyle='rgba(255,40,40,'+(0.22+0.2*pulse)+')'; x.beginPath();x.arc(boss.x*sc,boss.y*sc,7*k,0,TAU);x.fill();
     boat(boss.x*sc,boss.y*sc,boss.a,4.2*k,'#ff3b3b'); }
   // YOU — a bright ship at dead-centre, pointing your heading
-  boat(s.x*sc,s.y*sc,s.a,5*k,'#fff3cf');
+  { const pr=(9+Math.sin(G.t*3)*1.2)*k;
+    const hg=x.createRadialGradient(s.x*sc,s.y*sc,0,s.x*sc,s.y*sc,pr);
+    hg.addColorStop(0,'rgba(255,214,110,0.55)'); hg.addColorStop(1,'rgba(255,214,110,0)');
+    x.fillStyle=hg; x.beginPath(); x.arc(s.x*sc,s.y*sc,pr,0,TAU); x.fill(); }
+  boat(s.x*sc,s.y*sc,s.a,5.4*k,'#fff3cf');
   x.restore();   // end player-centred world transform
+  // recessed-glass vignette: the chart reads as set INTO the brass bezel
+  { const vg=x.createRadialGradient(N/2,N/2,N*0.32,N/2,N/2,N*0.72);
+    vg.addColorStop(0,'rgba(0,0,0,0)'); vg.addColorStop(1,'rgba(4,12,22,0.42)');
+    x.fillStyle=vg; x.fillRect(0,0,N,N); }
   // WIND — a small weather gauge tucked in the chart's top-right corner: a brass-rimmed
   // dial whose needle points downwind, with a rim arc that grows with wind strength.
   if(G.wind){

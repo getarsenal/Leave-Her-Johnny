@@ -229,6 +229,11 @@ git push origin main      # → Codemagic builds → TestFlight
 
 *(Newest first. The code is always the source of truth — update this list when you change behavior.)*
 
+- **2026-10 — Art pass (v2.2):**
+  - **Ships (`drawHull`/`drawMastSail`):** storybook ink outline (`#1d2438`, matches the key art), sunlit wale, planked timber decks with a bevelled gunwale, grated hatch; merchants carry crates/barrels (rich ships a glinting chest); sails are inked with a billow gradient, seams, yard spar and crow's nest; flags inked. Navy/ally hull colours are now hex (`mixHex`) — `shade()` only accepts `#rrggbb`, and feeding it an `rgb()` string returns black (that was the black stern-castle block).
+  - **Shadows:** `drawEntityShadow` casts the hull silhouette down-sun, turning with heading and heeling on turns.
+  - **Fire button:** round brass "porthole" whose bezel is the reload dial (burning-fuse spark), `assets/fire-burst.png` icon on a navy face; `G.fireCooldownMax` drives the dial.
+  - **Minimap:** brass bezel (CSS), canvas 336px (768 expanded) for retina, world-anchored graticule, inked coasts, feathered fog (multi-tap, no `ctx.filter` — iOS), haloed player, off-chart area dark, weather gauge. HP bar is a matching brass capsule.
 - **2026-06 — Feature dump (shuffle, joystick, travel speed, cosmetics, seagulls, ambient, ship art, whaling):**
   - **Shanty shuffle:** 🔀 toggle in the Songbook auto-advances through random unlocked shanties (`_shuffleMode`, `toggleShuffle`, `nextShuffleId`).
   - **Pinned joystick:** `onMove` no longer slides the anchor — it stays where you first press; knob clamps to the ring.
