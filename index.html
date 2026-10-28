@@ -366,6 +366,89 @@
     border:5px solid var(--gold);border-radius:28px;padding:26px 24px;max-width:440px;width:100%;
     box-shadow:0 16px 40px rgba(0,0,0,.4), inset 0 3px 0 rgba(255,255,255,.6);text-align:center;
     max-height:88vh;overflow-y:auto;}
+  /* every modal: parchment in a brass frame (same metalwork as the Fire button), a
+     faint stitched inner border, and a springy pop-in */
+  .card{border:none!important;
+    background:radial-gradient(120% 80% at 50% 0%, #fffaf0 0%, #fff1d6 55%, #fbe3b8 100%);
+    box-shadow:0 0 0 4px #e0b04e, 0 0 0 6px #8a5a1c, 0 7px 0 6px #6e4614, 0 22px 44px rgba(0,0,0,.5),
+      inset 0 2px 0 rgba(255,255,255,.8), inset 0 -3px 0 rgba(201,150,60,.25);
+    outline:2px dashed rgba(181,101,29,.22);outline-offset:-9px;}
+  .overlay.show:not(#ov-start) .card{animation:cardIn .42s cubic-bezier(.2,1.35,.4,1) both;}
+  @keyframes cardIn{from{transform:translateY(26px) scale(.9);opacity:0}to{transform:none;opacity:1}}
+  /* ---- END-OF-RUN card: medallion, ribbon title, stat chips, mood particles ---- */
+  .card.endcard{position:relative;overflow:visible;padding-top:52px;margin-top:38px;max-width:400px;}
+  .ec-fx{position:absolute;inset:0;border-radius:28px;overflow:hidden;pointer-events:none;z-index:0;}
+  .endcard>*:not(.ec-fx):not(.ec-medal){position:relative;z-index:1;}
+  .ec-medal{position:absolute;top:-40px;left:50%;margin-left:-40px;width:80px;height:80px;border-radius:50%;z-index:2;
+    background:radial-gradient(circle at 50% 28%, #f6d98a 0%, #d9a640 48%, #9c6b22 100%);
+    box-shadow:0 5px 0 #6e4614, 0 10px 18px rgba(0,0,0,.35), inset 0 2px 1px rgba(255,248,220,.8);
+    display:grid;place-items:center;}
+  .ec-medal::before{content:'';position:absolute;inset:9px;border-radius:50%;
+    background:radial-gradient(120% 110% at 50% 20%, #4d6ea3 0%, #2c4470 45%, #1b2a48 80%, #121d33 100%);
+    box-shadow:inset 0 3px 5px rgba(190,220,255,.35), inset 0 -5px 9px rgba(0,0,0,.45), 0 0 0 2px rgba(80,40,10,.6);}
+  .ec-medal svg{position:relative;color:#ffe2a0;filter:drop-shadow(0 0 6px rgba(255,190,80,.45));}
+  .ec-medal::after{content:'';position:absolute;inset:-26px;border-radius:50%;z-index:-1;opacity:0;
+    background:repeating-conic-gradient(rgba(255,214,110,.55) 0 9deg, rgba(255,214,110,0) 9deg 22.5deg);
+    -webkit-mask:radial-gradient(circle, #000 40%, transparent 70%);mask:radial-gradient(circle, #000 40%, transparent 70%);}
+  .ec-ribbon{display:inline-block;margin:0 auto 4px;padding:5px 26px 7px;border-radius:6px;
+    background:linear-gradient(180deg,#3d5c8f,#24375c);box-shadow:0 3px 0 #16233d, inset 0 1px 0 rgba(255,255,255,.25);}
+  .ec-ribbon::before,.ec-ribbon::after{content:'';position:absolute;top:8px;width:18px;height:100%;z-index:-1;
+    background:#1b2a48;}
+  .ec-ribbon::before{left:-12px;clip-path:polygon(0 0,100% 0,100% 100%,0 100%,40% 50%);}
+  .ec-ribbon::after{right:-12px;clip-path:polygon(0 0,100% 0,60% 50%,100% 100%,0 100%);}
+  .ec-ribbon h2{margin:0!important;color:#fff3da!important;font-size:clamp(18px,5.6vw,25px)!important;letter-spacing:.4px;white-space:nowrap;
+    text-shadow:0 2px 0 rgba(0,0,0,.3);}
+  .endcard .ec-flavor{font-style:italic;color:#7a6448;margin:10px 4px 2px;}
+  .ec-stats{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;margin:12px 0 2px;}
+  .ec-stats:empty{display:none;}
+  .ec-chip{display:flex;flex-direction:column;align-items:center;min-width:86px;padding:7px 12px 6px;border-radius:14px;
+    background:linear-gradient(180deg,#2c4470,#1d2c4a);box-shadow:0 0 0 2px #d9a640, 0 3px 0 2px #6e4614, inset 0 1px 0 rgba(255,255,255,.18);}
+  .ec-chip .ec-top{display:flex;align-items:center;gap:5px;font:800 18px/1.1 'Baloo 2',sans-serif;color:#ffd77a;}
+  .ec-chip .ec-top svg{color:#ffd77a;}
+  .ec-chip .ec-l{font:700 10px/1.2 'Baloo 2',sans-serif;letter-spacing:.7px;text-transform:uppercase;color:#bcd2ea;margin-top:1px;}
+  .ec-chip.hi{position:relative;overflow:hidden;background:linear-gradient(180deg,#ffd66e,#e8a530);
+    box-shadow:0 0 0 2px #fff1bf, 0 3px 0 2px #8a5a1c, 0 0 16px rgba(255,200,80,.7);}
+  .ec-chip.hi .ec-top,.ec-chip.hi .ec-top svg{color:#5e3620;}
+  .ec-chip.hi .ec-l{color:#7a4a1d;}
+  .ec-chip.hi::after{content:'';position:absolute;inset:0;background:linear-gradient(110deg,transparent 30%,rgba(255,255,255,.75) 48%,transparent 64%);
+    transform:translateX(-120%);animation:ecShine 2.4s ease-in-out .5s infinite;}
+  @keyframes ecShine{0%{transform:translateX(-120%)}45%,100%{transform:translateX(120%)}}
+  .endcard #endbtn2{background:#1c3a4a;color:#bfe6f2;box-shadow:0 5px 0 #0f2330,0 8px 16px rgba(0,0,0,.25);}
+  .endcard .ec-foot{font-size:14px!important;color:#8a7458;margin:10px 0 0;}
+  .endcard .ec-foot:empty{display:none;}
+  /* staggered reveal for the contents */
+  .overlay.show .endcard .ec-medal{animation:ecMedal .6s cubic-bezier(.2,1.6,.4,1) .12s both;}
+  .overlay.show .endcard .ec-ribbon{animation:ecIn .4s ease-out .22s both;}
+  .overlay.show .endcard .ec-flavor{animation:ecIn .4s ease-out .3s both;}
+  .overlay.show .endcard .ec-chip{animation:ecChip .45s cubic-bezier(.2,1.5,.4,1) both;}
+  .overlay.show .endcard .ec-chip:nth-child(1){animation-delay:.38s}.overlay.show .endcard .ec-chip:nth-child(2){animation-delay:.46s}
+  .overlay.show .endcard .ec-chip:nth-child(3){animation-delay:.54s}.overlay.show .endcard .ec-chip:nth-child(4){animation-delay:.62s}
+  .overlay.show .endcard .bigbtn{animation:ecIn .4s ease-out .6s both;}
+  @keyframes ecMedal{from{transform:scale(.3) rotate(-30deg);opacity:0}to{transform:none;opacity:1}}
+  @keyframes ecIn{from{transform:translateY(8px);opacity:0}to{transform:none;opacity:1}}
+  @keyframes ecChip{from{transform:scale(.6);opacity:0}to{transform:none;opacity:1}}
+  /* moods */
+  .endcard.tone-sunk .ec-medal svg,.endcard.tone-lost .ec-medal svg{animation:ecRock 3.2s ease-in-out infinite;}
+  @keyframes ecRock{0%,100%{transform:rotate(-8deg)}50%{transform:rotate(8deg) translateY(2px)}}
+  .endcard.tone-win .ec-ribbon,.endcard.tone-legend .ec-ribbon{background:linear-gradient(180deg,#e05a48,#b3352c);box-shadow:0 3px 0 #7a1f18, inset 0 1px 0 rgba(255,255,255,.3);}
+  .endcard.tone-win .ec-ribbon::before,.endcard.tone-win .ec-ribbon::after,.endcard.tone-legend .ec-ribbon::before,.endcard.tone-legend .ec-ribbon::after{background:#8a2a22;}
+  .endcard.tone-win .ec-medal::after,.endcard.tone-legend .ec-medal::after{opacity:1;animation:ecRays 14s linear infinite;}
+  @keyframes ecRays{to{transform:rotate(360deg)}}
+  .ec-fx i{position:absolute;display:block;border-radius:50%;}
+  .ec-fx i.bub{bottom:-14px;width:var(--s);height:var(--s);border:1.5px solid rgba(70,120,170,.35);background:rgba(160,205,235,.18);
+    animation:ecBub var(--d) ease-in var(--dl) infinite;}
+  @keyframes ecBub{0%{transform:translate(0,0);opacity:0}15%{opacity:1}100%{transform:translate(var(--w),-460px);opacity:0}}
+  .ec-fx i.coin{top:-16px;width:var(--s);height:var(--s);background:radial-gradient(circle at 35% 30%,#fff2b0,#ffc83e 45%,#c8861c);
+    box-shadow:inset 0 0 0 1.5px rgba(140,80,10,.55);animation:ecCoin var(--d) linear var(--dl) infinite;}
+  @keyframes ecCoin{0%{transform:translateY(0) rotateY(0);opacity:0}10%{opacity:1}90%{opacity:1}100%{transform:translateY(520px) rotateY(720deg);opacity:0}}
+  /* encounter cards get the same medallion for their icon */
+  #ev-emoji{width:72px;height:72px;margin:0 auto 10px!important;border-radius:50%;display:grid;place-items:center;font-size:30px!important;
+    position:relative;background:radial-gradient(circle at 50% 28%, #f6d98a 0%, #d9a640 48%, #9c6b22 100%);
+    box-shadow:0 4px 0 #6e4614, 0 8px 14px rgba(0,0,0,.3), inset 0 2px 1px rgba(255,248,220,.8);color:#ffe2a0;}
+  #ev-emoji::before{content:'';position:absolute;inset:8px;border-radius:50%;z-index:0;
+    background:radial-gradient(120% 110% at 50% 20%, #4d6ea3 0%, #2c4470 45%, #1b2a48 80%);box-shadow:inset 0 -4px 7px rgba(0,0,0,.45);}
+  #ev-emoji>*{position:relative;z-index:1;}
+  @media (prefers-reduced-motion:reduce){ .ec-fx{display:none;} .endcard .ec-medal::after{animation:none!important;} .ec-chip.hi::after{animation:none;} }
   .card h1{font-size:34px;font-weight:800;color:#b5651d;text-shadow:0 2px 0 #fff3d6;
     letter-spacing:.5px;line-height:1;}
   /* start-menu hero artwork (the app icon, framed) */
@@ -728,9 +811,13 @@
   </div>
 
   <div class="overlay" id="ov-end">
-    <div class="card">
-      <h2 id="endtitle">Map Cleared!</h2>
-      <p id="endbody"></p>
+    <div class="card endcard" id="endcard">
+      <div class="ec-fx" id="ec-fx" aria-hidden="true"></div>
+      <div class="ec-medal" id="ec-medal" aria-hidden="true"></div>
+      <div class="ec-ribbon"><h2 id="endtitle">Map Cleared!</h2></div>
+      <p id="endbody" class="ec-flavor"></p>
+      <div class="ec-stats" id="ec-stats"></div>
+      <p class="ec-foot" id="ec-foot"></p>
       <button class="bigbtn gold" id="endbtn">Continue</button>
       <button class="bigbtn" id="endbtn2" style="display:none">Stay &amp; Explore</button>
     </div>
@@ -9790,16 +9877,12 @@ function endMap(victory){
   if(victory && last){
     clearSave();
     el('continuebtn') && (el('continuebtn').style.display='none');
-    el('endtitle').textContent='🏴‍☠️ Legend of the Tides!';
-    el('endbody').innerHTML=
-      `You conquered every sea and slew the <b>Kraken</b>. From the Shallows to the Maelstrom, your black flag flies over all the tides.<br><br>`+
-      `<div style="display:inline-block;text-align:left;font-size:13px;line-height:1.8">`+
-        `💰 Gold this voyage: <b>${Math.floor(G.runGold||G.gold)}</b><br>`+
-        `⚔️ Ships sent under (all-time): <b>${G.stats.navySunk||0}</b><br>`+
-        `🔥 Best kill streak: <b>x${G.comboBest||0}</b><br>`+
-        `🐋 Whales landed: <b>${G.stats.whalesCaught||0}</b>`+
-      `</div><br><br><i>They'll sing your tale in every tavern from here to the edge of the map.</i>`+
-      (G.cursedUnlocked?`<br><br>☠ <b>Cursed Voyage</b> now awaits the truly fearless…`:'');
+    showEndCard({tone:'legend', icon:'crown', title:'Legend of the Tides!',
+      flavor:'You conquered every sea and slew the <b>Kraken</b>. Your black flag flies over all the tides.',
+      stats:[['coin','Voyage gold',Math.floor(G.runGold||G.gold)], ['swords','Ships sunk',G.stats.navySunk||0],
+             ['fire','Best streak','x'+(G.comboBest||0)], ['whale','Whales',G.stats.whalesCaught||0]],
+      foot:'They\'ll sing your tale in every tavern from here to the edge of the map.'+
+        (G.cursedUnlocked?'<br><b>Cursed Voyage</b> now awaits the truly fearless…':'')});
     el('endbtn').textContent='Sail Again';
     el('endbtn').onclick=()=>{G.mapIndex=0;G.gold=0;G.wood=0;G.maxMapCleared=-1;G.collectedGems={};G.worldSeed=(Math.random()*0xffffffff)>>>0;G.upgrades={hull:0,sails:0,cannons:0,crew:0,hold:0,hotshot:0,spread:0,ballast:0,chain:0,plating:0,boarding:0};clearSave();startMap(0);};
     // on the final map you can still choose to linger and mop up treasure
@@ -9807,8 +9890,10 @@ function endMap(victory){
     b2.textContent='Stay & Explore';
     b2.onclick=()=>{ el('ov-end').classList.remove('show'); G.state='play'; G._victoryAck=true; saveGame(); };
   } else if(victory){
-    el('endtitle').textContent='⚓ Sea Conquered!';
-    el('endbody').innerHTML=`${G.world.def.name} is yours. Keep your gold &amp; upgrades — rougher waters ahead.<br><br>Next: <b>${MAPS[G.mapIndex+1].name}</b><br><span class="hint">${MAPS[G.mapIndex+1].desc}</span>`;
+    showEndCard({tone:'win', icon:'anchor', title:'Sea Conquered!',
+      flavor:`${G.world.def.name} is yours. Keep your gold &amp; upgrades — rougher waters ahead.`,
+      stats:[['coin','Run gold',(G.runGold|0)+'g'], ['compass','Next sea',MAPS[G.mapIndex+1].name]],
+      foot:`<span class="hint">${MAPS[G.mapIndex+1].desc}</span>`});
     el('endbtn').textContent='Set Sail →';
     el('endbtn').onclick=()=>{G.mapIndex++;startMap(G.mapIndex);};
     b2.style.display='';
@@ -9816,6 +9901,24 @@ function endMap(victory){
     b2.onclick=()=>{ el('ov-end').classList.remove('show'); G.state='play'; G._victoryAck=true; saveGame(); };
   }
   el('ov-end').classList.add('show');
+}
+/* Fill the end-of-run card. tone: sunk | lost | win | legend. stats: [icon,label,value,isHighlight] */
+function showEndCard(o){
+  const c=el('endcard'); c.className='card endcard tone-'+o.tone;
+  el('ec-medal').innerHTML=svgIcon(o.icon,34);
+  el('endtitle').textContent=o.title;
+  el('endbody').innerHTML=o.flavor||'';
+  el('ec-stats').innerHTML=(o.stats||[]).map(s=>
+    '<div class="ec-chip'+(s[3]?' hi':'')+'"><span class="ec-top">'+svgIcon(s[0],16)+'<span>'+s[2]+'</span></span><span class="ec-l">'+s[1]+'</span></div>').join('');
+  el('ec-foot').innerHTML=o.foot||'';
+  // mood particles: bubbles rising when you go down, gold coins tumbling when you win
+  const fx=el('ec-fx'); let h='';
+  const win=(o.tone==='win'||o.tone==='legend'), n=win?(o.tone==='legend'?22:14):12;
+  for(let i=0;i<n;i++){
+    const x=rnd(4,96).toFixed(1), sz=(win?rnd(9,15):rnd(6,16)).toFixed(1), d=(win?rnd(2.6,4.4):rnd(3.5,6.5)).toFixed(2), dl=rnd(0,4).toFixed(2), w=rnd(-30,30).toFixed(0);
+    h+='<i class="'+(win?'coin':'bub')+'" style="left:'+x+'%;--s:'+sz+'px;--d:'+d+'s;--dl:'+dl+'s;--w:'+w+'px"></i>';
+  }
+  fx.innerHTML=h;
 }
 function gameOver(){
   // Persist the TRUE final state (corners cleared, boss progress) while we're still in
@@ -9832,11 +9935,10 @@ function gameOver(){
     G.endless=false;
     saveLifetime();
     el('endbtn2').style.display='none';
-    el('endtitle').textContent='☠ Lost to the Open Seas';
     const mins=Math.floor(G.endlessT/60), secs=Math.floor(G.endlessT%60);
-    el('endbody').innerHTML=`You held the Open Seas for <b>${mins}m ${secs}s</b>.<br><br>`+
-      (beat?`🏆 <b>New best score: ${score}!</b>`:`Score: <b>${score}</b> &nbsp;·&nbsp; Best: <b>${G.endlessBest}</b>`)+
-      `<br><br>The endless tide takes all eventually.`;
+    showEndCard({tone:'lost', icon:'wave', title:'Lost to the Open Seas',
+      flavor:'The endless tide takes all eventually.',
+      stats:[['clock','Held for',mins+'m '+secs+'s'], ['target',beat?'New best!':'Score',score,beat], ...(beat?[]:[['trophy','Best',G.endlessBest]])]});
     el('endbtn').textContent='Back to Port';
     el('endbtn').onclick=()=>{ el('ov-end').classList.remove('show'); el('ov-start').classList.add('show');
       // refresh the menu's best-score line
@@ -9850,12 +9952,12 @@ function gameOver(){
   if(runScore>G.bestRun){ G.bestRun=runScore; beatBest=true; }
   saveGame();
   el('endbtn2').style.display='none';
-  el('endtitle').textContent='☠ Sunk!';
-  const streakLine = G.comboBest>=3 ? `Best streak this run: <b>x${G.comboBest}</b>.<br>` : '';
-  const bestLine = beatBest
-    ? `🏆 <b>New best run: ${runScore}g!</b><br>`
-    : `This run: <b>${runScore}g</b> &nbsp;·&nbsp; Best: <b>${G.bestRun}g</b><br>`;
-  el('endbody').innerHTML=`Your ship slipped beneath the waves. The sea keeps your gold… but not your spirit.<br><br>${bestLine}${streakLine}<br>Try this sea again?`;
+  const sunkStats=[['coin',beatBest?'New best!':'This run',runScore+'g',beatBest]];
+  if(!beatBest) sunkStats.push(['trophy','Best run',G.bestRun+'g']);
+  if(G.comboBest>=3) sunkStats.push(['fire','Best streak','x'+G.comboBest]);
+  showEndCard({tone:'sunk', icon:'skull', title:'Sunk!',
+    flavor:'Your ship slipped beneath the waves. The sea keeps your gold… but not your spirit.',
+    stats:sunkStats, foot:'Try this sea again?'});
   el('endbtn').textContent='Respawn';
   // Respawn on the SAME sea, keeping everything you'd discovered (gameOver just saved it):
   // looted/revealed caches, cleared corners, explored islands & the minimap all persist.
