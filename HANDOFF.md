@@ -229,6 +229,7 @@ git push origin main      # → Codemagic builds → TestFlight
 
 *(Newest first. The code is always the source of truth — update this list when you change behavior.)*
 
+- **2026-10 — Scheidel Interactive opening (v2.2):** `runOpening(done)` (ported from Excessive Force `src/ui/opening.js`, CSS under `#opening`): tap-to-begin gate (unlocks audio) → `assets/studio-sting.mp4` → logo slam (flash, shake, dust ring, a cannon SFX + heavy haptic) landing at the splash's exact size, then hands off to `runSplash`. Tap skips; every step falls through on error. `boot()` calls `runOpening(runSplash)` when `openingEnabled()` (Settings → Intro, `localStorage['lhj.opening']`). The 5 s hard failsafe and the ambient bed both wait on `window.__openingActive`. Headless test scripts must tap the gate before clicking `#startbtn`.
 - **2026-10 — Art pass (v2.2):**
   - **Ships (`drawHull`/`drawMastSail`):** storybook ink outline (`#1d2438`, matches the key art), sunlit wale, planked timber decks with a bevelled gunwale, grated hatch; merchants carry crates/barrels (rich ships a glinting chest); sails are inked with a billow gradient, seams, yard spar and crow's nest; flags inked. Navy/ally hull colours are now hex (`mixHex`) — `shade()` only accepts `#rrggbb`, and feeding it an `rgb()` string returns black (that was the black stern-castle block).
   - **Shadows:** `drawEntityShadow` casts the hull silhouette down-sun, turning with heading and heeling on turns.
